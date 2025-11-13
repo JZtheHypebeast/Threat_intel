@@ -1,0 +1,10 @@
+{
+  "backup encryption attack": [
+    {
+      "id": "T1486",
+      "name": "Data Encrypted for Impact",
+      "url": "https://attack.mitre.org/techniques/T1486/"
+    }
+  ],
+  "insider": { "exclude": true }
+}

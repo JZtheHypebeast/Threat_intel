@@ -1,0 +1,22 @@
+{
+  "T1486": {
+    "sigma": "title: Ransomware - Encrypting files\nlogsource:\n  product: windows\ndetection:\n  selection:\n    EventID: 4624\n  condition: selection\n  level: high\n",
+    "kibana_query": "event.action: \"file_encrypt\" OR process.name: encryptor.exe",
+    "suricata": ["alert tcp any any -> any 445 (msg:\"possible ransomware SMB\"; sid:2100001;)"]
+  },
+  "T1566": {
+    "sigma": "title: Phishing email detection\nlogsource:\n  product: email\ndetection:\n  selection:\n    subject: \"Your account has been suspended\"\n  condition: selection\n",
+    "kibana_query": "email.subject: (phish OR \"verify your account\")",
+    "suricata": []
+  },
+  "T1078": {
+    "sigma": "title: Valid Accounts - suspicious login\nlogsource:\n  product: windows\ndetection:\n  selection:\n    EventID: 4624\n    LogonType: 10\n  condition: selection",
+    "kibana_query": "event.code:4624 AND logon_type:10",
+    "suricata": []
+  },
+  "T1059": {
+    "sigma": "title: Command and Scripting Interpreter - suspicious commands\nlogsource:\n  product: windows\ndetection:\n  selection:\n    process.name: powershell.exe\n  condition: selection",
+    "kibana_query": "process.name: powershell.exe AND process.args: (Invoke-Expression OR IEX)",
+    "suricata": []
+  }
+}
