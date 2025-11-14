@@ -1,7 +1,3 @@
-"""Test: PDF pipeline"""
-
-# MODULE: TEST - PDF PIPELINE #
-
 import unittest
 from unittest.mock import patch
 

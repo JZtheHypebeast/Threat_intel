@@ -1,8 +1,5 @@
-"""Test: unstructured extraction"""
-
-# MODULE: TEST - UNSTRUCTURED EXTRACTION #
-
 import unittest
+import pytest
 
 from collector import unstructured
 from collector.config import CONFIG
@@ -27,28 +24,34 @@ class TestUnstructuredExtraction(unittest.TestCase):
         res = unstructured.extract_threat_indicators(text, source="test", title="")
         self.assertIn("Ransomware", res["threat"]["technique"]["name"])
 
-    def test_short_nav_reject(self):
-        text = "nav: phishing"
-        res = unstructured.extract_threat_indicators(text, source="test", title="")
-        self.assertNotIn("Phishing", res["threat"]["technique"]["name"])
 
-    def test_repeat_threshold_allows_short(self):
-        old = CONFIG.get("MIN_REPEAT_FOR_SHORT_MATCH")
+@pytest.mark.parametrize(
+    "content,title,config_override,expected_in",
+    [
+        ("nav: phishing", "", None, False),
+        ("phishing. phishing.", "", {"MIN_REPEAT_FOR_SHORT_MATCH": 2}, True),
+        ("nav item only", "Phishing campaign spotted", None, True),
+    ],
+)
+def test_shortnav_repeat_and_title(content, title, config_override, expected_in):
+    # preserve original config
+    old = None
+    if config_override:
+        old = {k: CONFIG.get(k) for k in config_override}
         try:
-            CONFIG["MIN_REPEAT_FOR_SHORT_MATCH"] = 2
-            text = "phishing. phishing."
-            res = unstructured.extract_threat_indicators(text, source="test", title="")
-            self.assertIn("Phishing", res["threat"]["technique"]["name"])
+            for k, v in config_override.items():
+                CONFIG[k] = v
+            res = unstructured.extract_threat_indicators(content, source="test", title=title)
         finally:
-            CONFIG["MIN_REPEAT_FOR_SHORT_MATCH"] = old
+            for k, v in (old or {}).items():
+                CONFIG[k] = v
+    else:
+        res = unstructured.extract_threat_indicators(content, source="test", title=title)
 
-    def test_title_match_allowed(self):
-        content = "nav item only"
-        title = "Phishing campaign spotted"
-        res = unstructured.extract_threat_indicators(
-            content, source="test", title=title
-        )
-        self.assertIn("Phishing", res["threat"]["technique"]["name"])
+    if expected_in:
+        assert "Phishing" in res["threat"]["technique"]["name"]
+    else:
+        assert "Phishing" not in res["threat"]["technique"]["name"]
 
 
 if __name__ == "__main__":

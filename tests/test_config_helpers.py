@@ -1,7 +1,3 @@
-"""Test: config helpers"""
-
-# MODULE: TEST - CONFIG HELPERS #
-
 import os
 import tempfile
 import unittest

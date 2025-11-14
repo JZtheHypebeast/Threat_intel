@@ -1,7 +1,3 @@
-"""Test: progress helpers"""
-
-# MODULE: TEST - PROGRESS HELPERS #
-
 import io
 import sys
 import unittest

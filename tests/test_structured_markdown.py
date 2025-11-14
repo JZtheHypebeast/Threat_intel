@@ -1,7 +1,3 @@
-"""Test: structured markdown generation"""
-
-# MODULE: TEST - STRUCTURED MARKDOWN #
-
 import os
 import tempfile
 import unittest

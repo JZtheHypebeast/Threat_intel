@@ -1,5 +1,3 @@
-# MODULE: COLLECTOR PACKAGE #
-
 __all__ = [
     "main",
     "structured",

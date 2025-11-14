@@ -1,7 +1,3 @@
-"""Test: unstructured helpers"""
-
-# MODULE: TEST - UNSTRUCTURED HELPERS #
-
 import os
 import re
 import tempfile

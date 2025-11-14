@@ -1,7 +1,3 @@
-"""Test: main CLI"""
-
-# MODULE: TEST - MAIN/CLI #
-
 import sys
 import unittest
 from unittest.mock import patch

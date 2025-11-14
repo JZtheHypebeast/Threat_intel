@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import json
-import time
 import calendar
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -32,20 +31,8 @@ from .unstructured_core import (
     dedupe_records_by_title,
     group_threat_items_by_vendor_or_sector,
     infer_missing_vendor_and_actor,
-    correlate_unstructured_with_cves,
-    generate_markdown_summary_section,
     extract_enablers_detailed,
 )
-
-# =============================================================================
-#                                UNSTRUCTURED
-# =============================================================================
-
-# =============================================================================
-#                              RSS PROCESSING
-# =============================================================================
-# Fetch RSS feeds, deduplicate links, fetch article text and enrich records.
-# =============================================================================
 
 
 def run_unstructured_rss_analysis(hours: int = 24) -> dict:
@@ -216,6 +203,11 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                     except Exception:
                         pass
 
+                    try:
+                        intel["raw_text"] = text_sanit
+                    except Exception:
+                        intel["raw_text"] = text
+
                     rec_for_enablers = dict(intel)
                     rec_for_enablers["text"] = text_sanit
                     ed = extract_enablers_detailed(rec_for_enablers)
@@ -247,7 +239,10 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                         intel["threat"]["actionability"] = act
                 except Exception:
                     pass
-                intel = generate_actionable_summary(intel)
+                try:
+                    intel["actionable_summary"] = generate_actionable_summary(intel)
+                except Exception:
+                    intel["actionable_summary"] = ""
                 aats = generate_actionable_items(intel)
                 intel.update(aats)
                 intel["@timestamp"] = (pub_dt or datetime.now(timezone.utc)).isoformat()
@@ -277,17 +272,8 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
 
             try:
                 if animator:
-                    stop_live_progress(animator[0], animator[1])
 
-                    try:
-                        progress_bar(
-                            len(records),
-                            total_entries,
-                            prefix="Articles",
-                            status=f"fetched:{len(records)}/{total_entries} iocs:{articles_with_iocs if 'articles_with_iocs' in locals() else 0} enablers:{articles_with_enablers if 'articles_with_enablers' in locals() else 0} findings:{articles_with_findings if 'articles_with_findings' in locals() else 0}",
-                        )
-                    except Exception:
-                        pass
+                    stop_live_progress(animator[0], animator[1])
             except Exception:
                 pass
 
@@ -297,7 +283,16 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
         try:
 
             try:
-                records = dedupe_records_by_title(records, fuzzy_threshold=0.95)
+
+                fuzzy_thresh = None
+                if CONFIG.get("FUZZY_MATCHING_ENABLE"):
+                    try:
+                        fv = CONFIG.get("FUZZY_MATCH_THRESHOLD", 85)
+                        fuzzy_thresh = float(fv) / 100.0 if fv is not None else None
+                    except Exception:
+                        fuzzy_thresh = 0.95
+
+                records = dedupe_records_by_title(records, fuzzy_threshold=fuzzy_thresh)
             except Exception:
                 pass
 
@@ -307,7 +302,137 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                 _groups = None
 
             with open(out_ndjson, "w", encoding="utf-8") as fh:
+
+                def _normalize_record(rec: dict) -> dict:
+                    if not isinstance(rec, dict):
+                        return rec
+
+                    if "raw_text" in rec:
+                        rec.pop("raw_text", None)
+
+                    try:
+                        th = rec.get("threat") or {}
+                        if "mitre_details" in th and isinstance(
+                            th.get("mitre_details"), list
+                        ):
+                            m_list = []
+                            for md in th.get("mitre_details", []):
+                                if not isinstance(md, dict):
+                                    continue
+                                entry = {}
+
+                                if md.get("id"):
+                                    entry["id"] = md.get("id")
+
+                                if md.get("name"):
+                                    entry["name"] = md.get("name")
+
+                                conf = (
+                                    md.get("priority_score")
+                                    or md.get("score")
+                                    or md.get("confidence")
+                                )
+                                try:
+                                    if conf is not None:
+                                        entry["confidence"] = float(conf)
+                                except Exception:
+                                    pass
+
+                                if md.get("url"):
+                                    entry["url"] = md.get("url")
+                                m_list.append(entry)
+                            if m_list:
+                                tech = th.setdefault("technique", {})
+
+                                tech["mitre"] = m_list
+
+                            th.pop("mitre_details", None)
+
+                            rec["threat"] = th
+                    except Exception:
+                        pass
+
+                    try:
+                        prov = rec.get("provenance")
+                        if isinstance(prov, list):
+                            newp = []
+                            for p in prov:
+                                if not isinstance(p, dict):
+                                    continue
+
+                                source_name = (
+                                    p.get("source_name")
+                                    or p.get("note")
+                                    or p.get("source")
+                                )
+                                source_url = (
+                                    p.get("source_url")
+                                    or p.get("source_url")
+                                    or p.get("url")
+                                )
+                                excerpt = (
+                                    p.get("excerpt") or p.get("note") or p.get("text")
+                                )
+                                confidence = p.get("confidence")
+                                pos = p.get("pos")
+
+                                new_entry = {
+                                    "source_name": source_name,
+                                    "source_url": source_url,
+                                    "confidence": confidence,
+                                }
+                                if pos is not None:
+                                    new_entry["pos"] = pos
+
+                                for k in list(new_entry.keys()):
+                                    if new_entry[k] is None:
+                                        new_entry.pop(k)
+                                newp.append(new_entry)
+                            if newp:
+                                rec["provenance"] = newp
+                    except Exception:
+                        pass
+
+                    forbidden = ("excerpt", "raw_text", "text")
+
+                    def _prune(obj):
+                        if isinstance(obj, dict):
+                            for k in list(obj.keys()):
+                                if k in forbidden:
+                                    obj.pop(k, None)
+                                else:
+                                    _prune(obj.get(k))
+                        elif isinstance(obj, list):
+                            for item in obj:
+                                _prune(item)
+
+                    try:
+                        _prune(rec)
+                    except Exception:
+
+                        for f in forbidden:
+                            rec.pop(f, None)
+
+                    return rec
+
                 for r in records:
+                    try:
+
+                        if isinstance(r, dict) and "event" not in r:
+                            r["event"] = {
+                                "kind": "intelligence",
+                                "category": ["threat"],
+                                "type": ["report"],
+                                "dataset": "unstructured.intel",
+                            }
+                    except Exception:
+                        pass
+
+                    try:
+                        if isinstance(r, dict):
+                            r = _normalize_record(r)
+                    except Exception:
+                        pass
                     fh.write(json.dumps(r, ensure_ascii=False) + "\n")
             try:
                 ndjson_name = os.path.basename(out_ndjson) if out_ndjson else "unknown"
@@ -319,12 +444,112 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
         except Exception as e:
             logger.error(f"Failed to write ndjson: {e}")
 
+        try:
+            out_raw = None
+            rawtext_fn = f"rawtext-{date_tag}.json"
+            out_raw = os.path.join(CONFIG.get("OUTPUT_DIR", "."), rawtext_fn)
+
+            raw_items = []
+            for r in records:
+                try:
+                    raw_items.append(
+                        {
+                            "title": r.get("title"),
+                            "source": r.get("source") or r.get("source_url") or None,
+                            "@timestamp": r.get("@timestamp"),
+                            "raw_text": r.get("raw_text")
+                            or r.get("summary_text")
+                            or "",
+                        }
+                    )
+                except Exception:
+                    continue
+
+            with open(out_raw, "w", encoding="utf-8") as rf:
+                json.dump(raw_items, rf, ensure_ascii=False, indent=2)
+
+            try:
+                status = f"wrote={len(raw_items)} file={os.path.basename(out_raw)}"
+                progress_bar(1, 1, prefix="Write RawText", status=status)
+            except Exception:
+                pass
+            logger.info(f"Wrote rawtext json: {out_raw}")
+        except Exception as e:
+            logger.error(f"Failed to write rawtext json: {e}")
+
         md_fn = f"UnstructuredRSSReport_{date_tag}.md"
         try:
             progress_bar(0, 1, prefix="Write Markdown")
             try:
 
-                short_md = generate_markdown_summary_section(records)
+                try:
+                    from collections import Counter
+
+                    if _groups and isinstance(_groups, dict):
+                        by_vendor = _groups.get("by_vendor", {})
+                    else:
+                        _tmp = group_threat_items_by_vendor_or_sector(records)
+                        by_vendor = _tmp.get("by_vendor", {})
+
+                    vendor_counts = [(v, len(lst)) for v, lst in by_vendor.items()]
+                    vendor_counts.sort(key=lambda x: x[1], reverse=True)
+                    top_vendors = (
+                        ", ".join([f"{v} ({c})" for v, c in vendor_counts[:3]])
+                        if vendor_counts
+                        else "None"
+                    )
+
+                    try:
+                        from .unstructured_core import classify_threat
+
+                        tactics = [
+                            classify_threat(
+                                (
+                                    r.get("summary_text")
+                                    or r.get("summary")
+                                    or r.get("text")
+                                    or r.get("title")
+                                    or ""
+                                )
+                            )
+                            for r in records
+                        ]
+                        tact_counts = Counter([t for t in tactics if t])
+                        most_common_tactics = (
+                            ", ".join(
+                                [f"{t} ({c})" for t, c in tact_counts.most_common(5)]
+                            )
+                            if tact_counts
+                            else "None"
+                        )
+                    except Exception:
+                        most_common_tactics = "None"
+
+                    scores = []
+                    for r in records:
+                        try:
+                            sc = ((r.get("threat") or {}).get("relevance") or {}).get(
+                                "score"
+                            )
+                            if sc is not None:
+                                scores.append(float(sc))
+                        except Exception:
+                            continue
+                    avg_sev = round(sum(scores) / len(scores), 1) if scores else 0.0
+
+                    summary_lines = ["## Summary", ""]
+                    summary_lines.append(f"- Total findings: {len(records)}")
+                    summary_lines.append(f"- Top vendors: {top_vendors}")
+                    summary_lines.append(
+                        f"- Most common tactics: {most_common_tactics}"
+                    )
+                    summary_lines.append(f"- Average severity: {avg_sev}")
+                    summary_lines.append("")
+                    summary_md = "\n".join(summary_lines)
+                except Exception:
+                    summary_md = "## Summary\n\n- Total findings: {0}\n\n".format(
+                        len(records)
+                    )
 
                 try:
                     from .unstructured_core import process_unstructured_sources
@@ -349,7 +574,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                 md_path = os.path.join(CONFIG.get("OUTPUT_DIR", "."), md_fn)
                 with open(md_path, "w", encoding="utf-8") as mf:
 
-                    mf.write(short_md + "\n\n")
+                    mf.write(summary_md + "\n\n")
                     mf.write("---\n\n")
                     mf.write(full_md)
             except Exception:
@@ -382,7 +607,12 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
             except Exception:
                 logger.debug("delivery failed")
 
-        return {"records": len(records), "ndjson": out_ndjson, "markdown": md_path}
+        return {
+            "records": len(records),
+            "ndjson": out_ndjson,
+            "markdown": md_path,
+            "rawtext": out_raw,
+        }
     finally:
         pass
 

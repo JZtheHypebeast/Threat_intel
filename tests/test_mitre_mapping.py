@@ -1,7 +1,3 @@
-"""Test: mitre mapping"""
-
-# MODULE: TEST - MITRE MAPPING #
-
 import unittest
 
 from collector.unstructured import extract_threat_indicators

@@ -1,7 +1,3 @@
-"""Test: delivery to SIEM"""
-
-# MODULE: TEST - DELIVERY #
-
 import unittest
 from unittest.mock import Mock, patch
 

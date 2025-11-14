@@ -1,8 +1,5 @@
-"""Test: IOC normalization helpers"""
-
-# MODULE: TEST - IOC NORMALIZATION #
-
 from collector.unstructured_core import normalize_and_merge_iocs
+import pytest
 
 
 def test_normalize_url_and_domain():
@@ -16,13 +13,13 @@ def test_normalize_url_and_domain():
     assert any(r["value"] == "example.com" for r in res)
 
 
-def test_normalize_ip():
-    text = "Contact 192.168.1.1:8080 or 192.168.1.1"
+@pytest.mark.parametrize(
+    "text,expected_type,expected_value",
+    [
+        ("Contact 192.168.1.1:8080 or 192.168.1.1", "ip", "192.168.1.1"),
+        ("Reach out to Admin@Example.COM for details", "email", "admin@example.com"),
+    ],
+)
+def test_normalize_various_iocs(text, expected_type, expected_value):
     res = normalize_and_merge_iocs(text, source="t")
-    assert any(r["type"] == "ip" and r["value"] == "192.168.1.1" for r in res)
-
-
-def test_normalize_email():
-    text = "Reach out to Admin@Example.COM for details"
-    res = normalize_and_merge_iocs(text, source="t")
-    assert any(r["type"] == "email" and r["value"] == "admin@example.com" for r in res)
+    assert any(r["type"] == expected_type and r["value"] == expected_value for r in res)

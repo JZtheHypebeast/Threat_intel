@@ -11,9 +11,6 @@ from dateutil import parser as dtparser
 from .config import CONFIG, fetch_json, logger, mute_console, safe_get, write_jsonl
 from .progress import animate_progress, progress_bar
 
-# =============================================================================
-#                                STRUCTURED
-# =============================================================================
 CRITICAL_THRESHOLD = CONFIG["CRITICAL_THRESHOLD"]
 INTERESTING_MIN = CONFIG["INTERESTING_MIN"]
 VENDORS = CONFIG["VENDORS"]
@@ -23,18 +20,9 @@ CISA_KEV_URL = CONFIG["CISA_KEV_URL"]
 COMMUNITY_KEV_URL = CONFIG["COMMUNITY_KEV_URL"]
 OUTPUT_DIR = CONFIG["OUTPUT_DIR"]
 
-# =============================================================================
-#                                 CONSTANTS
-# =============================================================================
-# Module-level constants derived from CONFIG (thresholds, feeds, outputs).
-# =============================================================================
 
 def build_vendor_pattern(vendor: str) -> re.Pattern:
-    # =============================================================================
-    #                               VENDOR HELPERS
-    # =============================================================================
-    # Small helpers to build regex patterns for known vendors.
-    # =============================================================================
+
     if vendor.lower().startswith("forti"):
         return re.compile(r"(?i)\bForti\w*\b")
     if vendor.lower().startswith("palo alto"):
@@ -42,8 +30,10 @@ def build_vendor_pattern(vendor: str) -> re.Pattern:
     escaped = re.escape(vendor).replace(r"\ ", r"\s+")
     return re.compile(rf"(?i)\b{escaped}\b")
 
+
 def build_vendor_patterns(vendors: List[str]) -> List[Tuple[str, re.Pattern]]:
     return [(v, build_vendor_pattern(v)) for v in vendors]
+
 
 def match_vendor(
     field_text: str, patterns: List[Tuple[str, re.Pattern]]
@@ -54,6 +44,7 @@ def match_vendor(
         if pattern.search(field_text):
             return vendor
     return None
+
 
 def extract_vendor_from_cpes(
     cve: Dict[str, Any], patterns: List[Tuple[str, re.Pattern]]
@@ -102,6 +93,7 @@ def scan_text_fields_for_vendor(
     combined = "\n".join([t for t in texts if t])
     return match_vendor(combined, patterns) if combined else None
 
+
 def fetch_nvd_window(start: datetime, end: datetime, mode: str) -> List[Dict[str, Any]]:
     params = {"resultsPerPage": 2000}
     start_ts = start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -117,10 +109,12 @@ def fetch_nvd_window(start: datetime, end: datetime, mode: str) -> List[Dict[str
     j = fetch_json(NVD_API_BASE, params)
     return j.get("vulnerabilities", [])
 
+
 def fetch_nvd_single(cve_id: str) -> Optional[Dict[str, Any]]:
     j = fetch_json(NVD_API_BASE, {"cveId": cve_id})
     vulns = j.get("vulnerabilities", [])
     return vulns[0]["cve"] if vulns else None
+
 
 def fetch_kev_sources() -> set:
     kev_ids = set()
@@ -132,6 +126,7 @@ def fetch_kev_sources() -> set:
                 kev_ids.add(cve_id.upper())
     logger.info(f"Loaded {len(kev_ids)} KEV IDs (CISA + community)")
     return kev_ids
+
 
 def parse_rss_feeds() -> List[Dict[str, str]]:
     results = []
@@ -173,6 +168,7 @@ def extract_cvss(cve: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
         return item.get("baseScore"), item.get("baseSeverity")
     return None, None
 
+
 def normalize_cve(
     cve: Dict[str, Any], vendor: str, kev_ids: set, from_article=False, source=None
 ) -> Dict[str, Any]:
@@ -209,6 +205,7 @@ def normalize_cve(
         "source": {"url": source},
         "from_article": from_article,
     }
+
 
 def generate_markdown(
     critical, interesting, modified, hours: int, output_dir: str
@@ -264,6 +261,7 @@ def generate_markdown(
         f.write("\n".join(lines))
     logger.info(f"Wrote Markdown report: {md_path}")
     return md_path
+
 
 def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
     mute_console()

@@ -1,7 +1,3 @@
-"""Test: actionable helpers"""
-
-# MODULE: TEST - ACTIONABLE HELPERS #
-
 import unittest
 
 from collector.unstructured import extract_iocs, generate_actionable_items

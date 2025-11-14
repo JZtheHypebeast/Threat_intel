@@ -5,11 +5,10 @@ import logging
 import os
 import re
 import subprocess
-import textwrap
-from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime
 from functools import lru_cache
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List
 from urllib.parse import urlparse
 
 import requests
@@ -21,7 +20,7 @@ from .config import CONFIG, load_enabler_keywords
 logger = logging.getLogger(__name__)
 
 try:
-    import fitz  # type: ignore  # PyMuPDF
+    import fitz
 
     HAS_PYMUPDF = True
 except Exception:
@@ -35,14 +34,18 @@ BULLET_FINDING_RE = re.compile(
     ),
     re.IGNORECASE,
 )
-SHORT_SOCIAL_RE = re.compile(CONFIG.get("SHORT_SOCIAL_REGEX", r"\b(follow|subscribe|share|like|google news|gbhackers)\b"), re.I)
+SHORT_SOCIAL_RE = re.compile(
+    CONFIG.get(
+        "SHORT_SOCIAL_REGEX", r"\b(follow|subscribe|share|like|google news|gbhackers)\b"
+    ),
+    re.I,
+)
 PROMO_PATTERNS = [re.compile(p, re.I) for p in (CONFIG.get("PROMO_PATTERNS") or [])]
-PROVENANCE_STRIP_PATTERNS = [re.compile(p, re.MULTILINE) for p in (CONFIG.get("PROVENANCE_STRIP_PATTERNS") or [])]
+PROVENANCE_STRIP_PATTERNS = [
+    re.compile(p, re.MULTILINE) for p in (CONFIG.get("PROVENANCE_STRIP_PATTERNS") or [])
+]
 
 
-# =============================================================================
-# CONFIG & PATTERN / MITRE LOADING
-# =============================================================================
 def load_patterns() -> Dict[str, List[dict]]:
     patterns_path = CONFIG.get("PATTERNS_FILE") or os.path.join(
         os.path.dirname(__file__), "patterns.json"
@@ -78,39 +81,97 @@ def load_compiled_patterns() -> Dict[str, List[dict]]:
 
 
 def load_mitre_map() -> Dict[str, dict]:
+
     mitre_path = CONFIG.get("MITRE_MAP_FILE") or os.path.join(
-        os.path.dirname(__file__), "mitre_map.json"
+        os.path.dirname(__file__), "..", "data", "mitre_mapping.json"
     )
+    if not os.path.exists(mitre_path):
+        mitre_path = CONFIG.get("MITRE_MAP_FILE") or os.path.join(
+            os.path.dirname(__file__), "mitre_map.json"
+        )
     try:
         with open(mitre_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         return {}
+
     mapping: Dict[str, dict] = {}
-    for entry in data:
-        tid = entry.get("id") or entry.get("technique_id") or ""
-        if not tid:
-            continue
-        mapping[tid.upper()] = entry
+
+    if isinstance(data, dict):
+
+        for _, entries in data.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                tid = entry.get("id") or entry.get("technique_id") or ""
+                if not tid:
+                    continue
+                mapping[tid.upper()] = entry
+    elif isinstance(data, list):
+        for entry in data:
+            tid = entry.get("id") or entry.get("technique_id") or ""
+            if not tid:
+                continue
+            mapping[tid.upper()] = entry
     return mapping
 
 
 def load_mitre_mitigations() -> Dict[str, dict]:
+
     mitig_path = CONFIG.get("MITRE_MITIGATIONS_FILE") or os.path.join(
-        os.path.dirname(__file__), "mitre_mitigations.json"
+        os.path.dirname(__file__), "..", "data", "mitre_mitigations.json"
     )
+    if not os.path.exists(mitig_path):
+        mitig_path = CONFIG.get("MITRE_MITIGATIONS_FILE") or os.path.join(
+            os.path.dirname(__file__), "mitre_mitigations.json"
+        )
     try:
         with open(mitig_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         return {}
+
     mapping: Dict[str, dict] = {}
-    for entry in data:
-        mid = entry.get("id") or entry.get("mitigation_id") or ""
-        if not mid:
-            continue
-        mapping[mid.upper()] = entry
+
+    if isinstance(data, dict):
+        for mid, meta in data.items():
+            if not mid:
+                continue
+            mapping[str(mid).upper()] = (
+                meta if isinstance(meta, dict) else {"description": meta}
+            )
+    elif isinstance(data, list):
+        for entry in data:
+            mid = entry.get("id") or entry.get("mitigation_id") or ""
+            if not mid:
+                continue
+            mapping[mid.upper()] = entry
     return mapping
+
+
+def load_mitre_phrase_map() -> Dict[str, List[dict]]:
+    mitig_path = CONFIG.get("MITRE_MAP_FILE") or os.path.join(
+        os.path.dirname(__file__), "..", "data", "mitre_mapping.json"
+    )
+    if not os.path.exists(mitig_path):
+        mitig_path = CONFIG.get("MITRE_MAP_FILE") or os.path.join(
+            os.path.dirname(__file__), "mitre_mapping.json"
+        )
+    try:
+        with open(mitig_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+
+    phrase_map: Dict[str, List[dict]] = {}
+
+    if isinstance(data, dict):
+        for phrase, entries in data.items():
+            if not phrase or not isinstance(entries, list):
+                continue
+            phrase_map[str(phrase).lower()] = entries
+
+    return phrase_map
 
 
 def _norm_key(s: str | None) -> str:
@@ -134,6 +195,233 @@ def attach_mitre_to_intel(intel: dict) -> dict:
             t["name"] = t.get("name") or mt.get("name")
             t["reference"] = mt.get("reference") or mt.get("url")
             t["tactic"] = mt.get("tactic") or mt.get("kill_chain_phase")
+    return intel
+
+
+def compute_mitre_relevance(intel: dict) -> dict:
+    try:
+        th = intel.setdefault("threat", {})
+        techs = th.get("technique") or []
+        if isinstance(techs, dict):
+            techs = techs.get("name") or []
+        if not techs:
+            return intel
+
+        mitre_map = load_mitre_map() or {}
+        boosts = CONFIG.get("TECHNIQUE_SCORE_BOOST") or {}
+        ioc_count = len(intel.get("iocs", []) or [])
+        actor_count = len((th.get("actor") or []) or [])
+
+        details = []
+        for t in techs:
+
+            tid = None
+            name = None
+            if isinstance(t, dict):
+                tid = t.get("id") or t.get("technique_id") or None
+                name = t.get("name") or None
+            elif isinstance(t, str):
+                name = t
+
+            score = 0
+            if tid:
+                score = 50
+            else:
+                score = 30
+
+            if ioc_count:
+                score += 10
+            score += min(20, actor_count * 10)
+
+            if tid:
+                try:
+                    extra = int(boosts.get(str(tid).upper()) or 0)
+                    score += extra
+                except Exception:
+                    pass
+
+            try:
+                multiplier = float(
+                    CONFIG.get("INFERRED_TECHNIQUE_SCORE_MULTIPLIER", 0.8)
+                )
+            except Exception:
+                multiplier = 0.8
+
+            is_inferred = False
+            if isinstance(t, dict):
+                if t.get("inferred") or t.get("source") == "inferred":
+                    is_inferred = True
+
+            if is_inferred:
+                score = int(max(0, min(100, round(score * multiplier))))
+
+            score = int(min(100, max(0, score)))
+            label = _score_to_label(score)
+
+            entry: dict = {"score": score, "label": label}
+            if tid:
+                entry["id"] = tid.upper()
+            if name:
+                entry["name"] = name
+
+            if tid and mitre_map:
+                mm = mitre_map.get(str(tid).upper())
+                if mm:
+                    entry.setdefault("reference", mm.get("url") or mm.get("reference"))
+                    entry.setdefault(
+                        "tactic", mm.get("tactic") or mm.get("kill_chain_phase")
+                    )
+                    entry.setdefault("mitre_name", mm.get("name"))
+
+            if is_inferred:
+                entry["inferred"] = True
+
+            details.append(entry)
+
+            try:
+                if isinstance(t, dict):
+                    t["mitre_score"] = score
+                    t["mitre_label"] = label
+                    if is_inferred:
+                        t["mitre_inferred"] = True
+
+                        t.setdefault("source", "inferred")
+
+            except Exception:
+                pass
+
+        th["mitre_details"] = details
+        intel["threat"] = th
+    except Exception:
+        pass
+    return intel
+
+
+def compute_mitre_priority(intel: dict) -> dict:
+    try:
+        th = intel.setdefault("threat", {})
+        details = th.get("mitre_details") or []
+        if not details:
+            return intel
+
+        mitre_map = load_mitre_map() or {}
+
+        base_w = float(CONFIG.get("MITRE_PRIORITY_BASE_WEIGHT", 0.6))
+        evid_w = float(CONFIG.get("MITRE_PRIORITY_EVIDENCE_WEIGHT", 0.4))
+        mult = float(CONFIG.get("INFERRED_TECHNIQUE_SCORE_MULTIPLIER", 0.8))
+
+        sig_mention = int(CONFIG.get("MITRE_SIGNAL_MENTION", 30))
+        sig_cve = int(CONFIG.get("MITRE_SIGNAL_CVE", 20))
+        sig_ioc = int(CONFIG.get("MITRE_SIGNAL_IOC", 15))
+        sig_action = int(CONFIG.get("MITRE_SIGNAL_ACTIONABILITY", 25))
+
+        txt = " ".join(
+            str(intel.get(k) or "")
+            for k in ("title", "summary_text", "summary", "raw_text", "text")
+        ).lower()
+
+        scores = []
+        for d in details:
+            try:
+                tid = (d.get("id") or d.get("technique_id") or "").upper()
+                name = d.get("name") or ""
+                mm = mitre_map.get(tid) if tid else None
+                try:
+                    base = (
+                        int(
+                            mm.get("priority")
+                            or mm.get("score")
+                            or mm.get("risk")
+                            or 50
+                        )
+                        if mm
+                        else 50
+                    )
+                except Exception:
+                    base = 50
+
+                evidence = 0
+
+                try:
+                    if name:
+                        n = (
+                            " ".join(name).lower()
+                            if isinstance(name, list)
+                            else str(name).lower()
+                        )
+                        if n and re.search(r"\b" + re.escape(n) + r"\b", txt):
+                            evidence += sig_mention
+                except Exception:
+                    pass
+
+                if intel.get("related_cves"):
+                    evidence += sig_cve
+
+                if intel.get("iocs"):
+                    evidence += sig_ioc
+
+                try:
+                    act = (th.get("actionability") or {}).get("score")
+                    if act:
+                        evidence += int(
+                            min(sig_action, max(0, (float(act) / 100.0) * sig_action))
+                        )
+                except Exception:
+                    pass
+
+                inferred = bool(d.get("inferred") or d.get("source") == "inferred")
+                if inferred:
+                    evidence = int(round(evidence * mult))
+
+                raw = (base * base_w) + (evidence * evid_w)
+                score = int(max(0, min(100, round(raw))))
+                label = _score_to_label(score)
+
+                d["priority_score"] = score
+                d["priority_label"] = label
+
+                try:
+                    techs = th.get("technique") or []
+                    if isinstance(techs, list):
+                        for t in techs:
+                            if isinstance(t, dict):
+                                matched = False
+                                if (
+                                    tid
+                                    and t.get("id")
+                                    and str(t.get("id")).upper() == tid
+                                ):
+                                    matched = True
+                                else:
+                                    tn = t.get("name")
+                                    tn_s = ""
+                                    if isinstance(tn, list):
+                                        tn_s = " ".join([str(x) for x in tn]).lower()
+                                    elif isinstance(tn, str):
+                                        tn_s = tn.lower()
+                                    if name and name.lower() in tn_s:
+                                        matched = True
+                                if matched:
+                                    t["mitre_priority"] = score
+                                    t["mitre_priority_label"] = label
+                                    if inferred:
+                                        t["mitre_inferred"] = True
+                except Exception:
+                    pass
+
+                scores.append(score)
+            except Exception:
+                continue
+
+        if scores:
+            max_score = max(scores)
+            th["mitre_priority"] = {
+                "score": max_score,
+                "label": _score_to_label(max_score),
+            }
+            intel["threat"] = th
+    except Exception:
+        pass
     return intel
 
 
@@ -178,9 +466,6 @@ def correlate_unstructured_with_cves(
     return unstructured_items
 
 
-# =============================================================================
-# HTTP FETCHING & HTML EXTRACTION
-# =============================================================================
 def html_to_main_text(
     html: str, *, strip_boilerplate: bool = True, max_len: int | None = None
 ) -> str:
@@ -189,7 +474,10 @@ def html_to_main_text(
     parser = CONFIG.get("HTML_PARSER", "html.parser")
     soup = BeautifulSoup(html, parser)
 
-    strip_elems = CONFIG.get("HTML_STRIP_ELEMENTS", ["script", "style", "noscript", "header", "footer", "nav"]) or ["script", "style", "noscript", "header", "footer", "nav"]
+    strip_elems = CONFIG.get(
+        "HTML_STRIP_ELEMENTS",
+        ["script", "style", "noscript", "header", "footer", "nav"],
+    ) or ["script", "style", "noscript", "header", "footer", "nav"]
     try:
         for elem in soup(tuple(strip_elems)):
             elem.decompose()
@@ -204,7 +492,22 @@ def html_to_main_text(
     lines = [ln.strip() for ln in text.splitlines()]
     if strip_boilerplate:
         cleaned = []
-        bp_keywords = [k.lower() for k in CONFIG.get("BOILERPLATE_KEYWORDS", ["cookies", "privacy", "terms", "all rights reserved", "subscribe", "advert", "promo"]) or []]
+        bp_keywords = [
+            k.lower()
+            for k in CONFIG.get(
+                "BOILERPLATE_KEYWORDS",
+                [
+                    "cookies",
+                    "privacy",
+                    "terms",
+                    "all rights reserved",
+                    "subscribe",
+                    "advert",
+                    "promo",
+                ],
+            )
+            or []
+        ]
         for ln in lines:
             if not ln:
                 continue
@@ -225,7 +528,9 @@ def get_requests_session() -> requests.Session:
     retries = Retry(
         total=CONFIG.get("HTTP_RETRIES_TOTAL", 3),
         backoff_factor=CONFIG.get("HTTP_BACKOFF_FACTOR", 0.5),
-        status_forcelist=tuple(CONFIG.get("HTTP_STATUS_FORCELIST", (500, 502, 503, 504))),
+        status_forcelist=tuple(
+            CONFIG.get("HTTP_STATUS_FORCELIST", (500, 502, 503, 504))
+        ),
         allowed_methods=frozenset(CONFIG.get("HTTP_ALLOWED_METHODS", ["GET", "HEAD"])),
     )
     adapter = HTTPAdapter(
@@ -235,14 +540,19 @@ def get_requests_session() -> requests.Session:
     )
     s.mount("http://", adapter)
     s.mount("https://", adapter)
-    s.headers.update({"User-Agent": CONFIG.get("USER_AGENT", "ThreatIntelCollector/5.0")})
+    s.headers.update(
+        {"User-Agent": CONFIG.get("USER_AGENT", "ThreatIntelCollector/5.0")}
+    )
     return s
+
 
 def fetch_article_text(url: str, timeout: int | None = None) -> str:
     try:
         session = get_requests_session()
         timeout = int(timeout or CONFIG.get("REQUEST_TIMEOUT", 10))
-        headers = {"User-Agent": CONFIG.get("USER_AGENT", session.headers.get("User-Agent"))}
+        headers = {
+            "User-Agent": CONFIG.get("USER_AGENT", session.headers.get("User-Agent"))
+        }
         resp = session.get(url, headers=headers, timeout=timeout)
         resp.raise_for_status()
     except Exception as exc:
@@ -253,10 +563,10 @@ def fetch_article_text(url: str, timeout: int | None = None) -> str:
         return html_to_main_text(resp.text)
     return resp.text
 
-# =============================================================================
-# IOC & TECHNIQUE EXTRACTION
-# =============================================================================
-def extract_threat_indicators(parsed_record: dict | str, source: str | None = None, title: str | None = None) -> dict:
+
+def extract_threat_indicators(
+    parsed_record: dict | str, source: str | None = None, title: str | None = None
+) -> dict:
     if isinstance(parsed_record, str):
         parsed_record = {"text": parsed_record}
         if source:
@@ -320,7 +630,9 @@ def extract_threat_indicators(parsed_record: dict | str, source: str | None = No
         repeated_label = None
         for w, c in counts.items():
             if c >= min_repeat and len(w) > 3:
-                if any(w.startswith(prefix) for prefix in ("nav", "menu", "link", "item")):
+                if any(
+                    w.startswith(prefix) for prefix in ("nav", "menu", "link", "item")
+                ):
                     continue
                 repeated_label = w
                 break
@@ -363,7 +675,77 @@ def extract_threat_indicators(parsed_record: dict | str, source: str | None = No
         if actors:
             th.setdefault("actor", [])
             th["actor"].extend(actors)
+
+    try:
+        phrase_map = load_mitre_phrase_map()
+        if phrase_map:
+            txt = aggregate_text or ""
+
+            for phrase, entries in phrase_map.items():
+                try:
+
+                    if re.search(r"(?i)\b" + re.escape(phrase) + r"\b", txt):
+                        th = parsed_record.setdefault("threat", {})
+                        th.setdefault("technique", [])
+                        for entry in entries:
+                            tid = entry.get("id") or entry.get("technique_id") or ""
+                            name = entry.get("name") or None
+
+                            exists = False
+                            for ex in th.get("technique", []):
+                                if (
+                                    isinstance(ex, dict)
+                                    and tid
+                                    and ex.get("id")
+                                    and ex.get("id").upper() == str(tid).upper()
+                                ):
+                                    exists = True
+                                    break
+                                if isinstance(ex, dict) and name and ex.get("name"):
+                                    en = ex.get("name")
+                                    if (isinstance(en, list) and name in en) or (
+                                        isinstance(en, str) and en == name
+                                    ):
+                                        exists = True
+                                        break
+                                if isinstance(ex, str) and name and ex == name:
+                                    exists = True
+                                    break
+                            if exists:
+                                continue
+                            if tid:
+
+                                th["technique"].append(
+                                    {
+                                        "id": str(tid).upper(),
+                                        "name": name,
+                                        "inferred": True,
+                                        "source": "inferred",
+                                    }
+                                )
+                            else:
+                                if name:
+                                    th["technique"].append(
+                                        {
+                                            "name": [name],
+                                            "inferred": True,
+                                            "source": "inferred",
+                                        }
+                                    )
+                except re.error:
+                    continue
+    except Exception:
+
+        pass
+
     parsed_record = attach_mitre_to_intel(parsed_record)
+
+    parsed_record = compute_mitre_relevance(parsed_record)
+
+    try:
+        parsed_record = compute_mitre_priority(parsed_record)
+    except Exception:
+        pass
     th = parsed_record.setdefault("threat", {})
     tech = th.get("technique")
     if tech is None:
@@ -385,7 +767,10 @@ def extract_threat_indicators(parsed_record: dict | str, source: str | None = No
 
     return parsed_record
 
-def extract_iocs(text_or_intel, source: str | None = None, title: str | None = None) -> list[dict]:
+
+def extract_iocs(
+    text_or_intel, source: str | None = None, title: str | None = None
+) -> list[dict]:
     if isinstance(text_or_intel, dict):
         results = []
         for ioc in text_or_intel.get("iocs", []):
@@ -408,7 +793,9 @@ def extract_iocs(text_or_intel, source: str | None = None, title: str | None = N
         "md5": re.compile(r"\b[a-fA-F0-9]{32}\b"),
         "url": re.compile(r"\bhttps?://[\w\-./?&=%#]+", re.I),
         "email": re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
-        "domain": re.compile(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b", re.I),
+        "domain": re.compile(
+            r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b", re.I
+        ),
     }
 
     def _add(t, v):
@@ -428,6 +815,7 @@ def extract_iocs(text_or_intel, source: str | None = None, title: str | None = N
             _add(t, val)
 
     return iocs
+
 
 def generate_actionable_items(intel: dict) -> list[dict]:
     mitre_mitig = load_mitre_mitigations()
@@ -485,13 +873,23 @@ def generate_actionable_items(intel: dict) -> list[dict]:
     mitigation_snippets = {
         "firewall": ["deny ip <ip>", "deny domain <domain>"],
         "proxy": ["block_url <url>", "block_domain <domain>"],
-        "suricata": ["alert http any any -> any any (msg:\"IOCs seen\"; sid:1000001;)"]
+        "suricata": ['alert http any any -> any any (msg:"IOCs seen"; sid:1000001;)'],
     }
 
     if rec_actions:
-        out_items.append({"type": "operational", "description": "Review and deploy updated detection content for extracted IOCs."})
+        out_items.append(
+            {
+                "type": "operational",
+                "description": "Review and deploy updated detection content for extracted IOCs.",
+            }
+        )
 
-    return {"recommended_actions": rec_actions, "mitigation_snippets": mitigation_snippets, "mitigations": out_items}
+    return {
+        "recommended_actions": rec_actions,
+        "mitigation_snippets": mitigation_snippets,
+        "mitigations": out_items,
+    }
+
 
 def generate_actionable_summary(intel: dict) -> str:
     items = generate_actionable_items(intel)
@@ -501,7 +899,10 @@ def generate_actionable_summary(intel: dict) -> str:
     if isinstance(items, dict):
         items_list = items.get("mitigations") or []
         if not items_list and items.get("recommended_actions"):
-            items_list = [{"type": "operational", "description": a} for a in items.get("recommended_actions")]
+            items_list = [
+                {"type": "operational", "description": a}
+                for a in items.get("recommended_actions")
+            ]
     elif isinstance(items, list):
         items_list = items
 
@@ -509,7 +910,9 @@ def generate_actionable_summary(intel: dict) -> str:
     for it in items_list:
         try:
             if isinstance(it, dict) and it.get("type") == "mitigation":
-                parts.append(f"Mitigation {it.get('id')} for technique {it.get('technique')}: {it.get('description')}")
+                parts.append(
+                    f"Mitigation {it.get('id')} for technique {it.get('technique')}: {it.get('description')}"
+                )
             elif isinstance(it, dict) and it.get("type") == "operational":
                 parts.append(str(it.get("description")))
             elif isinstance(it, str):
@@ -517,6 +920,7 @@ def generate_actionable_summary(intel: dict) -> str:
         except Exception:
             continue
     return " ".join(parts)
+
 
 def compute_relevance_score(intel: dict) -> dict:
     tcount = len((intel.get("threat") or {}).get("technique", []) or [])
@@ -557,6 +961,7 @@ def compute_relevance_score(intel: dict) -> dict:
     intel["threat"]["relevance"] = {"score": score, "label": label}
     return intel
 
+
 def _score_to_label(
     score: int,
     *,
@@ -577,9 +982,7 @@ def _score_to_label(
         return medium
     return low
 
-# =============================================================================
-# TEXT & PDF PROCESSING
-# =============================================================================
+
 def _dehyphenate_text(text: str) -> str:
     if not text:
         return ""
@@ -591,6 +994,7 @@ def _dehyphenate_text(text: str) -> str:
     t = t.replace("\n", " ")
     t = re.sub(r"\s+", " ", t).strip()
     return t
+
 
 def save_full_text(text: str, filename: str) -> str:
     if not text:
@@ -606,11 +1010,13 @@ def save_full_text(text: str, filename: str) -> str:
         logger.warning(f"Failed to write extracted text to {path}")
     return path
 
+
 def _make_id(prefix: str, title: str | None) -> str:
     base = _norm_key(title) if title else ""
     if not base:
         base = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     return f"{prefix}-{base}"
+
 
 def extract_text_pdftotext(pdf_path: str, *, max_pages: int | None = None) -> str:
     cmd = ["pdftotext", "-layout", "-q", pdf_path, "-"]
@@ -632,7 +1038,9 @@ def extract_text_pdftotext(pdf_path: str, *, max_pages: int | None = None) -> st
 
     text = result.stdout.decode("utf-8", errors="replace")
     text = _dehyphenate_text(text)
-    pdf_max_pages = max_pages if max_pages is not None else CONFIG.get("PDF_MAX_PAGES", 50)
+    pdf_max_pages = (
+        max_pages if max_pages is not None else CONFIG.get("PDF_MAX_PAGES", 50)
+    )
     if pdf_max_pages and text.count("\f") > pdf_max_pages:
         parts: list[str] = []
         for i, page in enumerate(text.split("\f")):
@@ -643,7 +1051,9 @@ def extract_text_pdftotext(pdf_path: str, *, max_pages: int | None = None) -> st
     return text
 
 
-def extract_top_findings(text: str, max_items: int = 5, k: int | None = None) -> list[str]:
+def extract_top_findings(
+    text: str, max_items: int = 5, k: int | None = None
+) -> list[str]:
     if k is not None:
         max_items = k
     lines = [ln.strip() for ln in text.splitlines()]
@@ -672,6 +1082,7 @@ def extract_top_findings(text: str, max_items: int = 5, k: int | None = None) ->
                 break
     return findings
 
+
 def sanitize_article_text(text: str) -> str:
     if not text:
         return ""
@@ -686,7 +1097,16 @@ def sanitize_article_text(text: str) -> str:
     txt = re.sub(r"\n{3,}", "\n\n", txt)
 
     lines = []
-    promo_patterns = PROMO_PATTERNS or [re.compile(p, re.I) for p in ["^sign up for our newsletter", "^follow us on\\s+", "^related articles", "^sponsored content", "^about the author"]]
+    promo_patterns = PROMO_PATTERNS or [
+        re.compile(p, re.I)
+        for p in [
+            "^sign up for our newsletter",
+            "^follow us on\\s+",
+            "^related articles",
+            "^sponsored content",
+            "^about the author",
+        ]
+    ]
     short_social_re = SHORT_SOCIAL_RE
     short_social_max = CONFIG.get("SHORT_SOCIAL_MAX_WORDS", 8)
     for p in re.split(r"\n{2,}", txt):
@@ -712,9 +1132,7 @@ def sanitize_article_text(text: str) -> str:
         lines.append(s)
     return "\n\n".join(lines)
 
-# =============================================================================
-# SUMMARIZATION HELPERS
-# =============================================================================
+
 def summarize_unstructured_description(text: str, max_sentences: int = 2) -> str:
     if not text:
         return ""
@@ -795,79 +1213,7 @@ def summarize_unstructured_description(text: str, max_sentences: int = 2) -> str
         summary = summary[:497].rstrip() + "..."
     return summary
 
-def concise_one_sentence_summary(
-    text: str, vendor: str | None = None, max_chars: int = 200
-) -> str:
-    if not text:
-        return ""
-    try:
-        txt = sanitize_article_text(text)
-    except Exception:
-        txt = text
 
-    sents = re.split(r"(?<=[\.!?])\s+", txt)
-    sents = [s.strip() for s in sents if s.strip()]
-    if not sents:
-        return ""
-
-    cve_re = CVE_RX
-    max_chars = int(max_chars or CONFIG.get("SUMMARY_MAX_CHARS", 200))
-    attack_terms = [
-        "ransomware",
-        "remote code execution",
-        "rce",
-        "privilege escalation",
-        "sql injection",
-        "cross-site scripting",
-        "xss",
-        "zero-day",
-        "zero day",
-        "exploit",
-        "malware",
-        "botnet",
-        "phishing",
-        "credential theft",
-        "supply chain",
-    ]
-    vendor_norm = (vendor or "").strip().lower()
-
-    best = sents[0]
-    best_score = -9999
-    for s in sents:
-        lower = s.lower()
-        score = 0
-        if cve_re.search(s):
-            score += 40
-        for kt in attack_terms:
-            if kt in lower:
-                score += 20
-        if vendor_norm and vendor_norm in lower:
-            score += 25
-        length_bonus = min(15, max(0, (len(s) - 60) // 8))
-        score += length_bonus
-        if len(re.findall(r"\w+", s)) < 6:
-            score -= 10
-        if score > best_score:
-            best_score = score
-            best = s
-
-    out = re.sub(r"<[^>]+>", "", best)
-    out = re.sub(r"\s+", " ", out).strip()
-
-    if vendor_norm and vendor_norm not in out.lower():
-        vend = str(vendor).strip()
-        if vend:
-            if not out.endswith("."):
-                out = out + "."
-            out = f"{out} — affects {vend}."
-
-    if len(out) > max_chars:
-        out = out[: max_chars - 3].rstrip() + "..."
-    return out
-
-# =============================================================================
-# AGGREGATION / DEDUPE / PROVENANCE
-# =============================================================================
 def group_threat_items_by_vendor_or_sector(items: list[dict]) -> dict:
     by_vendor: dict[str, list[dict]] = {}
     by_sector: dict[str, list[dict]] = {}
@@ -886,7 +1232,9 @@ def group_threat_items_by_vendor_or_sector(items: list[dict]) -> dict:
                 pass
         if not vendors:
             try:
-                txt = " ".join([str(rec.get(k) or "") for k in ("title", "summary", "text")]).lower()
+                txt = " ".join(
+                    [str(rec.get(k) or "") for k in ("title", "summary", "text")]
+                ).lower()
                 for v in CONFIG.get("VENDORS", []) or []:
                     if v and v.lower() in txt:
                         vendors = [v]
@@ -895,7 +1243,9 @@ def group_threat_items_by_vendor_or_sector(items: list[dict]) -> dict:
                 pass
         if not sectors:
             try:
-                txt = " ".join([str(rec.get(k) or "") for k in ("title", "summary", "text")]).lower()
+                txt = " ".join(
+                    [str(rec.get(k) or "") for k in ("title", "summary", "text")]
+                ).lower()
                 if "bank" in txt or "financial" in txt:
                     sectors = ["Financial"]
             except Exception:
@@ -966,6 +1316,7 @@ def infer_missing_vendor_and_actor(intel: dict) -> dict:
 
     return intel
 
+
 def generate_markdown_summary_section(items: list[dict], title: str) -> str:
     if not items:
         return ""
@@ -984,19 +1335,41 @@ def generate_markdown_summary_section(items: list[dict], title: str) -> str:
 
 
 def dedupe_records_by_title(
-    records: list[dict], *, key_field: str = "title"
+    records: list[dict],
+    *,
+    key_field: str = "title",
+    fuzzy_threshold: float | None = None,
 ) -> list[dict]:
+    from difflib import SequenceMatcher
+
     kept: list[dict] = []
     kept_norm: list[str] = []
     for rec in records:
-        title = (rec.get(key_field) or "").strip().lower()
+        title_raw = rec.get(key_field) or ""
+        title = str(title_raw).strip().lower()
         ts = rec.get("@timestamp") or rec.get("timestamp") or ""
         if not title:
             kept.append(rec)
             kept_norm.append(title)
             continue
+
+        found_idx = None
         if title in kept_norm:
-            idx = kept_norm.index(title)
+            found_idx = kept_norm.index(title)
+        elif fuzzy_threshold:
+            for i, k in enumerate(kept_norm):
+                try:
+                    if not k:
+                        continue
+                    ratio = SequenceMatcher(None, title, k).ratio()
+                    if ratio >= float(fuzzy_threshold):
+                        found_idx = i
+                        break
+                except Exception:
+                    continue
+
+        if found_idx is not None:
+            idx = found_idx
             existing = kept[idx]
             existing_ts = existing.get("@timestamp") or existing.get("timestamp") or ""
             try:
@@ -1026,7 +1399,12 @@ def detect_provenance(rec: dict | str) -> dict:
 
     lower = aggregate.lower()
     indicators = []
-    prov_keywords = CONFIG.get("PROVENANCE_KEYWORDS", ["chatgpt", "openai", "bard", "gemini", "copilot"]) or []
+    prov_keywords = (
+        CONFIG.get(
+            "PROVENANCE_KEYWORDS", ["chatgpt", "openai", "bard", "gemini", "copilot"]
+        )
+        or []
+    )
     for k in prov_keywords:
         if not k:
             continue
@@ -1040,12 +1418,24 @@ def detect_provenance(rec: dict | str) -> dict:
     prov_out = []
     for m in re.finditer(r"https?://[\w\-./?&=%#]+", aggregate):
         url = m.group(0)
-        prov_out.append({"source_url": url, "excerpt": _get_excerpt(aggregate, m.start()), "confidence": 0.9})
+        prov_out.append(
+            {
+                "source_url": url,
+                "excerpt": _get_excerpt(aggregate, m.start()),
+                "confidence": 0.9,
+            }
+        )
 
     src_match = re.search(r"(?i)source:\s*([A-Za-z0-9 .,&-]+)", aggregate)
     if src_match:
         name = src_match.group(1).strip()
-        prov_out.append({"source_name": name, "excerpt": _get_excerpt(aggregate, src_match.start(1)), "confidence": 0.85})
+        prov_out.append(
+            {
+                "source_name": name,
+                "excerpt": _get_excerpt(aggregate, src_match.start(1)),
+                "confidence": 0.85,
+            }
+        )
 
     for k in indicators:
         prov_out.append({"note": k, "confidence": 0.5})
@@ -1056,6 +1446,7 @@ def detect_provenance(rec: dict | str) -> dict:
     if prov_out:
         rec.setdefault("provenance", prov_out)
     return rec
+
 
 def strip_provenance(text: str) -> str:
     if not text:
@@ -1081,10 +1472,42 @@ def strip_provenance(text: str) -> str:
 
 
 def _get_excerpt(text: str, idx: int, radius: int | None = None) -> str:
+    if not text:
+        return ""
     if radius is None:
         radius = CONFIG.get("EXCERPT_RADIUS", 160)
+    text_len = len(text)
     start = max(0, idx - radius)
-    end = min(len(text), idx + radius)
+    end = min(text_len, idx + radius)
+
+    try:
+
+        sent_re = re.compile(r".*?[\.\!?\n]+", re.S)
+        sentences = list(sent_re.finditer(text))
+        if sentences:
+            for i, m in enumerate(sentences):
+                if m.start() <= idx < m.end():
+
+                    s_start = m.start()
+                    s_end = m.end()
+
+                    combined = text[s_start:s_end]
+
+                    if i > 0 and len(combined) < 80:
+                        prev = sentences[i - 1]
+                        s_start = prev.start()
+                        combined = text[s_start:s_end]
+
+                    if i + 1 < len(sentences) and len(combined) < 120:
+                        nxt = sentences[i + 1]
+                        s_end = nxt.end()
+                    snippet = text[s_start:s_end]
+                    snippet = snippet.strip()
+                    snippet = re.sub(r"\s+", " ", snippet)
+                    return snippet
+    except Exception:
+        pass
+
     snippet = text[start:end]
     snippet = snippet.strip()
     snippet = re.sub(r"\s+", " ", snippet)
@@ -1126,7 +1549,9 @@ def normalize_and_merge_iocs(intel, source: str | None = None):
         if key in normed:
             existing = normed[key]
             if ctx and ctx not in existing.get("context", ""):
-                existing["context"] = (existing.get("context", "") + " | " + ctx).strip(" |")
+                existing["context"] = (existing.get("context", "") + " | " + ctx).strip(
+                    " |"
+                )
             existing["confidence"] = max(existing.get("confidence", 0.0), confidence)
         else:
             normed[key] = {
@@ -1138,6 +1563,7 @@ def normalize_and_merge_iocs(intel, source: str | None = None):
 
     intel_dict["iocs"] = list(normed.values())
     return intel_dict
+
 
 def generate_unstructured_markdown(items: list[dict]) -> str:
     if not items:
@@ -1154,16 +1580,16 @@ def generate_unstructured_markdown(items: list[dict]) -> str:
             lines.append(f"_Source: {src}_")
         if ref_id:
             lines.append(f"_Ref ID: {ref_id}_")
-        summary = rec.get("summary_text") or rec.get("summary") or rec.get("description")
+        summary = (
+            rec.get("summary_text") or rec.get("summary") or rec.get("description")
+        )
         if summary:
             lines.append("")
             lines.append(summary)
         lines.append("")
     return "\n".join(lines)
 
-# =============================================================================
-# CLASSIFICATION & ENABLER EXTRACTION
-# =============================================================================
+
 def classify_threat(text: str) -> str:
     if not text:
         return "Unknown"
@@ -1213,9 +1639,12 @@ def classify_threat(text: str) -> str:
     if any(word in lower for word in ("phishing", "smishing", "vishing")):
         return "Phishing"
 
-    if any(word in lower for word in ("botnet", "ddos", "distributed denial of service")):
+    if any(
+        word in lower for word in ("botnet", "ddos", "distributed denial of service")
+    ):
         return "DDoS/Botnet"
     return "Other"
+
 
 def extract_enablers(text: str):
     details = extract_enablers_detailed(text)
@@ -1233,9 +1662,58 @@ def extract_enablers(text: str):
             result.append(enabler)
     return result
 
+
 def extract_enablers_detailed(text: str, *, radius: int = 160) -> list[dict]:
     if not text:
         return []
+
+    def _strip_boilerplate(src: str) -> str:
+        if not src:
+            return src
+        try:
+            para_split = re.split(r"\n\s*\n", src)
+            min_words = int(CONFIG.get("MIN_PARAGRAPH_WORDS", 20))
+            promo_patterns = CONFIG.get("PROMO_PATTERNS") or []
+            bp_keywords = [
+                k.lower() for k in (CONFIG.get("BOILERPLATE_KEYWORDS") or [])
+            ]
+            short_social_re = CONFIG.get("SHORT_SOCIAL_REGEX") or None
+
+            for i, p in enumerate(para_split):
+                p_clean = re.sub(r"\s+", " ", p or "").strip()
+                if not p_clean:
+                    continue
+                skip = False
+                for pat in promo_patterns or []:
+                    try:
+                        if re.search(pat, p_clean, re.I):
+                            skip = True
+                            break
+                    except Exception:
+                        continue
+                if skip:
+                    continue
+                try:
+                    if short_social_re and re.search(short_social_re, p_clean, re.I):
+                        continue
+                except Exception:
+                    pass
+                words = p_clean.split()
+                if len(words) < min_words:
+                    low = p_clean.lower()
+                    if any(k in low for k in bp_keywords):
+                        continue
+                    try:
+                        if short_social_re and re.search(
+                            short_social_re, p_clean, re.I
+                        ):
+                            continue
+                    except Exception:
+                        pass
+                return "\n\n".join(para_split[i:]).strip()
+        except Exception:
+            pass
+        return src
 
     agg_parts = []
     if isinstance(text, dict):
@@ -1260,6 +1738,8 @@ def extract_enablers_detailed(text: str, *, radius: int = 160) -> list[dict]:
         agg_parts.append(str(text))
 
     aggregate = "\n".join(agg_parts)
+
+    aggregate = _strip_boilerplate(aggregate)
     aggregate_lower = aggregate.lower()
 
     keywords = CONFIG.get("ENABLER_KEYWORDS") or load_enabler_keywords()
@@ -1295,59 +1775,6 @@ def extract_enablers_detailed(text: str, *, radius: int = 160) -> list[dict]:
                 )
     return results
 
-# =============================================================================
-# SCORING & ACTIONABILITY
-# =============================================================================
-def assess_actionability(text: str, relevance: int | float | None = None) -> str:
-    try:
-        if relevance is not None:
-            try:
-                r = int(float(relevance))
-            except Exception:
-                r = None
-            if isinstance(r, int):
-                if r >= 80:
-                    return "Critical"
-                if r >= 60:
-                    return "High"
-                if r >= 30:
-                    return "Medium"
-                return "Informational"
-    except Exception:
-        pass
-
-    lower = (text or "").lower()
-    if not lower:
-        return "Informational"
-
-    if any(
-        term in lower
-        for term in [
-            "zero-day",
-            "zero day",
-            "actively exploited",
-            "in the wild",
-            "mass scanning",
-            "ransomware",
-            "mass exploitation",
-            "internet-facing",
-            "public exploit",
-            "poc available",
-        ]
-    ):
-        return "Immediate"
-    if any(
-        term in lower
-        for term in [
-            "trend",
-            "rising",
-            "increase",
-            "development",
-            "pattern",
-        ]
-    ):
-        return "Strategic"
-    return "Informational"
 
 def score_actionability(title: str | None, description: str | None) -> dict:
     t = (title or "").lower()
@@ -1407,20 +1834,9 @@ def score_actionability(title: str | None, description: str | None) -> dict:
 
     return {"label": label, "score": score, "reason": reason, "matches": matches}
 
-# =============================================================================
-# MARKDOWN GENERATION & ENTRYPOINT
-# =============================================================================
+
 def generate_markdown_summary(parsed_threats: list[dict]) -> str:
     md: list[str] = ["# Threat Intelligence Summary\n"]
-
-    md.append(
-        "\n## Threats to Watch (2025–2026)\n"
-        "- Quantum readiness gaps across financial and critical infrastructure sectors\n"
-        "- Abuse of AI for large-scale impersonation and disinformation\n"
-        "- Exploitation of open-source supply chains (e.g., XZ backdoor)\n"
-        "- Zero-day exploitation acceleration and patch latency risk\n"
-        "- Credential theft economy expansion via infostealers\n"
-    )
 
     stats = {
         "total": len(parsed_threats),
@@ -1442,114 +1858,147 @@ def generate_markdown_summary(parsed_threats: list[dict]) -> str:
         if th.get("actor"):
             stats["with_actors"] += 1
         sectors = ((th.get("target") or {}).get("sector") or []) or []
-        if any("financial" in str(s).lower() or "bank" in str(s).lower() for s in sectors):
+        if any(
+            "financial" in str(s).lower() or "bank" in str(s).lower() for s in sectors
+        ):
             stats["with_fin_sector"] += 1
 
-    md.append("\n## Collection Overview\n")
-    md.append(f"- Total unstructured items: **{stats['total']}**")
-    md.append(f"- Items with IOCs: **{stats['with_iocs']}**")
-    md.append(f"- Items with CVE references: **{stats['with_cves']}**")
-    md.append(f"- Items with mapped MITRE techniques: **{stats['with_mitre']}**")
-    md.append(f"- Items with named threat actors: **{stats['with_actors']}**")
-    md.append(
-        f"- Items explicitly mentioning financial/banking sector: **{stats['with_fin_sector']}**"
+    missing_threats = 0
+    missing_actors = 0
+    missing_mitre = 0
+    complete_count = 0
+    for thr in parsed_threats:
+        th = thr.get("threat") or {}
+        has_threat = bool(th)
+        has_actor = bool(th.get("actor")) if th else False
+        has_mitre = bool(th.get("technique")) if th else False
+        if not has_threat:
+            missing_threats += 1
+        if not has_actor:
+            missing_actors += 1
+        if not has_mitre:
+            missing_mitre += 1
+        if has_threat and has_actor and has_mitre:
+            complete_count += 1
+
+    completeness_pct = (
+        int(100 * (complete_count / stats["total"])) if stats["total"] else 0
     )
 
     md.append("\n## Detailed Entries\n")
-    if not parsed_threats:
-        md.append("_No new unstructured intelligence items were processed._")
-        return "\n".join(md)
+    md.append(
+        f"**Validation Summary:** missing threats: {missing_threats}, missing actors: {missing_actors}, missing MITRE: {missing_mitre}"
+    )
+    md.append(
+        f"**Data Completeness:** {completeness_pct}% ({complete_count}/{stats['total']} entries have threats+actors+MITRE)"
+    )
 
-    for idx, thr in enumerate(parsed_threats, start=1):
-        title = thr.get("title") or "(no title)"
-        source = thr.get("source") or "Unknown"
-        ref_id = thr.get("text_id") or thr.get("id") or ""
-        t_summary = (
-            thr.get("summary_text")
-            or thr.get("summary")
-            or thr.get("description")
-            or thr.get("text")
-            or thr.get("full_text")
-            or ""
+    try:
+        ranked = sorted(
+            parsed_threats,
+            key=lambda r: (
+                ((r.get("threat") or {}).get("relevance") or {}).get("score") or 0
+            ),
+            reverse=True,
         )
-
-        md.append(f"\n### Entry {idx}: {title}")
-        meta_bits = []
-        if ref_id:
-            meta_bits.append(f"Ref: `{ref_id}`")
-        meta_bits.append(f"Source: {source}")
-        if meta_bits:
-            md.append("_" + " | ".join(meta_bits) + "_")
-
-        one_liner = concise_one_sentence_summary(
-            t_summary or (thr.get("text") or ""), vendor=None, max_chars=260
-        )
-        if one_liner:
+        try:
+            rpt_n = int(CONFIG.get("REPORT_TOP_N") or 0)
+        except Exception:
+            rpt_n = 0
+        if rpt_n and rpt_n > 0:
+            top_records = ranked[:rpt_n]
+        else:
+            top_records = ranked
+        for idx, rec in enumerate(top_records, start=1):
+            title = rec.get("title") or "(no title)"
             md.append("")
-            md.append(one_liner)
+            md.append(f"Entry {idx}")
+            md.append(f"- [{idx}] {title}")
 
-        threat_type = classify_threat(t_summary or title)
-        md.append(f"- Threat type: **{threat_type}**")
+            cat = classify_threat(
+                (
+                    rec.get("summary_text")
+                    or rec.get("summary")
+                    or rec.get("text")
+                    or title
+                )
+            )
+            md.append(f"  - Category: {cat}")
 
-        rel = ((thr.get("threat") or {}).get("relevance") or {}).get("label")
-        if rel:
-            md.append(f"- Relevance: **{rel}**")
-
-        actions = generate_actionable_summary(thr)
-        if actions:
-            md.append(f"- Suggested actions: {actions}")
-
-        iocs = extract_iocs(thr)
-        if iocs:
-            md.append("- IOCs:")
-            by_type: dict[str, list[str]] = defaultdict(list)
-            for ioc in iocs:
-                by_type[ioc["type"]].append(ioc["indicator"])
-            for t, vals in by_type.items():
-                joined = ", ".join(sorted(set(vals))[:10])
-                if len(vals) > 10:
-                    joined += " ..."
-                md.append(f"  - {t}: {joined}")
-
-        cves = thr.get("related_cves") or []
-        if cves:
-            md.append("- Referenced CVEs:")
-            for c in cves[:5]:
-                line = f"  - {c.get('cve')}"
-                sc = c.get("cvss_score")
-                if sc is not None:
-                    line += f" (CVSS: {sc})"
-                summary = c.get("summary")
-                if summary:
-                    short = (summary[:160] + "...") if len(summary) > 160 else summary
-                    line += f" — {short}"
-                md.append(line)
-            if len(cves) > 5:
-                md.append(f"  - ... and {len(cves) - 5} more CVEs.")
-
-        enablers_details = extract_enablers_detailed(thr)
-        if enablers_details:
-            md.append("- Key enablers (selected):")
-            for ed in enablers_details[:3]:
-                enab = ed.get("enabler")
-                ex = ed.get("excerpt") or ""
-                ex_short = (ex[:160] + "...") if len(ex) > 160 else ex
-                conf = ed.get("confidence")
-                if conf is not None:
-                    md.append(f"  - {enab} (conf: {conf}): {ex_short}")
+            rel = (rec.get("threat") or {}).get("relevance") or {}
+            rel_label = rel.get("label")
+            rel_score = rel.get("score")
+            if rel_label or rel_score is not None:
+                if rel_score is not None:
+                    md.append(f"  - Relevance: {rel_label} ({int(rel_score)})")
                 else:
-                    md.append(f"  - {enab}: {ex_short}")
+                    md.append(f"  - Relevance: {rel_label}")
 
-        full_text = thr.get("full_text") or ""
-        if full_text:
-            prov = detect_provenance({"text": full_text})
-            prov_meta = (prov.get("metadata") or {}).get("provenance")
-            if prov_meta:
-                md.append(f"- Provenance indicators: {', '.join(prov_meta)}")
-        md.append("")
+            act = score_actionability(
+                title, rec.get("summary_text") or rec.get("summary") or ""
+            )
+            if isinstance(act, dict):
+                act_label = act.get("label")
+                act_score = act.get("score")
+                if act_label or act_score is not None:
+                    if act_score is not None:
+                        md.append(f"  - Actionability: {act_label} ({int(act_score)})")
+                    else:
+                        md.append(f"  - Actionability: {act_label}")
+            elif act:
+                md.append(f"  - Actionability: {act}")
+
+            th = rec.get("threat") or {}
+            mitre_details = th.get("mitre_details") or []
+            if mitre_details:
+                mitre_parts = []
+                for mditem in mitre_details:
+                    mid = mditem.get("id")
+                    mname = (
+                        mditem.get("mitre_name")
+                        or mditem.get("name")
+                        or mditem.get("name")
+                    )
+                    mscore = mditem.get("score")
+                    mlabel = mditem.get("label")
+                    if mid and mscore is not None:
+                        mitre_parts.append(f"{mid} ({mlabel} {int(mscore)})")
+                    elif mname:
+                        mitre_parts.append(str(mname))
+                    else:
+                        mitre_parts.append(str(mditem))
+                md.append(f"  - MITRE: {', '.join(mitre_parts)}")
+            else:
+                techs = th.get("technique") or []
+                if isinstance(techs, dict):
+                    techs = techs.get("name") or []
+                if techs:
+                    md.append(
+                        f"  - MITRE: {', '.join([t if isinstance(t, str) else str(t) for t in techs])}"
+                    )
+
+            ed = extract_enablers_detailed(rec)
+            if ed:
+                enabler_names = ", ".join([e.get("enabler") for e in ed[:3]])
+                md.append(f"  - Enablers: {enabler_names}")
+                md.append("  - Enabler excerpts:")
+                for e in ed[:2]:
+                    md.append(
+                        f"    - {e.get('enabler')}: {(e.get('excerpt') or '')[:200]}"
+                    )
+
+            src = rec.get("source") or ""
+            if src:
+                md.append(f"  - Source: {src}")
+    except Exception:
+        pass
+
     return "\n".join(md)
 
-def process_unstructured_sources(parsed_data: list[dict], enrich_markdown: bool = False) -> str:
+
+def process_unstructured_sources(
+    parsed_data: list[dict], enrich_markdown: bool = False
+) -> str:
     if not parsed_data:
         return "# No new unstructured intelligence found."
     if enrich_markdown:

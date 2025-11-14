@@ -15,6 +15,7 @@ from .unstructured_pdf import (
 run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis
 import os
 
+
 def main():
     parser = argparse.ArgumentParser(description="Unified Threat Intel Collector")
     parser.add_argument("--hours", type=int, help="Time window in hours (default: 24)")

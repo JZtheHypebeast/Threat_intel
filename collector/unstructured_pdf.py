@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import json
 from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PyPDF2 import PdfReader
 
@@ -13,7 +12,6 @@ from . import delivery
 from .unstructured_core import (
     extract_threat_indicators,
     extract_iocs,
-    generate_actionable_summary,
     compute_relevance_score,
     generate_actionable_items,
     generate_unstructured_markdown,
@@ -31,22 +29,7 @@ from .unstructured_core import (
     score_actionability,
     dedupe_records_by_title,
     infer_missing_vendor_and_actor,
-    group_threat_items_by_vendor_or_sector,
-    generate_markdown_summary_section,
 )
-
-# =============================================================================
-#                             UNSTRUCTURED PDF
-# =============================================================================
-
-
-# =============================================================================
-
-# =============================================================================
-#                             PDF EXTRACTION
-# =============================================================================
-# Extract text pieces from PDF files (pdftotext/parsing wrappers).
-# =============================================================================
 
 
 def extract_text_from_file(path):
@@ -156,7 +139,9 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
                     intel["iocs"] = []
             if CONFIG.get("ENABLE_SUMMARIZATION"):
                 try:
-                    intel["summary_text"] = summarize_unstructured_description(text, max_sentences=2)
+                    intel["summary_text"] = summarize_unstructured_description(
+                        text, max_sentences=2
+                    )
                 except Exception:
                     pass
             if CONFIG.get("ENABLE_SCORING"):

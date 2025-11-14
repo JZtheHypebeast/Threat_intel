@@ -1,7 +1,3 @@
-"""Test: provenance extraction"""
-
-# MODULE: TEST - PROVENANCE EXTRACTION #
-
 from collector.unstructured_core import detect_provenance
 
 

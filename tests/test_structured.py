@@ -1,7 +1,3 @@
-"""Test: structured helpers"""
-
-# MODULE: TEST - STRUCTURED HELPERS #
-
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch

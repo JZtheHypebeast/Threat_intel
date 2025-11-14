@@ -3,12 +3,8 @@ import sys
 import time
 from typing import Optional
 import threading
+import os
 
-# =============================================================================
-#                                 PROGRESS
-# =============================================================================
-# Small utilities for console progress display (progress bar and spinner).
-# =============================================================================
 
 def _terminal_width(default=80) -> int:
     try:
@@ -26,6 +22,7 @@ def progress_bar(
     fill: str = "#",
     status: Optional[str] = None,
 ):
+
     if length is None:
         width = _terminal_width()
         length = max(10, min(60, width - 30))
@@ -46,21 +43,87 @@ def progress_bar(
     filled = max(0, min(length, filled))
     bar = fill * filled + "-" * (length - filled)
 
-    out = f"\r{prefix} [{bar}] {percent:3.0f}%"
+    out_no_cr = f"{prefix} [{bar}] {percent:3.0f}%"
     if status:
-        out = out + " " + status
+        out_no_cr = out_no_cr + " " + status
+
     try:
-        pad_len = max(0, _terminal_width() - len(out) - 1)
-        out += " " * pad_len
+        is_tty = bool(
+            getattr(sys.stdout, "isatty", lambda: False)()
+            or getattr(sys.stderr, "isatty", lambda: False)()
+        )
+        if not is_tty:
+            is_tty = bool(
+                getattr(sys.__stdout__, "isatty", lambda: False)()
+                or getattr(sys.__stderr__, "isatty", lambda: False)()
+            )
+    except Exception:
+        is_tty = False
+
+    try:
+        if os.getenv("TI_FORCE_PROGRESS_INLINE", "false").lower() == "true":
+            is_tty = True
     except Exception:
         pass
 
-    sys.stdout.write(out)
-    sys.stdout.flush()
+    try:
+        disable_inline = os.getenv("TI_DISABLE_INLINE", "false").lower() == "true"
+    except Exception:
+        disable_inline = False
 
-    if ratio >= 1.0:
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+    prefer_inline = not disable_inline
+
+    if prefer_inline:
+        if is_tty:
+            out_stream = sys.stderr if getattr(sys, "stderr", None) else sys.stdout
+        else:
+            out_stream = sys.stdout
+
+        if not hasattr(progress_bar, "_lock"):
+            try:
+                import threading as _threading
+
+                progress_bar._lock = _threading.Lock()
+            except Exception:
+                progress_bar._lock = None
+        lock = getattr(progress_bar, "_lock", None)
+
+        to_write = "\r" + out_no_cr + "\x1b[K"
+        try:
+            if lock:
+                lock.acquire()
+
+            last_str = getattr(progress_bar, "_last_str", None)
+            if last_str == out_no_cr:
+
+                return
+            out_stream.write(to_write)
+            out_stream.flush()
+            progress_bar._last_len = len(out_no_cr)
+            progress_bar._last_str = out_no_cr
+        except Exception:
+            pass
+        finally:
+            try:
+                if lock:
+                    lock.release()
+            except Exception:
+                pass
+
+        if ratio >= 1.0:
+            try:
+                out_stream.write("\n")
+                out_stream.flush()
+            except Exception:
+                pass
+            progress_bar._last_len = 0
+    else:
+
+        try:
+            sys.stdout.write(out_no_cr + "\n")
+            sys.stdout.flush()
+        except Exception:
+            pass
 
 
 def animate_progress(prefix: str, steps: int = 20, delay: float = 0.05):
