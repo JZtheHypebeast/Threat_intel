@@ -8,23 +8,26 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import os
 
-from openai import OpenAI
-
 from .config import CONFIG
 
 logger = logging.getLogger(__name__)
 
-def _get_openai_client() -> Optional[OpenAI]:
+def _get_openai_client() -> Optional[Any]:
     """Create and return an OpenAI client if an API key is available.
 
-    Returns None if the OPENAI_API_KEY environment variable is not set or
-    if client creation fails.
+    Returns None if the OPENAI_API_KEY environment variable is not set,
+    if the `openai` package is not installed, or if client creation fails.
     """
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
         logger.warning("OPENAI_API_KEY not set; skipping LLM calls")
         return None
     try:
+        try:
+            from openai import OpenAI
+        except ImportError:
+            logger.warning("`openai` package not installed; skipping LLM calls")
+            return None
         return OpenAI(api_key=key)
     except Exception as exc:
         logger.warning("Failed to create OpenAI client: %s", exc)
@@ -226,7 +229,6 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
         return enriched
     except Exception as exc:
         msg = str(exc)
-        # Detect common insufficient quota error shape from OpenAI SDK
         if "insufficient_quota" in msg or "quota" in msg.lower():
             logger.warning("LLM quota error detected: %s", exc)
             _llm_quota_exhausted = True

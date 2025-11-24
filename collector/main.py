@@ -16,27 +16,28 @@ run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hours", type=int)
-    parser.add_argument("--structured", action="store_true")
-    parser.add_argument("--unstructured-rss", action="store_true")
+    parser.add_argument("--unstructured", dest="unstructured", action="store_true", help="Run unstructured RSS analysis")
     parser.add_argument("--unstructured-pdf", metavar="PATH")
     parser.add_argument("--no-history", action="store_true")
     parser.add_argument("-llm", "--llm", dest="llm", action="store_true")
     args = parser.parse_args()
 
-    if not any([args.structured, args.unstructured_rss, args.unstructured_pdf, args.llm]):
-        args.structured = True
+    if not any([args.unstructured, args.unstructured_pdf, args.llm]):
+        run_structured = True
+    else:
+        run_structured = False
 
     hours = args.hours or 24
 
     try:
         ran_any = False
 
-        if args.structured:
+        if run_structured:
             logger.info("Running structured collection")
             run_structured_collection(hours=hours, skip_history=args.no_history)
             ran_any = True
 
-        if args.unstructured_rss:
+        if args.unstructured:
             logger.info("Running unstructured RSS analysis")
             run_unstructured_rss_analysis(hours=hours)
             ran_any = True
@@ -54,7 +55,7 @@ def main() -> None:
 
         if not ran_any:
             logger.warning(
-                "No mode selected; use --structured, --unstructured-rss, --unstructured-pdf PATH, or -llm."
+                "No mode selected; use --unstructured, --unstructured-pdf PATH, or -llm."
             )
 
     except Exception as e:
