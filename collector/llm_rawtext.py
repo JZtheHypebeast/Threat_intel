@@ -44,13 +44,11 @@ def _get_output_dir() -> Path:
     today_stamp = datetime.now().strftime("%Y%m%d")
     return results_root / today_stamp
 
-
 def _find_latest_rawtext_file(output_dir: Path) -> Optional[Path]:
     candidates = sorted(output_dir.glob("rawtext-*.json"))
     if not candidates:
         return None
     return candidates[-1]
-
 
 def _load_rawtext_records(path: Path) -> List[Dict[str, Any]]:
     text = path.read_text(encoding="utf-8").strip()
@@ -77,7 +75,6 @@ def _load_rawtext_records(path: Path) -> List[Dict[str, Any]]:
             records.append(obj)
     return records
 
-
 def _filter_by_hours(records: List[Dict[str, Any]], hours: Optional[int]) -> List[Dict[str, Any]]:
     if not hours or hours <= 0:
         return records
@@ -99,12 +96,10 @@ def _filter_by_hours(records: List[Dict[str, Any]], hours: Optional[int]) -> Lis
             filtered.append(rec)
     return filtered
 
-
 SYSTEM_INSTRUCTION = (
     "You are a senior threat intelligence analyst. "
     "You convert raw security articles into structured, actionable threat intelligence."
 )
-
 
 def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
     title = record.get("title") or "(no title)"
@@ -112,6 +107,7 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
     ts = record.get("@timestamp") or record.get("timestamp") or ""
     raw_text = record.get("raw_text") or record.get("text") or record.get("full_text") or ""
     snippet = str(raw_text)[:8000]
+
     prompt = (
         "You will receive the full raw text of a cyber security article plus metadata.\n"
         "From this raw text alone, extract structured, actionable threat intelligence.\n\n"
@@ -146,24 +142,38 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         '    - "name": vendor/organization producing affected product/service\n'
         '    - "product": product/service name if mentioned\n'
         '    - "confidence": float 0–1\n'
+        '- "iocs": list of objects (only what is explicitly in the text, do NOT invent values):\n'
+        '    - "type": one of ["ip","domain","url","email","hash","filename","registry_key","artifact","other"]\n'
+        '    - "value": the exact IOC string as seen in the text\n'
+        '    - "context": short description of how this IOC is used (e.g. "C2 server","phishing URL","payload hash")\n'
+        '    - "confidence": float 0–1\n'
+        '- "detections": list of objects describing practical detection ideas/analytics:\n'
+        '    - "name": short name, e.g. "Yurei ransomware filesystem behavior"\n'
+        '    - "type": e.g. "Network","Endpoint","Email","Cloud","Identity","Generic"\n'
+        '    - "idea": 1–3 sentences describing what to look for (conditions, patterns, logs)\n'
+        '- "recommendations": list of objects for actionable response/hardening:\n'
+        '    - "type": e.g. "Technical","Process","Awareness"\n'
+        '    - "text": 1–3 sentences with concrete mitigation or response guidance\n'
+        '- "tags": list of short strings (e.g. ["ransomware","windows","cloud","ddos","apt"])\n'
         '- "source_analysis": object:\n'
         '    - "source_name": short name (e.g. "BleepingComputer","Vendor advisory")\n'
         '    - "source_url": the URL you see below\n'
         '    - "trust_level": one of ["Low","Medium","High"]\n'
         '    - "reason": why this source is low/med/high confidence\n'
-        '- "markdown_section": string (markdown formatted summary for a human analyst)\n\n'
+        '- "markdown_section": string (markdown formatted summary for a human analyst, including key IOCs, risks, and actions)\n\n'
         "Guidelines:\n"
         "- Base everything only on the article text and general MITRE knowledge.\n"
-        "- If the article does not state an actor/country/vendor, either omit it or set confidence low and explain.\n"
-        '- For MITRE, do not invent IDs; if unsure, set id to null and confidence low.\n'
-        '- Priority should reflect technique criticality, exploit status ("zero-day","actively exploited","PoC/public exploit"), and business impact.\n'
-        "- Financial relevance is about banks, PSPs, card data, securities, insurance, etc.\n\n"
+        "- If the article does not state an actor/country/vendor/IOC, either omit it or set confidence low and explain.\n"
+        "- For MITRE, do not invent IDs; if unsure, set id to null and confidence low.\n"
+        '- For IOCs, ONLY extract values explicitly present in the text (IPs, domains, URLs, hashes, emails, filenames, etc.); do NOT fabricate or normalize beyond what is visible.\n'
+        "- Priority should reflect technique criticality, exploit status (e.g. 'zero-day','actively exploited','PoC/public exploit'), and business impact.\n"
+        "- Financial relevance is about banks, PSPs, card data, securities, insurance, etc.\n"
+        "- Detections and recommendations should be concise but concrete enough to guide SOC and incident response teams.\n\n"
         "Return ONLY the JSON object, no extra commentary.\n\n"
         f"Article metadata:\n- Title: {title}\n- URL: {source}\n- Timestamp: {ts}\n\n"
         f'Full raw text:\n"""{"".join(snippet)}"""'
     )
     return prompt
-
 
 def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
     if not CONFIG.get("LLM_ENABLED", True):
@@ -236,7 +246,6 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
         logger.warning("LLM call failed: %s", exc)
         return None
 
-
 def _enrich_record_with_llm(record: Dict[str, Any]) -> Dict[str, Any]:
     prompt = _build_prompt_from_raw(record)
     enriched = _call_llm(prompt)
@@ -244,12 +253,10 @@ def _enrich_record_with_llm(record: Dict[str, Any]) -> Dict[str, Any]:
         record["llm"] = enriched
     return record
 
-
 def _write_ndjson(path: Path, records: Iterable[Dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
 
 def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
     lines: List[str] = []

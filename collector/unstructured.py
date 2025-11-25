@@ -301,6 +301,25 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
             except Exception:
                 _groups = None
 
+            # Snapshot raw text now (before normalization mutates records).
+            # Normalization prunes `raw_text`/`text` fields in-place, which
+            # previously caused the later rawtext JSON writer to fall back to
+            # `summary_text` (often truncated with "..."). Capture the
+            # desired raw items here so we can write them intact later.
+            raw_items_snapshot = []
+            for r in records:
+                try:
+                    raw_items_snapshot.append(
+                        {
+                            "title": r.get("title"),
+                            "source": r.get("source") or r.get("source_url") or None,
+                            "@timestamp": r.get("@timestamp"),
+                            "raw_text": r.get("raw_text") or r.get("summary_text") or "",
+                        }
+                    )
+                except Exception:
+                    continue
+
             with open(out_ndjson, "w", encoding="utf-8") as fh:
 
                 def _normalize_record(rec: dict) -> dict:
@@ -449,24 +468,10 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
             rawtext_fn = f"rawtext-{date_tag}.json"
             out_raw = os.path.join(CONFIG.get("OUTPUT_DIR", "."), rawtext_fn)
 
-            raw_items = []
-            for r in records:
-                try:
-                    raw_items.append(
-                        {
-                            "title": r.get("title"),
-                            "source": r.get("source") or r.get("source_url") or None,
-                            "@timestamp": r.get("@timestamp"),
-                            "raw_text": r.get("raw_text")
-                            or r.get("summary_text")
-                            or "",
-                        }
-                    )
-                except Exception:
-                    continue
-
+            # Use the snapshot we captured before normalization so full
+            # sanitized article text is preserved in the rawtext output.
             with open(out_raw, "w", encoding="utf-8") as rf:
-                json.dump(raw_items, rf, ensure_ascii=False, indent=2)
+                json.dump(raw_items_snapshot, rf, ensure_ascii=False, indent=2)
 
             try:
                 status = f"wrote={len(raw_items)} file={os.path.basename(out_raw)}"

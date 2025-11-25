@@ -92,10 +92,16 @@ CONFIG = {
         "^related articles",
         "^sponsored content",
         "^about the author",
+        "^share\\b",
+        "^download now",
+        "^topics acquisition",
+        "^topics\\b",
+        # tag-cloud / keyword lists (10+ tokens)
+        "^(?:[A-Za-z0-9'\"\\-]{1,20}\\s+){10,}.*$",
     ],
     "SHORT_SOCIAL_REGEX": os.getenv(
         "TI_SHORT_SOCIAL_REGEX",
-        r"\\b(follow|subscribe|share|like|google news|gbhackers)\\b",
+        r"\\b(follow|subscribe|share|like|google news|gbhackers|tweet|facebook|twitter|linkedin|reddit)\\b",
     ),
     "SHORT_SOCIAL_MAX_WORDS": int(os.getenv("TI_SHORT_SOCIAL_MAX_WORDS", 8)),
     "VENDOR_KEYWORDS": (

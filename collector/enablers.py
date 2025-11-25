@@ -53,29 +53,26 @@ def _get_excerpt(text: str, pos: int, radius: int = 120) -> str:
 
 
 def _build_texts(text_or_record) -> tuple[str, str, str | None]:
-    agg_parts = []
+    # prefer the article body as the primary text source to avoid site chrome
     prov_parts = []
+    primary = ""
+    primary_short = None
     if isinstance(text_or_record, dict):
         rec = text_or_record
-        for f in (
-            "title",
-            "summary_text",
-            "summary",
-            "text",
-            "full_text",
-            "description",
-        ):
+        # Prefer the sanitized article body first
+        for f in ("text", "full_text", "summary_text", "summary", "title", "description"):
             v = rec.get(f)
             if v:
                 try:
-                    agg_parts.append(str(v))
+                    primary = str(v)
+                    break
                 except Exception:
                     continue
 
+        # collect provenance excerpts separately
         for p in rec.get("provenance") or []:
             try:
                 if isinstance(p, dict):
-
                     ex = p.get("excerpt") or p.get("source_name") or p.get("source_url")
                     if ex:
                         prov_parts.append(str(ex))
@@ -83,38 +80,35 @@ def _build_texts(text_or_record) -> tuple[str, str, str | None]:
                     prov_parts.append(str(p))
             except Exception:
                 continue
-    else:
-        agg_parts.append(str(text_or_record or ""))
 
-    primary = "\n".join([p for p in agg_parts if p and not isinstance(p, dict)])
-    prov_text = "\n".join([p for p in prov_parts if p])
-
-    primary_short = None
-    if isinstance(text_or_record, dict):
         try:
-            primary_short = text_or_record.get("summary_text") or text_or_record.get(
-                "summary"
-            )
+            primary_short = rec.get("summary_text") or rec.get("summary")
             if primary_short:
                 primary_short = str(primary_short)
         except Exception:
             primary_short = None
+    else:
+        primary = str(text_or_record or "")
+
+    prov_text = "\n".join([p for p in prov_parts if p])
 
     try:
-
         def _strip_boilerplate_local(src: str) -> str:
             if not src:
                 return src
-            para_split = re.split(r"\n\s*\n", src)
+            # remove obvious single-line site chrome like "Topics ...", "Share" and "Follow us"
+            lines = [l for l in src.splitlines() if l and not re.match(r"^\s*(topics|share|follow)\b", l, re.I)]
+            cleaned = "\n".join(lines)
+
+            para_split = re.split(r"\n\s*\n", cleaned)
             try:
                 min_words = int(CONFIG.get("MIN_PARAGRAPH_WORDS", 20))
             except Exception:
                 min_words = 20
             promo_patterns = CONFIG.get("PROMO_PATTERNS") or []
-            bp_keywords = [
-                k.lower() for k in (CONFIG.get("BOILERPLATE_KEYWORDS") or [])
-            ]
+            bp_keywords = [k.lower() for k in (CONFIG.get("BOILERPLATE_KEYWORDS") or [])]
             short_social_re = CONFIG.get("SHORT_SOCIAL_REGEX") or None
+
             for i, p in enumerate(para_split):
                 p_clean = re.sub(r"\s+", " ", p or "").strip()
                 if not p_clean:
@@ -140,19 +134,18 @@ def _build_texts(text_or_record) -> tuple[str, str, str | None]:
                     if any(k in p_clean.lower() for k in bp_keywords):
                         continue
                     try:
-                        if short_social_re and re.search(
-                            short_social_re, p_clean, re.I
-                        ):
+                        if short_social_re and re.search(short_social_re, p_clean, re.I):
                             continue
                     except Exception:
                         pass
 
                 return "\n\n".join(para_split[i:]).strip()
-            return src
+            return cleaned
 
-        primary = _strip_boilerplate_local(primary)
+        primary = _strip_boilerplate_local(primary or "")
     except Exception:
         pass
+
     return primary, prov_text, primary_short
 
 
@@ -186,14 +179,15 @@ def extract_enablers(
             mobj = None
             source_text = None
             source_lower = None
-            if primary_short_lower is not None:
-                mobj = pat.search(primary_short)
-                source_text = primary_short
-                source_lower = primary_short_lower
-            if not mobj and primary:
+            # Prefer the full article body (primary) over the shorter summary
+            if primary:
                 mobj = pat.search(primary)
                 source_text = primary
                 source_lower = primary_lower
+            if not mobj and primary_short_lower is not None:
+                mobj = pat.search(primary_short)
+                source_text = primary_short
+                source_lower = primary_short_lower
             if not mobj and prov_text:
                 mobj = pat.search(prov_text)
                 source_text = prov_text
@@ -208,6 +202,26 @@ def extract_enablers(
             seen.add(kn)
             start = mobj.start()
             excerpt = _get_excerpt(source_text, start, radius=radius)
+            def _clean_excerpt_local(s: str) -> str:
+                if not s:
+                    return s
+                try:
+                    # remove large share blocks starting with SHARE or Share
+                    s = re.sub(r"SHARE[\s\S]*$", "", s, flags=re.I)
+                    s = re.sub(r"Share on [A-Za-z \-]+", "", s, flags=re.I)
+                    # remove common social icon glyphs
+                    s = re.sub(r"[]+", " ", s)
+                    # strip leading lists like 'Topics Acquisition ...' or 'Download Now ...' or 'Related Articles:'
+                    s = re.sub(r"(?m)^(?:Topics Acquisition|Topics|Download Now|Related Articles?):.*$", "", s, flags=re.I)
+                    # remove lines that are just long tag/keyword lists (10+ short tokens, no punctuation)
+                    s = re.sub(r"(?m)^[A-Za-z0-9'\"\-]{1,20}(?:\s+[A-Za-z0-9'\"\-]{1,20}){9,}$", "", s)
+                    # collapse whitespace
+                    s = re.sub(r"\s+", " ", s).strip()
+                    if len(s) < 20 or re.match(r"^[\W_]+$", s):
+                        return ""
+                except Exception:
+                    return s
+                return s
 
             conf = 0.6
             if len(kw) > 6:
@@ -243,11 +257,20 @@ def extract_enablers(
 
             conf = min(0.99, conf)
 
+            cleaned = _clean_excerpt_local(excerpt).strip()
+            # suppress very short / empty excerpts
+            try:
+                min_chars = int(CONFIG.get("MIN_EXCERPT_CHARS", 30))
+            except Exception:
+                min_chars = 30
+            if cleaned and len(cleaned) < min_chars:
+                cleaned = ""
+
             if detailed:
                 results.append(
                     {
                         "enabler": kn,
-                        "excerpt": excerpt.strip(),
+                        "excerpt": cleaned,
                         "confidence": round(conf, 2),
                     }
                 )

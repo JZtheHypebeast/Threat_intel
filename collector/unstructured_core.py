@@ -1,4 +1,5 @@
 from __future__ import annotations
+from __future__ import annotations
 
 import json
 import logging
@@ -180,6 +181,22 @@ def _norm_key(s: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.strip().lower())
 
 
+def attach_mitre_to_intel(intel: dict) -> dict:
+    techniques = intel.get("threat", {}).get("technique", [])
+    if not isinstance(techniques, list):
+        return intel
+
+    mitre_map = load_mitre_map()
+    for t in techniques:
+        tid = t.get("id") or t.get("technique_id") or ""
+        if not tid:
+            continue
+        mt = mitre_map.get(str(tid).upper())
+        if mt:
+            t["name"] = t.get("name") or mt.get("name")
+            t["reference"] = mt.get("reference") or mt.get("url")
+            t["tactic"] = mt.get("tactic") or mt.get("kill_chain_phase")
+    return intel
 def attach_mitre_to_intel(intel: dict) -> dict:
     techniques = intel.get("threat", {}).get("technique", [])
     if not isinstance(techniques, list):
@@ -1105,6 +1122,10 @@ def sanitize_article_text(text: str) -> str:
             "^related articles",
             "^sponsored content",
             "^about the author",
+            "^share\\b",
+            "^download now",
+            "^topics acquisition",
+            "^topics\\b",
         ]
     ]
     short_social_re = SHORT_SOCIAL_RE
@@ -1126,11 +1147,24 @@ def sanitize_article_text(text: str) -> str:
         if drop:
             continue
 
+        # drop short social/share lines
         if len(re.findall(r"\w+", s)) <= short_social_max and short_social_re.search(s):
+            continue
+
+        # drop tag-cloud / keyword lists: lines with 10+ short tokens and no sentence punctuation
+        try:
+            if re.match(r"^[A-Za-z0-9'\"\-]{1,20}(?:\s+[A-Za-z0-9'\"\-]{1,20}){9,}$", s):
+                continue
+        except Exception:
+            pass
+
+        low = s.lower()
+        if low.startswith("topics") or "related articles" in low:
             continue
 
         lines.append(s)
     return "\n\n".join(lines)
+
 
 
 def summarize_unstructured_description(text: str, max_sentences: int = 2) -> str:
