@@ -1,6 +1,7 @@
 import argparse
 import sys
 import warnings
+import os
 
 warnings.filterwarnings("ignore", category=Warning, module=r"urllib3.*")
 
@@ -15,12 +16,28 @@ run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--no-banner", action="store_true", help="Suppress the startup ASCII banner")
     parser.add_argument("--hours", type=int)
     parser.add_argument("--unstructured", dest="unstructured", action="store_true", help="Run unstructured RSS analysis")
     parser.add_argument("--unstructured-pdf", metavar="PATH")
     parser.add_argument("--no-history", action="store_true")
     parser.add_argument("-llm", "--llm", dest="llm", action="store_true")
     args = parser.parse_args()
+
+    def _print_banner() -> None:
+        banner = r"""
+   ____  ____    _     
+  / ___|| __ )  / \    
+ | |    |  _ \ / _ \   
+ | |___ | |_) / ___ \  
+  \____||____/_/   \_\ 
+    Threat Intel Collector — Created by Marc R. Kock - Starting up...
+"""
+        logger.info(banner)
+
+    no_banner_env = os.getenv("COLLECTOR_NO_BANNER", "").lower() in ("1", "true", "yes")
+    if not (getattr(args, "no_banner", False) or no_banner_env):
+        _print_banner()
 
     if not any([args.unstructured, args.unstructured_pdf, args.llm]):
         run_structured = True

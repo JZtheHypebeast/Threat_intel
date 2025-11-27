@@ -47,6 +47,49 @@ Notes
 Only flags used in the project runs are documented above. For additional options,
 inspect `collector/main.py` for available CLI flags.
 
+## Running outside VS Code
+
+You can run the collector from any POSIX shell (macOS, Linux). Typical steps:
+
+- Create and activate a virtual environment and install dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+- Set optional env vars (examples) and run the unstructured RSS pipeline for 48 hours:
+
+```bash
+# optional: suppress the ASCII banner
+export COLLECTOR_NO_BANNER=1
+# run the unstructured RSS pipeline
+python3 -m collector.main --unstructured --hours 48
+```
+
+- Example `systemd` unit (Linux) to run daily at boot and on a timer. Put the file at `/etc/systemd/system/threat-collector.service`:
+
+```ini
+[Unit]
+Description=Threat Intel Collector
+After=network.target
+
+[Service]
+Type=simple
+User=collector
+WorkingDirectory=/opt/threat_intel
+ExecStart=/opt/threat_intel/.venv/bin/python3 -m collector.main --unstructured --hours 24
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Adjust the paths and user to your environment. Use `journalctl -u threat-collector.service -f` to follow logs.
+
+For quick testing you can use `cron` or a simple `launchd` job on macOS; Dockerfile examples are also straightforward if you prefer containerized runs.
+
 ## Important configuration variables
 
 The collector has many runtime knobs exposed via the `CONFIG` mapping and
