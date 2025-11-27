@@ -32,6 +32,8 @@ from .unstructured_core import (
     group_threat_items_by_vendor_or_sector,
     infer_missing_vendor_and_actor,
     extract_enablers_detailed,
+    load_mitre_mitigations,
+    load_mitre_phrase_map,
 )
 
 
@@ -99,6 +101,12 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
         records = []
         max_workers = CONFIG.get("MAX_WORKERS", 6)
         total_entries = len(uniq)
+        discovered_entries = len(entries)
+        after_url_dedupe = len(uniq)
+        pre_dedupe_count = 0
+        post_dedupe_count = 0
+        merged_count = 0
+        merged_examples = []
 
         shared = {"current": 0, "status": ""}
         animator = None
@@ -245,11 +253,112 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                     intel["actionable_summary"] = ""
                 aats = generate_actionable_items(intel)
                 intel.update(aats)
+                try:
+                    # Attach technique-specific mitigations into the threat object
+                    mit_items = []
+                    if isinstance(aats, dict):
+                        mit_items = aats.get("mitigations") or []
+                    tech_mitigations = []
+                    for mi in mit_items:
+                        try:
+                            if not isinstance(mi, dict):
+                                continue
+                            if mi.get("type") != "mitigation":
+                                continue
+                            tech = mi.get("technique") or mi.get("technique_id") or None
+                            mid = mi.get("id") or mi.get("mitigation_id") or None
+                            desc = mi.get("description") or mi.get("title") or None
+                            ref = mi.get("reference") or mi.get("url") or None
+                            entry = {}
+                            if tech:
+                                entry["technique"] = tech
+                            if mid:
+                                entry["mitigation_id"] = mid
+                            if desc:
+                                entry["description"] = desc
+                            if ref:
+                                entry["reference"] = ref
+                            if entry:
+                                tech_mitigations.append(entry)
+                        except Exception:
+                            continue
+                    if tech_mitigations:
+                        intel.setdefault("threat", {})
+                        intel["threat"]["technique_mitigations"] = tech_mitigations
+                except Exception:
+                    pass
+                # If we didn't find explicit mitigation items, try to resolve
+                # technique names to IDs via the phrase map and attach mitigations
+                try:
+                    if not intel.get("threat", {}).get("technique_mitigations"):
+                        try:
+                            mitig_map = load_mitre_mitigations()
+                            phrase_map = load_mitre_phrase_map()
+                        except Exception:
+                            mitig_map = {}
+                            phrase_map = {}
+
+                        th_tmp = intel.get("threat") or {}
+                        techs = th_tmp.get("technique") or []
+                        names = []
+                        if isinstance(techs, dict):
+                            n = techs.get("name")
+                            if isinstance(n, list):
+                                names.extend(n)
+                            elif n:
+                                names.append(n)
+                        elif isinstance(techs, list):
+                            for titem in techs:
+                                if isinstance(titem, str):
+                                    names.append(titem)
+                                elif isinstance(titem, dict):
+                                    nn = titem.get("name")
+                                    if nn:
+                                        names.append(nn)
+
+                        resolved = []
+                        for name in names:
+                            key = (name or "").strip().lower()
+                            if not key:
+                                continue
+                            entries = phrase_map.get(key) or []
+                            for ent in entries:
+                                tid = (ent.get("id") or ent.get("technique_id") or "").upper()
+                                if not tid:
+                                    continue
+                                mit = mitig_map.get(tid)
+                                if not mit:
+                                    continue
+                                entry = {
+                                    "technique": tid,
+                                    "mitigation_id": tid,
+                                    "description": mit.get("title") or mit.get("description") or None,
+                                }
+                                if entry not in resolved:
+                                    resolved.append(entry)
+                        if resolved:
+                            intel.setdefault("threat", {})
+                            intel["threat"]["technique_mitigations"] = resolved
+                except Exception:
+                    pass
                 intel["@timestamp"] = (pub_dt or datetime.now(timezone.utc)).isoformat()
                 try:
                     intel["extracted_text_source"] = extracted_source
                     if fetch_meta:
                         intel["fetch"] = fetch_meta
+                except Exception:
+                    pass
+                try:
+                    # Ensure fields exist for downstream consumers: always include
+                    # `iocs` (list) and `threat.technique` and
+                    # `threat.technique_mitigations` (may be empty).
+                    intel.setdefault("iocs", [])
+                    intel.setdefault("threat", {})
+                    thtmp = intel["threat"]
+                    if "technique" not in thtmp:
+                        thtmp["technique"] = []
+                    if "technique_mitigations" not in thtmp:
+                        thtmp["technique_mitigations"] = []
                 except Exception:
                     pass
                 records.append(intel)
@@ -283,7 +392,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
         try:
 
             try:
-
+                # Prepare fuzzy threshold if enabled
                 fuzzy_thresh = None
                 if CONFIG.get("FUZZY_MATCHING_ENABLE"):
                     try:
@@ -292,14 +401,54 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                     except Exception:
                         fuzzy_thresh = 0.95
 
-                records = dedupe_records_by_title(records, fuzzy_threshold=fuzzy_thresh)
-            except Exception:
-                pass
+                # Build a simple exact-title map for diagnostics (detects
+                # exact-title duplicates; fuzzy merges won't be captured here).
+                from collections import defaultdict
 
-            try:
-                _groups = group_threat_items_by_vendor_or_sector(records)
+                title_map = defaultdict(list)
+                try:
+                    for r in records:
+                        t = (r.get("title") or "").strip()
+                        title_map[t].append(r)
+                except Exception:
+                    title_map = defaultdict(list)
+
+                pre_dedupe_count = len(records)
+                records = dedupe_records_by_title(records, fuzzy_threshold=fuzzy_thresh)
+                post_dedupe_count = len(records)
+                merged_count = max(0, pre_dedupe_count - post_dedupe_count)
+
+                # Build up to two example merged records (from exact-title dupes)
+                merged_examples = []
+                try:
+                    for title, items in title_map.items():
+                        if len(items) > 1:
+                            found = next((r for r in records if (r.get("title") or "").strip() == title), None)
+                            if found:
+                                merged_examples.append(
+                                    {
+                                        "title": title,
+                                        "sources": found.get("sources") or [],
+                                        "provenance_count": len(found.get("provenance") or []),
+                                        "iocs_count": len(found.get("iocs") or []),
+                                    }
+                                )
+                        if len(merged_examples) >= 2:
+                            break
+                except Exception:
+                    merged_examples = []
+
             except Exception:
-                _groups = None
+                # If dedupe fails, fall back gracefully
+                try:
+                    _groups = group_threat_items_by_vendor_or_sector(records)
+                except Exception:
+                    _groups = None
+            else:
+                try:
+                    _groups = group_threat_items_by_vendor_or_sector(records)
+                except Exception:
+                    _groups = None
 
             # Snapshot raw text now (before normalization mutates records).
             # Normalization prunes `raw_text`/`text` fields in-place, which
@@ -468,8 +617,6 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
             rawtext_fn = f"rawtext-{date_tag}.json"
             out_raw = os.path.join(CONFIG.get("OUTPUT_DIR", "."), rawtext_fn)
 
-            # Use the snapshot we captured before normalization so full
-            # sanitized article text is preserved in the rawtext output.
             with open(out_raw, "w", encoding="utf-8") as rf:
                 json.dump(raw_items_snapshot, rf, ensure_ascii=False, indent=2)
 
@@ -617,6 +764,14 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
             "ndjson": out_ndjson,
             "markdown": md_path,
             "rawtext": out_raw,
+            "diagnostics": {
+                "discovered_entries": discovered_entries,
+                "after_url_dedupe": after_url_dedupe,
+                "pre_title_dedupe_count": pre_dedupe_count,
+                "post_title_dedupe_count": post_dedupe_count,
+                "merged_count": merged_count,
+                "merged_examples": merged_examples,
+            },
         }
     finally:
         pass

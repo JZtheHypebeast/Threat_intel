@@ -1375,7 +1375,6 @@ def dedupe_records_by_title(
     fuzzy_threshold: float | None = None,
 ) -> list[dict]:
     from difflib import SequenceMatcher
-
     kept: list[dict] = []
     kept_norm: list[str] = []
     for rec in records:
@@ -1406,11 +1405,67 @@ def dedupe_records_by_title(
             idx = found_idx
             existing = kept[idx]
             existing_ts = existing.get("@timestamp") or existing.get("timestamp") or ""
+            # Prefer the newer record as primary, but merge metadata from both
+            primary = existing
+            secondary = rec
             try:
                 if ts and existing_ts and ts > existing_ts:
-                    kept[idx] = rec
+                    primary = rec
+                    secondary = existing
             except Exception:
                 pass
+
+            # Merge sources into a `sources` list (unique)
+            src1 = primary.get("source") or primary.get("source_url") or None
+            src2 = secondary.get("source") or secondary.get("source_url") or None
+            sources = []
+            if src1:
+                sources.append(src1)
+            if src2 and src2 not in sources:
+                sources.append(src2)
+            if sources:
+                primary["sources"] = sources
+
+            # Merge provenance arrays (preserve order, unique)
+            prov1 = primary.get("provenance") or []
+            prov2 = secondary.get("provenance") or []
+            merged_prov = []
+            for p in (prov1 or []):
+                if p not in merged_prov:
+                    merged_prov.append(p)
+            for p in (prov2 or []):
+                if p not in merged_prov:
+                    merged_prov.append(p)
+            if merged_prov:
+                primary["provenance"] = merged_prov
+
+            # Merge iocs by (type, indicator/value) key
+            def _iocs_key(i):
+                try:
+                    return (
+                        (i.get("type") or "").lower(),
+                        (i.get("indicator") or i.get("value") or "").lower(),
+                    )
+                except Exception:
+                    return None
+
+            iocs1 = primary.get("iocs") or []
+            iocs2 = secondary.get("iocs") or []
+            norm_map = {}
+            for i in (iocs1 or []):
+                k = _iocs_key(i)
+                if k:
+                    norm_map[k] = i
+            for i in (iocs2 or []):
+                k = _iocs_key(i)
+                if k and k not in norm_map:
+                    norm_map[k] = i
+            if norm_map:
+                primary["iocs"] = list(norm_map.values())
+
+            # Replace kept entry with merged primary
+            kept[idx] = primary
+            kept_norm[idx] = (primary.get(key_field) or "").strip().lower()
         else:
             kept.append(rec)
             kept_norm.append(title)
@@ -1986,6 +2041,11 @@ def generate_markdown_summary(parsed_threats: list[dict]) -> str:
             mitre_details = th.get("mitre_details") or []
             if mitre_details:
                 mitre_parts = []
+                # load mitigations mapping once
+                try:
+                    mitre_mitig_map = load_mitre_mitigations()
+                except Exception:
+                    mitre_mitig_map = {}
                 for mditem in mitre_details:
                     mid = mditem.get("id")
                     mname = (
@@ -2002,6 +2062,45 @@ def generate_markdown_summary(parsed_threats: list[dict]) -> str:
                     else:
                         mitre_parts.append(str(mditem))
                 md.append(f"  - MITRE: {', '.join(mitre_parts)}")
+
+                # For any technique IDs present, append short mitigation notes
+                try:
+                    for mditem in mitre_details:
+                        tid = (mditem.get("id") or "")
+                        if not tid:
+                            continue
+                        tid = tid.upper()
+                        mit = mitre_mitig_map.get(tid)
+                        if not mit:
+                            # Some mitigation maps use technique IDs under related_techniques;
+                            # search for mitigations that list this technique as related.
+                            for mk, mv in mitre_mitig_map.items():
+                                rel = mv.get("related_techniques") or []
+                                if tid in rel:
+                                    mit = mv
+                                    break
+                        if not mit:
+                            continue
+                        # Prefer a short title and first recommendation/snippet
+                        title = mit.get("title") or mit.get("name") or mk
+                        recs = mit.get("recommendations") or []
+                        snippet = ""
+                        if recs and isinstance(recs, list) and len(recs) > 0:
+                            # choose the first substantive recommendation
+                            snippet = recs[0]
+                        elif isinstance(mit.get("snippets"), dict):
+                            # fall back to action snippets if available
+                            act = mit.get("snippets").get("action") or []
+                            if act:
+                                snippet = act[0]
+                        if snippet:
+                            # keep snippet short (first line)
+                            first_line = str(snippet).splitlines()[0][:300]
+                            md.append(f"  - Mitigation for {tid}: {title} — {first_line}")
+                        else:
+                            md.append(f"  - Mitigation for {tid}: {title}")
+                except Exception:
+                    pass
             else:
                 techs = th.get("technique") or []
                 if isinstance(techs, dict):
@@ -2011,15 +2110,118 @@ def generate_markdown_summary(parsed_threats: list[dict]) -> str:
                         f"  - MITRE: {', '.join([t if isinstance(t, str) else str(t) for t in techs])}"
                     )
 
-            ed = extract_enablers_detailed(rec)
+            # Prefer listing enabler names only; do not include excerpts.
+            try:
+                ed = extract_enablers_detailed(rec)
+            except Exception:
+                ed = None
             if ed:
                 enabler_names = ", ".join([e.get("enabler") for e in ed[:3]])
                 md.append(f"  - Enablers: {enabler_names}")
-                md.append("  - Enabler excerpts:")
-                for e in ed[:2]:
-                    md.append(
-                        f"    - {e.get('enabler')}: {(e.get('excerpt') or '')[:200]}"
-                    )
+
+            # IOCs: show a short list or '--'
+            try:
+                iocs = rec.get("iocs") or []
+                if iocs:
+                    ioc_parts = []
+                    for i in iocs[:10]:
+                        typ = (i.get("type") or "").lower()
+                        val = i.get("value") or i.get("indicator") or ""
+                        if typ and val:
+                            ioc_parts.append(f"{typ}:{val}")
+                        elif val:
+                            ioc_parts.append(str(val))
+                    if ioc_parts:
+                        md.append(f"  - IOCs: {', '.join(ioc_parts)}")
+                    else:
+                        md.append("  - IOCs: --")
+                else:
+                    md.append("  - IOCs: --")
+            except Exception:
+                md.append("  - IOCs: --")
+
+            # MITRE Techniques and Mitigations: explicit lines, or '--' when none
+            try:
+                th2 = rec.get("threat") or {}
+                mitre_details2 = th2.get("mitre_details") or []
+                tech_ids = []
+                tech_names = []
+                if mitre_details2:
+                    for mditem in mitre_details2:
+                        tid = (mditem.get("id") or "")
+                        if tid:
+                            tech_ids.append(tid.upper())
+                        name = mditem.get("mitre_name") or mditem.get("name") or None
+                        if name:
+                            tech_names.append(name)
+                else:
+                    techs = th2.get("technique") or []
+                    if isinstance(techs, dict):
+                        names = techs.get("name")
+                        if isinstance(names, list):
+                            tech_names.extend(names)
+                        elif names:
+                            tech_names.append(names)
+                    elif isinstance(techs, list):
+                        for t in techs:
+                            if isinstance(t, str):
+                                tech_names.append(t)
+                            elif isinstance(t, dict):
+                                n = t.get("name")
+                                if n:
+                                    tech_names.append(n)
+
+                if tech_ids or tech_names:
+                    tech_line = []
+                    if tech_ids:
+                        tech_line.append(
+                            ", ".join([t for t in tech_ids])
+                        )
+                    if tech_names:
+                        tech_line.append(
+                            ", ".join([t for t in tech_names[:5]])
+                        )
+                    md.append(f"  - MITRE Techniques: {', '.join(tech_line)}")
+                else:
+                    md.append("  - MITRE Techniques: --")
+
+                # Collect short mitigation snippets for the techniques
+                try:
+                    mitig_map = load_mitre_mitigations()
+                except Exception:
+                    mitig_map = {}
+                mitig_snips = []
+                for tid in tech_ids:
+                    mid = tid.upper()
+                    mit = mitig_map.get(mid)
+                    if not mit:
+                        # fallback: look through mitigations for related_techniques
+                        for mk, mv in mitig_map.items():
+                            rel = mv.get("related_techniques") or []
+                            if tid in rel:
+                                mit = mv
+                                break
+                    if not mit:
+                        continue
+                    title = mit.get("title") or mit.get("name") or mk
+                    recs = mit.get("recommendations") or []
+                    sn = ""
+                    if recs and isinstance(recs, list) and recs:
+                        sn = recs[0].splitlines()[0]
+                    elif isinstance(mit.get("snippets"), dict):
+                        act = mit.get("snippets").get("action") or []
+                        if act:
+                            sn = act[0]
+                    if sn:
+                        mitig_snips.append(f"{mid}: {sn[:300]}")
+
+                if mitig_snips:
+                    md.append(f"  - Mitigations: {', '.join(mitig_snips[:5])}")
+                else:
+                    md.append("  - Mitigations: --")
+            except Exception:
+                md.append("  - MITRE Techniques: --")
+                md.append("  - Mitigations: --")
 
             src = rec.get("source") or ""
             if src:

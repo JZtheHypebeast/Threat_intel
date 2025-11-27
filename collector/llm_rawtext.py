@@ -13,11 +13,6 @@ from .config import CONFIG
 logger = logging.getLogger(__name__)
 
 def _get_openai_client() -> Optional[Any]:
-    """Create and return an OpenAI client if an API key is available.
-
-    Returns None if the OPENAI_API_KEY environment variable is not set,
-    if the `openai` package is not installed, or if client creation fails.
-    """
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
         logger.warning("OPENAI_API_KEY not set; skipping LLM calls")
@@ -160,7 +155,6 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         '    - "source_url": the URL you see below\n'
         '    - "trust_level": one of ["Low","Medium","High"]\n'
         '    - "reason": why this source is low/med/high confidence\n'
-        '- "markdown_section": string (markdown formatted summary for a human analyst, including key IOCs, risks, and actions)\n\n'
         "Guidelines:\n"
         "- Base everything only on the article text and general MITRE knowledge.\n"
         "- If the article does not state an actor/country/vendor/IOC, either omit it or set confidence low and explain.\n"
