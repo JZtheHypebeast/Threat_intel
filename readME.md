@@ -22,13 +22,13 @@ python3 -m venv .venv
 - Run the unstructured RSS pipeline for the last 28 hours and write outputs:
 
 ```bash
-.venv/bin/python3 -m collector.main --unstructured-rss --hours 28
+.venv/bin/python3 -m collector.main --unstructured --hours 28
 ```
 
 - Or run full collector (structured + unstructured) for 24 hours:
 
 ```bash
-.venv/bin/python3 -m collector.main --structured --unstructured-rss --hours 24
+.venv/bin/python3 -m collector.main --structured --unstructured --hours 24
 ```
 
 Notes
@@ -40,7 +40,7 @@ Notes
 
 ## CLI flags (common)
 
-- `--unstructured-rss` — run the unstructured RSS/article pipeline only (or combined)
+- `--unstructured` — run the unstructured RSS/article pipeline only (or combined)
 - `--structured` — run the structured CVE/KEV collection pipeline
 - `--hours <N>` — look-back window in hours for RSS items (used to limit the run)
 
@@ -51,7 +51,27 @@ inspect `collector/main.py` for available CLI flags.
 
 You can run the collector from any POSIX shell (macOS, Linux). Typical steps:
 
-- Create and activate a virtual environment and install dependencies:
+# Threat Intel Collector — Overview
+
+This repository provides a lightweight threat-intelligence collector and
+processing pipeline written in Python. It supports two primary collection
+flows:
+
+- Structured CVE/KEV collection (CVE feeds and known exploited vulnerabilities).
+- Unstructured RSS/article pipeline — fetches articles from RSS feeds,
+	extracts indicators (IOCs), infers MITRE ATT&CK techniques, computes
+	relevance/priority scores, and writes sanitized NDJSON + Markdown reports.
+
+The focus is on producing actionable, searchable intelligence records with
+separate storage of full article bodies (`rawtext-<date>.json`).
+
+This README documents how to run the collector, the outputs it produces,
+and a comprehensive list of configuration variables (env-var names and the
+`CONFIG` keys used by the code).
+
+## Quick Start
+
+- Create and activate a Python virtual environment and install dependencies:
 
 ```bash
 python3 -m venv .venv
@@ -59,226 +79,194 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-- Set optional env vars (examples) and run the unstructured RSS pipeline for 48 hours:
+- Run only the unstructured RSS pipeline for the last 28 hours:
 
 ```bash
-# optional: suppress the ASCII banner
-export COLLECTOR_NO_BANNER=1
-# run the unstructured RSS pipeline
-python3 -m collector.main --unstructured --hours 48
+python3 -m collector.main --unstructured --hours 28
 ```
 
-- Example `systemd` unit (Linux) to run daily at boot and on a timer. Put the file at `/etc/systemd/system/threat-collector.service`:
-
-```ini
-[Unit]
-Description=Threat Intel Collector
-After=network.target
-
-[Service]
-Type=simple
-User=collector
-WorkingDirectory=/opt/threat_intel
-ExecStart=/opt/threat_intel/.venv/bin/python3 -m collector.main --unstructured --hours 24
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Adjust the paths and user to your environment. Use `journalctl -u threat-collector.service -f` to follow logs.
-
-For quick testing you can use `cron` or a simple `launchd` job on macOS; Dockerfile examples are also straightforward if you prefer containerized runs.
-
-## Important configuration variables
-
-The collector has many runtime knobs exposed via the `CONFIG` mapping and
-environment variables (prefix `TI_` for most settings). Below are the most
-important ones you may want to change and why.
-
-- `TI_RSS_FEEDS` (CONFIG[`RSS_FEEDS`]) — list of RSS feed URLs to ingest. Update
-	this to add or remove sources.
-- `TI_VENDORS` (CONFIG[`VENDORS`]) — vendor/product keywords used to group
-	findings by vendor. Useful to bias detection toward your tracked vendors.
-- `TI_USER_AGENT` (CONFIG[`USER_AGENT`]) — HTTP User-Agent string used for
-	requests. Set a descriptive UA for polite scraping.
-- `TI_MAX_WORKERS` (CONFIG[`MAX_WORKERS`]) — number of parallel worker threads
-	used for IO-bound tasks (fetching articles). Lower this if you hit rate
-	limits; increase for faster runs on beefy machines.
-- `TI_HTTP_RETRIES_TOTAL`, `TI_HTTP_BACKOFF_FACTOR` — retry policy for HTTP
-	requests. Increase retries for flaky networks; increase backoff factor to
-	reduce request rate under transient errors.
-- `TI_FUZZY_MATCHING_ENABLE` & `TI_FUZZY_MATCH_THRESHOLD` — enable fuzzy
-	deduplication and control threshold (0-100). Helpful to collapse similar
-	but not identical headlines; set threshold higher to be stricter.
-- `TI_MIN_REPEAT_FOR_SHORT_MATCH` — controls whether short repeated snippets
-	(e.g., "phishing. phishing.") count as evidence. Lower values make short
-	repetitions more influential; default is `2`.
-- `TI_EXCERPT_RADIUS` — number of characters around a matched snippet used to
-	build excerpts. Increase for more context; decrease to keep excerpts short.
-- `TI_HTML_STRIP_ELEMENTS` & `TI_BOILERPLATE_KEYWORDS` — control HTML cleaning
-	and boilerplate removal. Extend these lists if outputs include unwanted
-	navigation/footer content.
-- `TI_PATTERNS_FILE`, `TI_MITRE_MAP_FILE`, `TI_MITRE_MITIGATIONS_FILE` — paths to
-	auxiliary data files. Point these at updated mapping files if you maintain
-	custom MITRE mappings or mitigation snippets.
-- `TI_SIEM_ENABLED` and SIEM-related vars (`TI_ELASTIC_*`) — control whether
-	results are shipped to a SIEM (Elastic) and where. Use `TI_SIEM_DRY_RUN=true`
-	to test SIEM integration without sending data.
-- `TI_CRITICAL`, `TI_INTERESTING_MIN`, `TI_INTERESTING_MAX` — numeric thresholds
-	used by scoring and thresholds for what is considered critical/interesting.
-	Tune these to your operational appetite for alerts.
-- `TI_ENABLE_UA_ROTATION` and `TI_FALLBACK_USER_AGENTS` — enable rotating UAs
-	from a fallback list when fetching articles; useful to reduce blocking by
-	some providers.
-
-Tip: you can set any of the above via environment variables before running the
-collector, for example:
+- Run the structured + unstructured pipelines together for 24 hours:
 
 ```bash
-export TI_MAX_WORKERS=4
-export TI_FUZZY_MATCH_THRESHOLD=90
-.venv/bin/python3 -m collector.main --unstructured-rss --hours 24
-```
-
-
-## Running unit tests
-
-- Run the full test suite (using the project's venv Python):
-
-```bash
-.venv/bin/python3 -m pytest -q
-```
-
-- Run a single test file:
-
-```bash
-.venv/bin/python3 -m pytest tests/test_unstructured.py -q
-```
-
-- Run a single test nodeid (collected name) — useful when iterating quickly:
-
-```bash
-.venv/bin/python3 -m pytest tests/test_unstructured.py::TestUnstructuredExtraction::test_short_nav_reject -q
+python3 -m collector.main --structured --unstructured --hours 24
 ```
 
 Notes
-- Tests are compatible with running from the repo root using the venv python so
-	imports resolve correctly (e.g. the `collector` package).
+- Results are written under `collector/results/<YYYYMMDD>/` by default.
+- Full article bodies are written into `rawtext-<date>.json` (separate from
+	the NDJSON output to avoid embedding long text in the NDJSON records).
 
-## Formatting and code style
+## What the collector does (functional summary)
 
-- This project uses Black. Reformat the repository with the venv python:
+- Poll RSS feeds and fetch article HTML/text (parallelized with a thread
+	pool).
+- Sanitize and normalize article text (boilerplate removal, dehyphenation).
+- Extract IOCs (IPs, domains, URLs, hashes, emails) via regex patterns.
+- Match keywords and phrase maps to infer MITRE ATT&CK techniques and
+	populate `threat.technique` / `threat.technique_mitigations`.
+- Compute relevance and MITRE-based priority scores.
+- Produce a sanitized NDJSON file, a rawtext JSON file containing full
+	extracted article text, and a Markdown report aggregation.
+
+## CLI flags
+
+- `--structured` — run structured CVE/KEV collection.
+- `--unstructured` — run unstructured RSS/article pipeline.
+- `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path.
+- `--llm` — run LLM rawtext translation pipeline (if enabled).
+- `--tests` — run unit tests using the active Python interpreter.
+- `--hours <N>` — look-back window in hours for RSS items.
+- `--no-banner` — suppress ASCII banner at program start.
+
+Run `python3 -m collector.main -h` to see available flags and help text.
+
+## Outputs and file conventions
+
+- `UnstructuredRSSIntel_<date>.ndjson` — sanitized NDJSON output. Each line
+	is a JSON object with fields such as `id`, `source`, `title`, `@timestamp`,
+	`threat` (with `technique` names/IDs and `technique_mitigations`), `iocs`,
+	and `provenance`.
+- `rawtext-<date>.json` — array of objects containing full article text and
+	metadata. This file contains the full extracted article bodies.
+- `UnstructuredRSSReport_<date>.md` — human-readable Markdown report used for
+	quick review and triage.
+
+NDJSON records intentionally exclude the full article bodies; they are kept
+in `rawtext-<date>.json` to simplify downstream indexing and reduce NDJSON
+size.
+
+## Configuration (env vars / CONFIG keys)
+
+All runtime configuration is provided via the `CONFIG` mapping in
+`collector/config.py`. Most values may be overridden using environment
+variables (often prefixed with `TI_`). Below is a grouped, annotated list of
+the most important configuration options and their corresponding env var names.
+
+General
+- `TI_RSS_FEEDS` (CONFIG[`RSS_FEEDS`]) — Comma-separated list or JSON array
+	of RSS feed URLs to ingest. Defaults to a curated list in `config.py`.
+- `TI_VENDORS` (CONFIG[`VENDORS`]) — Vendor/product keywords used for
+	grouping and heuristics.
+- `TI_OUTPUT_DIR` (CONFIG[`OUTPUT_DIR`]) — Output directory (set via
+	`RESULTS_DIR` by default). Override `TI_OUTPUT_DIR` by setting
+	`CONFIG['OUTPUT_DIR']` programmatically or editing `config.py`.
+
+HTTP & fetching
+- `TI_USER_AGENT` (CONFIG[`USER_AGENT`]) — HTTP User-Agent used for
+	requests. Default: `ThreatIntelCollector/5.0 (+https://example.local)`.
+- `TI_HTTP_RETRIES_TOTAL` & `TI_HTTP_BACKOFF_FACTOR` — Retry policy for HTTP
+	requests (used when fetching feeds/articles).
+- `TI_HTTP_STATUS_FORCELIST` — JSON array of status codes that should
+	trigger retries (default: `[500,502,503,504]`).
+- `TI_REQUEST_TIMEOUT` — Request timeout in seconds for fetch operations.
+- `TI_ENABLE_UA_ROTATION` & `TI_FALLBACK_USER_AGENTS` — Enable rotating
+	User-Agent headers and provide fallback agent strings.
+
+Concurrency & dedupe
+- `TI_MAX_WORKERS` (CONFIG[`MAX_WORKERS`]) — Thread pool size for article
+	fetching (default: 8).
+- `TI_FUZZY_MATCHING_ENABLE` — Enable fuzzy title deduplication (default:
+	false).
+- `TI_FUZZY_MATCH_THRESHOLD` — Percentage (0-100) threshold for fuzzy title
+	matching (default: 85).
+
+Text processing & sanitization
+- `TI_HTML_PARSER` — HTML parser to use (e.g., `html.parser`, `lxml`).
+- `TI_HTML_MAX_LEN` — Max HTML length to consider for extraction.
+- `TI_HTML_STRIP_ELEMENTS` — HTML tag names to drop before text extraction (e.g.
+	`script`, `style`, `header`, `footer`, `nav`).
+- `TI_BOILERPLATE_KEYWORDS` — Patterns used to drop boilerplate paragraphs.
+- `TI_EXCERPT_RADIUS` — Characters around a matched snippet used to build
+	excerpts.
+
+Summarization & findings
+- `TI_ENABLE_SUMMARIZATION` — Whether to compute a short text summary for
+	each article.
+- `TI_SUMMARY_MAX_SENTENCES` / `TI_SUMMARY_MAX_CHARS` — Controls summary
+	length.
+
+Pattern & MITRE data files
+- `TI_PATTERNS_FILE` — Optional path to a JSON file with extraction regexes
+	and classification rules.
+- `TI_MITRE_MAP_FILE` — Optional path to a MITRE mapping JSON file (used to
+	enrich technique IDs/names and references).
+- `TI_MITRE_MITIGATIONS_FILE` — Optional path to mitigation items used for
+	building `technique_mitigations`.
+
+Scoring & thresholds
+- `TI_CRITICAL`, `TI_INTERESTING_MIN`, `TI_INTERESTING_MAX` — Numeric
+	thresholds used in scoring and labeling relevance.
+- `TI_MITRE_PRIORITY_BASE_WEIGHT`, `TI_MITRE_PRIORITY_EVIDENCE_WEIGHT` —
+	Weights used for combining signals into MITRE priority scores.
+
+IOCs & actionable items
+- `TI_MAX_SNIPPETS_PER_TYPE` — Number of excerpt snippets to keep per type.
+- `TI_MITIG_SNIPPET_FIRST_SENT_MAX` & `TI_MITIG_SNIPPET_MAX_CHARS` —
+	Controls for mitigation snippet extraction.
+
+Provenance & LLM detection
+- `TI_PROVENANCE_KEYWORDS` — Keywords to mark content as LLM generated
+	(e.g., `chatgpt`, `openai`).
+- `TI_PROVENANCE_STRIP_PATTERNS` — Regexes used to remove provenance
+	boilerplate from extracted text.
+
+SIEM / Delivery
+- `TI_SIEM_ENABLED` — Whether to send results to a SIEM (default: false).
+- `TI_SIEM_TYPE` — SIEM backend (e.g., `elastic`).
+- `TI_ELASTIC_ENDPOINT`, `TI_ELASTIC_INDEX`, `TI_ELASTIC_API_KEY` — Elastic
+	delivery settings.
+- `TI_SIEM_DRY_RUN` — If true, delivery logic will simulate delivery without
+	sending (default: true).
+
+Advanced runtime knobs
+- `TI_COMPILED_PATTERNS_CACHE_MAXSIZE` — Cache size used by compiled
+	regex loaders.
+- `TI_INCLUDE_ENTRIES_WITHOUT_DATE` — Include feed entries without a
+	published date (default: true).
+
+Note: For boolean env vars the code generally interprets the string `true`
+case-insensitively; JSON-style env vars (arrays/dicts) can be provided as
+JSON strings.
+
+## Tests & development
+
+- Run the full test suite:
 
 ```bash
-.venv/bin/python3 -m black .
+python3 -m pytest -q
 ```
 
-Black is listed in `requirements.txt` so running the `pip install -r requirements.txt`
-step should install it into the venv.
-
-## Useful helper scripts (project-local)
-
-The `scripts/` directory contains a few project-relevant utility scripts (not all
-scripts are intended for production automation):
-
-- `scripts/sanitize_results.py` — sanitize NDJSON/rawtext JSON files in a results
-	directory (removes `text`, `raw_text`, `summary_text`, and prunes provenance).
-
-Usage (default looks for latest 2025-11-14 folder shown in earlier runs):
+- Run a single test file or nodeid for faster iteration:
 
 ```bash
-.venv/bin/python3 scripts/sanitize_results.py /path/to/collector/results/20251114
-# or run without args to use the default results path used by the project
-.venv/bin/python3 scripts/sanitize_results.py
+python3 -m pytest tests/test_unstructured.py -q
+python3 -m pytest tests/test_unstructured.py::TestUnstructuredExtraction::test_short_nav_reject -q
 ```
 
-- `scripts/build_mitre_map.py`, `scripts/build_mitre_mitigations.py`, and
-	`scripts/build_mitre_mitigations_compact.py` are helper scripts used to
-	generate/transform MITRE mapping artifacts in the `data/` folder.
+The interactive menu and the `--tests` CLI flag run pytest using the same
+Python interpreter that launched the collector (`sys.executable -m pytest`),
+so tests will run consistently when using a virtual environment.
 
-Note: During repository housekeeping some temporary analysis/maintenance scripts
-were removed. If you need a previously-created helper (for coverage or dedupe
-analysis), they may exist in your local backups or the `backups/` directory.
+## Helper scripts
 
-## Outputs and conventions
+- `scripts/sanitize_results.py` — sanitizes NDJSON/rawtext files in a results
+	directory (e.g., removes `text/raw_text/excerpt` fields from NDJSON).
+- `scripts/build_mitre_map.py`, `scripts/build_mitre_mitigations.py` —
+	create or transform MITRE mapping artifacts under `data/`.
 
-	article text; `text`/`raw_text`/`excerpt` fields are removed from the
-	serialized NDJSON. Full bodies live in `rawtext-<date>.json`.
-	filenames like `UnstructuredRSSIntel_<date>.ndjson` and
-	`UnstructuredRSSReport_<date>.md`.
-
-## Development tips
-
-	unit tests under `tests/` to assert the absence/presence of fields.
+Use the helper scripts for offline maintenance of mapping files or to clean
+historical outputs.
 
 ## Troubleshooting
 
-	that you installed dependencies: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`.
-	edits should not change logic but can surface whitespace-related issues in
-	generated artifacts.
-
-## Short log & result examples
-
-Below are brief examples of the kinds of log lines and result records you will see when running the collector.
-
-Example log lines (from `collector/logs/threat_intel_collector.log`):
-
-```
-2025-11-14 15:10:02 [INFO] Fetching RSS feed https://gbhackers.com/feed/
-2025-11-14 15:10:05 [INFO] Found 12 new entries in feed: gbhackers
-2025-11-14 15:10:07 [INFO] Fetching article https://gbhackers.com/some-article
-2025-11-14 15:10:09 [INFO] Extracted 3 iocs, 1 mitre technique, score=7.8 -> writing record
-2025-11-14 15:10:09 [INFO] Wrote 30 records -> collector/results/20251114/UnstructuredRSSIntel_20251114.ndjson
-```
-
-Example NDJSON record (sanitized; full article text is NOT included in NDJSON):
-
-```json
-{ "id": "u-20251114-0001", "source": "gbhackers", "title": "Phishing campaign targets X", "published": "2025-11-14T14:02:00Z", "threat": { "technique": { "id": "T1566", "name": "Phishing" }, "mitre_details": [{"id":"T1566","priority_score":70}] , "mitre_priority": {"score": 72} }, "iocs": [{"type":"domain","value":"bad.example.com"}], "provenance": [{"source_name":"GBHackers","source_url":"https://gbhackers.com/some-article","confidence":0.8}] }
-```
-
-Example Markdown report excerpt (`UnstructuredRSSReport_<date>.md`):
-
-```
-## Unstructured RSS Report — 2025-11-14
-
-1. Entry: Phishing campaign targets X
-
-   - Date: 2025-11-14T14:02:00Z
-   - Technique: Phishing (T1566)
-   - Priority score: 72
-   - IOCs: bad.example.com
-   - Provenance: GBHackers — https://gbhackers.com/some-article
-
-```
-
-## Architectural structure (high level)
-
-The pipeline is intentionally modular. Key components:
-
-- `collector/main.py` — CLI entrypoint coordinating runs (structured/unstructured).
-- `collector/config.py` — central configuration and environment-variable mapping.
-- `collector/unstructured.py` — orchestration for the RSS/article pipeline: fetch feeds, fetch article HTML/PDFs, call enrichment and dedupe, and write outputs.
-- `collector/unstructured_core.py` — enrichment logic: text extraction, IOC detection/normalization, MITRE mapping, scoring, excerpt extraction, and markdown generation.
-- `collector/unstructured_pdf.py` — PDF-specific pipeline and extraction helpers (handles PDF download, extraction, and OCR fallbacks where available) and returns extracted text to the main unstructured pipeline.
-- `collector/structured.py` — structured CVE/KEV collection and normalization.
-- `collector/enablers.py` — helper routines for extracting enabler keywords and excerpting context.
-- `collector/delivery.py` — optional delivery/export to SIEM (Elastic) or other sinks.
-- `collector/progress.py` — terminal-friendly progress reporting used during runs.
-
-Typical runtime flow:
-
-1. `main` parses CLI flags and populates runtime config.
-2. `unstructured` fetches feeds, collects candidate entries.
-3. For each entry: fetch article, extract main text (or PDF text), prune boilerplate.
-	- When an entry points to a PDF, the `unstructured_pdf` module downloads and extracts text (using the configured PDF extractor and optional OCR fallback) and supplies it to the enrichment pipeline.
-4. `unstructured_core` runs detectors (IOCs, MITRE signals), computes relevance & priority scores, and deduplicates similar records.
-5. Writers serialize sanitized NDJSON (no full bodies), write `rawtext-<date>.json` for bodies, and generate the Markdown report.
-6. Optionally, `delivery` ships artifacts to configured SIEMs or APIs.
-
-Design notes
-- Writer-side normalization and pruning ensure produced NDJSON matches the canonical schema and never includes full article text.
-- Raw article bodies are intentionally kept separate to reduce risk and keep NDJSON small and shareable.
+- If the collector fails to fetch articles, check HTTP timeouts and
+	`TI_USER_AGENT` to ensure the target site does not block requests.
+- If MITRE mapping or mitigations appear missing, confirm `TI_MITRE_MAP_FILE`
+	and `TI_MITRE_MITIGATIONS_FILE` point to valid JSON artifacts or use the
+	built-in defaults.
+- Use the test suite to validate local edits: `python3 -m pytest -q`.
 
 ---
+
+This README focuses on usage and configuration; developer-facing notes
+and backup artifacts live under the `backups/` folder in this repository.
