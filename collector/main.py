@@ -27,7 +27,7 @@ def _print_banner ()->None :
 || \ V / (_| | | | |  / ___ \| |  | |_| | |_) | (_| |             ||
 ||  \_/ \__,_|_| |_| /_/   \_\_|   \__,_|_.__/ \__,_|             ||
 \==================================================================/
-Threat Intel Collector — Created by Marc R. Kock - Pick an option:
+Threat Intel Collector — Created by Marc R. Kock
 """
     logger .info (banner )
 

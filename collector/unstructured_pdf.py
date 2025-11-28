@@ -4,7 +4,7 @@ import os
 import json
 from datetime import datetime ,timezone
 
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from .config import CONFIG ,logger ,write_jsonl ,mute_console ,safe_get
 from .progress import progress_bar ,animate_progress
