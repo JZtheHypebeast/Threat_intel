@@ -15,6 +15,9 @@ RESULTS_DIR =os .path .join (RESULTS_ROOT ,TODAY_STAMP )
 
 os .makedirs (RESULTS_DIR ,exist_ok =True )
 os .makedirs (LOGS_DIR ,exist_ok =True )
+# create a day-specific logs folder so logs are stored per-day
+LOGS_DAY_DIR = os.path.join(LOGS_DIR, TODAY_STAMP)
+os.makedirs(LOGS_DAY_DIR, exist_ok=True)
 
 CONFIG ={
 "VENDORS":os .getenv ("TI_VENDORS",None ),
@@ -30,7 +33,7 @@ CONFIG ={
 "TI_COMMUNITY_KEV_URL","https://kevin.gtfkd.com/kev"
 ),
 "OUTPUT_DIR":RESULTS_DIR ,
-"LOG_FILE":os .path .join (LOGS_DIR ,"threat_intel_collector.log"),
+"LOG_FILE":os .path .join (LOGS_DIR, TODAY_STAMP, "threat_intel_collector.log"),
 "USER_AGENT":os .getenv (
 "TI_USER_AGENT","ThreatIntelCollector/5.0 (+https://example.local)"
 ),
