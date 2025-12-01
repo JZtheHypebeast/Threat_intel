@@ -1,5 +1,5 @@
 from __future__ import annotations
-from __future__ import annotations
+from typing import TYPE_CHECKING
 
 import json
 import logging
@@ -20,12 +20,16 @@ from .config import CONFIG ,load_enabler_keywords
 
 logger =logging .getLogger (__name__ )
 
-try :
+try:
     import fitz
 
-    HAS_PYMUPDF =True
-except Exception :
-    HAS_PYMUPDF =False
+    HAS_PYMUPDF = True
+except Exception:
+    fitz = None
+    HAS_PYMUPDF = False
+
+if TYPE_CHECKING:
+    import fitz
 
 CVE_RX =re .compile (CONFIG .get ("CVE_REGEX",r"\bCVE-\d{4}-\d{4,7}\b"),re .I )
 BULLET_FINDING_RE =re .compile (
@@ -1183,36 +1187,36 @@ def _make_id (prefix :str ,title :str |None )->str :
     return f"{prefix}-{base}"
 
 def extract_text_pdftotext (pdf_path :str ,*,max_pages :int |None =None )->str :
-    cmd =["pdftotext","-layout","-q",pdf_path ,"-"]
+    if not HAS_PYMUPDF:
+        logger .warning ("PyMuPDF (fitz) not available; cannot extract PDF text for %s", pdf_path )
+        return ""
     try :
-        result =subprocess .run (
-        cmd ,
-        stdout =subprocess .PIPE ,
-        stderr =subprocess .PIPE ,
-        check =False ,
-        timeout =CONFIG .get ("PDFTOTEXT_TIMEOUT",30 ),
+        doc = fitz.open(pdf_path)
+        pages :list [str ]=[]
+        pdf_max_pages =(
+        max_pages if max_pages is not None else CONFIG .get ("PDF_MAX_PAGES",50 )
         )
-    except Exception as exc :
-        logger .warning ("pdftotext call failed: %s",exc )
-        return ""
-
-    if result .returncode !=0 :
-        logger .warning ("pdftotext exited with code %s",result .returncode )
-        return ""
-
-    text =result .stdout .decode ("utf-8",errors ="replace")
-    text =_dehyphenate_text (text )
-    pdf_max_pages =(
-    max_pages if max_pages is not None else CONFIG .get ("PDF_MAX_PAGES",50 )
-    )
-    if pdf_max_pages and text .count ("\f")>pdf_max_pages :
-        parts :list [str ]=[]
-        for i ,page in enumerate (text .split ("\f")):
-            if i >=pdf_max_pages :
+        for i, page in enumerate(doc):
+            if pdf_max_pages and i >= pdf_max_pages:
                 break
-            parts .append (page )
-        text ="\n".join (parts )
-    return text
+            try:
+                text = page.get_text("text") or ""
+            except Exception:
+                try:
+                    text = page.get_text() or ""
+                except Exception:
+                    text = ""
+            pages.append(text)
+        try:
+            doc.close()
+        except Exception:
+            pass
+        text = "\n".join(pages)
+        text = _dehyphenate_text(text)
+        return text
+    except Exception as exc:
+        logger .warning ("PyMuPDF extraction failed for %s: %s", pdf_path , exc )
+        return ""
 
 def extract_top_findings (
 text :str ,max_items :int =5 ,k :int |None =None

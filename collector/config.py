@@ -4,6 +4,18 @@ import os
 import sys
 from datetime import datetime
 
+import warnings
+
+try:
+    from urllib3.exceptions import NotOpenSSLWarning
+
+    warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
+except Exception:
+    pass
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*SWIG.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"fitz.*")
+
 import requests
 
 BASE_DIR =os .path .dirname (os .path .abspath (__file__ ))
@@ -15,7 +27,7 @@ RESULTS_DIR =os .path .join (RESULTS_ROOT ,TODAY_STAMP )
 
 os .makedirs (RESULTS_DIR ,exist_ok =True )
 os .makedirs (LOGS_DIR ,exist_ok =True )
-# create a day-specific logs folder so logs are stored per-day
+
 LOGS_DAY_DIR = os.path.join(LOGS_DIR, TODAY_STAMP)
 os.makedirs(LOGS_DAY_DIR, exist_ok=True)
 
