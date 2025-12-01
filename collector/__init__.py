@@ -1,6 +1,6 @@
-__all__ =[
-"main",
-"structured",
-"unstructured",
-"unstructured_pdf",
+__all__ = [
+    "main",
+    "structured",
+    "unstructured",
+    "unstructured_pdf",
 ]
