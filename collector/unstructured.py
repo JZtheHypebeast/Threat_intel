@@ -835,13 +835,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
         pass
 
 
-def extract_text_from_file(path: str) -> str:
-    from .unstructured_pdf import extract_text_from_file as _pdf_extract
-
-    return _pdf_extract(path)
-
-
-def run_unstructured_pdf_analysis(path, hours: int = 24) -> dict:
+def run_unstructured_pdf_analysis(path=None, hours: int = 24) -> dict:
     from . import unstructured_pdf as _pdf
 
     return _pdf.run_unstructured_pdf_analysis(path, hours=hours)

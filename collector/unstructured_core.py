@@ -2473,10 +2473,6 @@ def classify_threat(text: str) -> str:
     return "Other"
 
 
-def extract_enablers(text: str):
-    return []
-
-
 def extract_enablers_detailed(text: str, *, radius: int = 160) -> list[dict]:
     if not text:
         return []

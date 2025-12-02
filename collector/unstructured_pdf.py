@@ -93,7 +93,8 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
     mute_console()
     out_dir = CONFIG.get("OUTPUT_DIR_UNSTRUCTURED") or "."
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(os.getcwd(), "data", "PDF")
+    if not path:
+        path = os.path.join(os.getcwd(), "data", "PDF")
     files = extract_text_from_file(path)
     total = len(files)
     results = []
