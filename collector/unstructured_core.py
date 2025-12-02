@@ -64,8 +64,31 @@ PROVENANCE_STRIP_PATTERNS = [
 ]
 RELATED_ARTICLES_MARKER = "related articles"
 CORE_FOCUS_LIMIT = 1000
+NPM_TRIGGER_PHRASES = (
+    "npm package",
+    "malicious npm",
+    "malicious package",
+    "typosquatting",
+    "postinstall",
+    "post install",
+    "supply chain",
+    "eslint plugin",
+    "eslint-plugin",
+)
+TEXT_RELEVANCE_BOOSTS = {
+    k.lower(): v for k, v in (CONFIG.get("TEXT_RELEVANCE_BOOSTS") or {}).items()
+}
+SECTOR_RELEVANCE_BOOSTS = {
+    k.lower(): v for k, v in (CONFIG.get("SECTOR_RELEVANCE_BOOSTS") or {}).items()
+}
+ACTIONABILITY_KEYWORD_WEIGHTS = {
+    k.lower(): v
+    for k, v in (CONFIG.get("ACTIONABILITY_KEYWORD_WEIGHTS") or {}).items()
+}
 
-
+# =========================
+# ===== Pattern Loading ===
+# =========================
 def load_patterns() -> Dict[str, List[dict]]:
     patterns_path = CONFIG.get("PATTERNS_FILE") or os.path.join(
         os.path.dirname(__file__), "..", "data", "patterns.json"
@@ -569,6 +592,9 @@ def get_requests_session() -> requests.Session:
     return s
 
 
+# =========================
+# ===== Fetch & Parse =====
+# =========================
 def fetch_article_text(url: str, timeout: int | None = None) -> str:
     try:
         session = get_requests_session()
@@ -587,332 +613,32 @@ def fetch_article_text(url: str, timeout: int | None = None) -> str:
     return resp.text
 
 
+# =========================
+# == Threat Extraction ====
+# =========================
 def extract_threat_indicators(
     parsed_record: dict | str, source: str | None = None, title: str | None = None
 ) -> dict:
-    if isinstance(parsed_record, str):
-        parsed_record = {"text": parsed_record}
-        if source:
-            parsed_record["source"] = source
-        if title:
-            parsed_record["title"] = title
-    text_parts = []
-    for f in ("title", "summary_text", "summary", "text", "full_text", "description"):
-        v = parsed_record.get(f)
-        if v:
-            text_parts.append(str(v))
-    aggregate_text = "\n".join(text_parts)
+    parsed_record, aggregate_text = _normalize_record_input(
+        parsed_record, source, title
+    )
     if not aggregate_text:
         return parsed_record
 
-    compiled = load_compiled_patterns()
+    found = _collect_pattern_hits(aggregate_text)
+    _apply_pattern_hits(found, parsed_record)
 
-    found: Dict[str, set] = defaultdict(set)
-    for key, patterns in compiled.items():
-        for pat in patterns:
-            regex = pat.get("regex")
-            if not regex:
-                continue
-            try:
-                for m in regex.finditer(aggregate_text):
-                    val = m.group(0).strip()
-                    if not val:
-                        continue
-                    if key == "cve":
-                        found["cve"].add(val.upper())
-                    elif key == "ip":
-                        found["ip"].add(val)
-                    elif key == "domain":
-                        found["domain"].add(val.lower())
-                    elif key == "hash":
-                        found["hash"].add(val.lower())
-                    elif key == "email":
-                        found["email"].add(val.lower())
-                    elif key == "technique":
-                        tid = val.upper()
-                        found["technique"].add(tid)
-                    elif key in ("threats", "threat"):
-                        found.setdefault("threat_label", set()).add(val)
-                    elif key == "actor":
-                        found["actor"].add(val)
-            except re.error:
-                continue
+    has_techniques = bool(
+        (parsed_record.get("threat") or {}).get("technique")
+        or found.get("technique")
+    )
+    if not has_techniques:
+        _maybe_classify_from_text(aggregate_text, parsed_record)
 
-    iocs = []
-    for k in ("ip", "domain", "hash", "email"):
-        for v in sorted(found.get(k, [])):
-            iocs.append({"type": k, "indicator": v})
-
-    techniques = []
-    for tid in sorted(found.get("technique", [])):
-        techniques.append({"id": tid})
-
-    if found.get("threat_label"):
-        th = parsed_record.setdefault("threat", {})
-        th.setdefault("labels", [])
-        for lbl in sorted(found.get("threat_label", [])):
-            if lbl not in th["labels"]:
-                th["labels"].append(lbl)
-    if not techniques:
-        words = [w.lower() for w in re.findall(r"\w+", aggregate_text)]
-        min_repeat = int(CONFIG.get("MIN_REPEAT_FOR_SHORT_MATCH", 2))
-        from collections import Counter
-
-        counts = Counter(words)
-        repeated_label = None
-        for w, c in counts.items():
-            if c >= min_repeat and len(w) > 3:
-                if any(
-                    w.startswith(prefix) for prefix in ("nav", "menu", "link", "item")
-                ):
-                    continue
-                repeated_label = w
-                break
-
-        if repeated_label:
-            label = classify_threat(repeated_label)
-            if label and label != "Unknown":
-                th = parsed_record.setdefault("threat", {})
-                th.setdefault("technique", {})
-                if isinstance(th["technique"], dict):
-                    th["technique"].setdefault("name", [])
-                    if label not in th["technique"]["name"]:
-                        th["technique"]["name"].append(label)
-                else:
-                    th["technique"] = {"name": [label]}
-        else:
-            min_words = CONFIG.get("MIN_WORDS_FOR_CLASSIFY", 6)
-            if len(words) >= min_words:
-                label = classify_threat(aggregate_text)
-                if label and label != "Unknown":
-                    th = parsed_record.setdefault("threat", {})
-                    th.setdefault("technique", {})
-                    if isinstance(th["technique"], dict):
-                        th["technique"].setdefault("name", [])
-                        if label not in th["technique"]["name"]:
-                            th["technique"]["name"].append(label)
-                    else:
-                        th["technique"] = {"name": [label]}
-    actors = []
-    for a in sorted(found.get("actor", [])):
-        actors.append({"name": a})
-
-    if iocs:
-        parsed_record["iocs"] = iocs
-    if techniques or actors:
-        th = parsed_record.setdefault("threat", {})
-        if techniques:
-            th.setdefault("technique", [])
-            th["technique"].extend(techniques)
-        if actors:
-            th.setdefault("actor", [])
-            th["actor"].extend(actors)
+    _apply_phrase_map_to_record(aggregate_text, parsed_record)
 
     try:
-        phrase_map = load_mitre_phrase_map()
-        if phrase_map:
-            txt = aggregate_text or ""
-
-            for phrase, entries in phrase_map.items():
-                try:
-
-                    if re.search(r"(?i)\b" + re.escape(phrase) + r"\b", txt):
-                        th = parsed_record.setdefault("threat", {})
-                        th.setdefault("technique", [])
-                        for entry in entries:
-                            tid = entry.get("id") or entry.get("technique_id") or ""
-                            name = entry.get("name") or None
-
-                            exists = False
-                            for ex in th.get("technique", []):
-                                if (
-                                    isinstance(ex, dict)
-                                    and tid
-                                    and ex.get("id")
-                                    and ex.get("id").upper() == str(tid).upper()
-                                ):
-                                    exists = True
-                                    break
-                                if isinstance(ex, dict) and name and ex.get("name"):
-                                    en = ex.get("name")
-                                    if (isinstance(en, list) and name in en) or (
-                                        isinstance(en, str) and en == name
-                                    ):
-                                        exists = True
-                                        break
-                                if isinstance(ex, str) and name and ex == name:
-                                    exists = True
-                                    break
-                            if exists:
-                                continue
-                            if tid:
-
-                                th["technique"].append(
-                                    {
-                                        "id": str(tid).upper(),
-                                        "name": name,
-                                        "inferred": True,
-                                        "source": "inferred",
-                                    }
-                                )
-                            else:
-                                if name:
-                                    th["technique"].append(
-                                        {
-                                            "name": [name],
-                                            "inferred": True,
-                                            "source": "inferred",
-                                        }
-                                    )
-                except re.error:
-                    continue
-    except Exception:
-
-        pass
-
-    try:
-        th = parsed_record.setdefault("threat", {})
-        techs = th.get("technique") or []
-
-        tech_list = techs if isinstance(techs, list) else []
-
-        mitre_map = load_mitre_map() or {}
-        name_index = {}
-        entries_iter = mitre_map.items() if isinstance(mitre_map, dict) else []
-        for mid, entry in entries_iter:
-            try:
-                name = (entry.get("name") or "").strip()
-                if not name:
-                    continue
-                key = name.lower()
-                name_index.setdefault(key, []).append(entry)
-            except Exception:
-                continue
-
-        keyword_index = {}
-        heuristics = [
-            "phish",
-            "ransom",
-            "xss",
-            "cross-site",
-            "sql",
-            "injection",
-            "privilege",
-            "exfil",
-            "ddos",
-            "botnet",
-            "remote code",
-            "rce",
-            "malware",
-            "credential",
-        ]
-        try:
-            for mid, entry in entries_iter:
-                ename = (entry.get("name") or "").lower()
-                for k in heuristics:
-                    if k in ename:
-                        keyword_index.setdefault(k, []).append(entry)
-        except Exception:
-            pass
-
-        heuristic_label_map = {
-            "phishing": "T1566",
-            "ransomware": "T1486",
-        }
-
-        for t in tech_list:
-            try:
-                if isinstance(t, dict):
-
-                    if t.get("id"):
-                        continue
-
-                    names = t.get("name") or []
-                    if isinstance(names, str):
-                        names = [names]
-                elif isinstance(t, str):
-                    names = [t]
-                else:
-                    names = []
-
-                for nm in names:
-                    if not nm:
-                        continue
-                    key = str(nm).strip().lower()
-                    entries = name_index.get(key) or []
-
-                    try:
-                        if not entries:
-                            pm = load_mitre_phrase_map() or {}
-                            entries = pm.get(key) or []
-                    except Exception:
-                        pass
-
-                    if not entries:
-                        for hk in keyword_index:
-                            if hk in key or hk in str(nm).lower():
-                                entries = keyword_index.get(hk) or []
-                                if entries:
-                                    break
-                    for e in entries:
-                        tid = e.get("id") or e.get("technique_id") or None
-                        if not tid:
-                            continue
-
-                        exists = False
-                        for ex in tech_list:
-                            if (
-                                isinstance(ex, dict)
-                                and ex.get("id")
-                                and ex.get("id").upper() == str(tid).upper()
-                            ):
-                                exists = True
-                                break
-                        if exists:
-                            continue
-                        tech_list.append(
-                            {
-                                "id": str(tid).upper(),
-                                "name": e.get("name"),
-                                "inferred": True,
-                                "source": "inferred_by_name",
-                            }
-                        )
-
-                if not entries:
-                    try:
-                        lname = str(nm).strip().lower()
-                        hid = heuristic_label_map.get(lname)
-                        if hid:
-
-                            exists = any(
-                                isinstance(ex, dict)
-                                and ex.get("id")
-                                and ex.get("id").upper() == hid
-                                for ex in tech_list
-                            )
-                            if not exists:
-
-                                mm = (
-                                    mitre_map.get(hid.upper())
-                                    if isinstance(mitre_map, dict)
-                                    else None
-                                )
-                                tech_list.append(
-                                    {
-                                        "id": hid.upper(),
-                                        "name": mm.get("name") if mm else nm,
-                                        "inferred": True,
-                                        "source": "heuristic_label",
-                                    }
-                                )
-                    except Exception:
-                        pass
-            except Exception:
-                continue
-
-        if isinstance(techs, list):
-            th["technique"] = tech_list
+        _expand_mitre_by_name(parsed_record)
     except Exception:
         pass
 
@@ -934,7 +660,6 @@ def extract_threat_indicators(
         pass
 
     parsed_record = attach_mitre_to_intel(parsed_record)
-
     parsed_record = compute_mitre_relevance(parsed_record)
 
     try:
@@ -970,6 +695,10 @@ def extract_iocs(
     text = str(text_or_intel or "")
     iocs = []
     seen = set()
+    package_pattern = re.compile(
+        r"@?[a-z0-9][\w.-]*(?:/[a-z0-9][\w.-]*)?@[0-9]+(?:\.[0-9]+){2,}", re.I
+    )
+
     patterns = {
         "ip": re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"),
         "sha256": re.compile(r"\b[a-fA-F0-9]{64}\b"),
@@ -992,6 +721,7 @@ def extract_iocs(
         "7z",
         "iso",
         "scr",
+        "json",
     }
 
     def _add(t, v):
@@ -1003,6 +733,10 @@ def extract_iocs(
         val = v.lower()
         iocs.append({"type": typ, "indicator": val, "value": val})
 
+    for m in package_pattern.finditer(text):
+        val = m.group(0)
+        _add("software_package", val)
+
     for t, p in patterns.items():
         for m in p.finditer(text):
             val = m.group(0)
@@ -1013,6 +747,15 @@ def extract_iocs(
                     suffix = val.rsplit(".", 1)[1].lower()
                     if suffix in file_ext_block:
                         _add("filename", val)
+                        continue
+                except Exception:
+                    pass
+            if t == "email":
+                try:
+                    local, _, dom = val.partition("@")
+                    if "/" in local or "\\" in local:
+                        continue
+                    if dom and dom.replace(".", "").isdigit():
                         continue
                 except Exception:
                     pass
@@ -1126,6 +869,9 @@ def generate_actionable_summary(intel: dict) -> str:
     return " ".join(parts)
 
 
+# =========================
+# == Scoring & Priority ===
+# =========================
 def compute_relevance_score(intel: dict) -> dict:
     tcount = len((intel.get("threat") or {}).get("technique", []) or [])
     acount = len((intel.get("threat") or {}).get("actor", []) or [])
@@ -1136,8 +882,11 @@ def compute_relevance_score(intel: dict) -> dict:
         fin_boost = CONFIG.get("FIN_ORG_RELEVANCE_BOOST", 20)
         high_domains = CONFIG.get("HIGH_RELEVANCE_DOMAINS", []) or []
         sectors = (intel.get("threat") or {}).get("target", {}).get("sector", []) or []
-        if any("financial" in s.lower() or "bank" in s.lower() for s in sectors):
-            boost += fin_boost
+        for s in sectors:
+            sl = s.lower()
+            for key, val in SECTOR_RELEVANCE_BOOSTS.items():
+                if key in sl:
+                    boost += val
         src = intel.get("source") or ""
         try:
             parsed = urlparse(src)
@@ -1155,8 +904,9 @@ def compute_relevance_score(intel: dict) -> dict:
             str(intel.get(f) or "") for f in ("summary_text", "summary", "description")
         ).lower()
         txt = f"{title} {desc}"
-        if any(k in txt for k in ("bank", "financial", "credit", "atm", "swift")):
-            boost += int(fin_boost / 2)
+        for key, val in TEXT_RELEVANCE_BOOSTS.items():
+            if key in txt:
+                boost += val
         score = int(min(100, score + boost))
     except Exception:
         pass
@@ -1232,6 +982,359 @@ def build_campaign_summary(text: str) -> str:
             "Stolen data is exfiltrated to attacker-controlled infrastructure."
         )
     return " ".join(parts)
+
+
+def _normalize_record_input(
+    parsed_record: dict | str, source: str | None, title: str | None
+) -> tuple[dict, str]:
+    if isinstance(parsed_record, str):
+        parsed_record = {"text": parsed_record}
+        if source:
+            parsed_record["source"] = source
+        if title:
+            parsed_record["title"] = title
+    text_parts = []
+    for f in ("title", "summary_text", "summary", "text", "full_text", "description"):
+        v = parsed_record.get(f)
+        if v:
+            text_parts.append(str(v))
+    aggregate_text = "\n".join(text_parts) if text_parts else ""
+    return parsed_record, aggregate_text
+
+
+def _collect_pattern_hits(aggregate_text: str) -> Dict[str, set]:
+    found: Dict[str, set] = defaultdict(set)
+    compiled = load_compiled_patterns()
+    for key, patterns in compiled.items():
+        for pat in patterns:
+            regex = pat.get("regex")
+            if not regex:
+                continue
+            try:
+                for m in regex.finditer(aggregate_text):
+                    val = m.group(0).strip()
+                    if not val:
+                        continue
+                    if key == "cve":
+                        found["cve"].add(val.upper())
+                    elif key == "ip":
+                        found["ip"].add(val)
+                    elif key == "domain":
+                        found["domain"].add(val.lower())
+                    elif key == "hash":
+                        found["hash"].add(val.lower())
+                    elif key == "email":
+                        found["email"].add(val.lower())
+                    elif key == "technique":
+                        found["technique"].add(val.upper())
+                    elif key in ("threats", "threat"):
+                        found.setdefault("threat_label", set()).add(val)
+                    elif key == "actor":
+                        found["actor"].add(val)
+            except re.error:
+                continue
+    return found
+
+
+def _apply_pattern_hits(found: Dict[str, set], parsed_record: dict) -> None:
+    iocs = []
+    for k in ("ip", "domain", "hash", "email"):
+        for v in sorted(found.get(k, [])):
+            iocs.append({"type": k, "indicator": v})
+    if iocs:
+        parsed_record["iocs"] = iocs
+
+    techniques = [{"id": tid} for tid in sorted(found.get("technique", []))]
+    actors = [{"name": a} for a in sorted(found.get("actor", []))]
+
+    if found.get("threat_label"):
+        th = parsed_record.setdefault("threat", {})
+        th.setdefault("labels", [])
+        for lbl in sorted(found.get("threat_label", [])):
+            if lbl not in th["labels"]:
+                th["labels"].append(lbl)
+
+    if techniques or actors:
+        th = parsed_record.setdefault("threat", {})
+        if techniques:
+            th.setdefault("technique", [])
+            th["technique"].extend(techniques)
+        if actors:
+            th.setdefault("actor", [])
+            th["actor"].extend(actors)
+
+
+def _maybe_classify_from_text(aggregate_text: str, parsed_record: dict) -> None:
+    if not aggregate_text:
+        return
+    words = [w.lower() for w in re.findall(r"\w+", aggregate_text)]
+    min_repeat = int(CONFIG.get("MIN_REPEAT_FOR_SHORT_MATCH", 2))
+    repeated_label = None
+    try:
+        from collections import Counter
+
+        counts = Counter(words)
+        for w, c in counts.items():
+            if c >= min_repeat and len(w) > 3:
+                if any(w.startswith(prefix) for prefix in ("nav", "menu", "link", "item")):
+                    continue
+                repeated_label = w
+                break
+    except Exception:
+        repeated_label = None
+
+    th = parsed_record.setdefault("threat", {})
+    tech = th.setdefault("technique", {})
+
+    def _attach_label(lbl: str) -> None:
+        if isinstance(tech, dict):
+            names = tech.get("name") or []
+            if isinstance(names, list):
+                if lbl not in names:
+                    names.append(lbl)
+                tech["name"] = names
+            elif isinstance(names, str):
+                tech["name"] = [names] if names == lbl else [names, lbl]
+        elif isinstance(tech, list):
+            if lbl not in tech:
+                tech.append(lbl)
+        else:
+            th["technique"] = {"name": [lbl]}
+
+    if repeated_label:
+        label = classify_threat(repeated_label)
+        if label and label != "Unknown":
+            _attach_label(label)
+            return
+
+    min_words = CONFIG.get("MIN_WORDS_FOR_CLASSIFY", 6)
+    if len(words) >= min_words:
+        label = classify_threat(aggregate_text)
+        if label and label != "Unknown":
+            _attach_label(label)
+
+
+def _apply_phrase_map_to_record(aggregate_text: str, parsed_record: dict) -> None:
+    try:
+        phrase_map = load_mitre_phrase_map() or {}
+    except Exception:
+        phrase_map = {}
+    if not (phrase_map and aggregate_text):
+        return
+    skip_terms = CONFIG.get("MITRE_PHRASE_SKIP_TERMS") or set()
+    min_len = CONFIG.get("MIN_MITRE_PHRASE_LEN", 4)
+    txt = aggregate_text
+    th = parsed_record.setdefault("threat", {})
+    tech = th.get("technique")
+    if isinstance(tech, list):
+        pass
+    elif isinstance(tech, dict):
+        th["technique"] = [tech]
+    else:
+        th["technique"] = []
+    for phrase, entries in phrase_map.items():
+        try:
+            if not entries:
+                continue
+            cleaned = str(phrase).strip().lower()
+            if cleaned in skip_terms:
+                continue
+            if len(cleaned) < max(1, int(min_len)):
+                continue
+            if not re.search(r"(?i)\b" + re.escape(phrase) + r"\b", txt):
+                continue
+        except re.error:
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            tid = entry.get("id") or entry.get("technique_id")
+            name = entry.get("name")
+            add = True
+            tech_list = th.get("technique") or []
+            for ex in tech_list:
+                if isinstance(ex, dict):
+                    if tid and str(ex.get("id", "")).upper() == str(tid).upper():
+                        add = False
+                        break
+                    en = ex.get("name")
+                    if isinstance(en, list) and name in en:
+                        add = False
+                        break
+                    if isinstance(en, str) and name and en == name:
+                        add = False
+                        break
+                elif isinstance(ex, str) and name and ex == name:
+                    add = False
+                    break
+            if not add:
+                continue
+            item: dict = {}
+            if tid:
+                item["id"] = str(tid).upper()
+            if name:
+                item["name"] = name
+            tech_list.append(item)
+            th["technique"] = tech_list
+
+
+def _expand_mitre_by_name(parsed_record: dict) -> None:
+    th = parsed_record.setdefault("threat", {})
+    techs = th.get("technique") or []
+    tech_list = techs if isinstance(techs, list) else []
+
+    try:
+        mitre_map = load_mitre_map() or {}
+    except Exception:
+        mitre_map = {}
+    name_index = {}
+    entries_iter = mitre_map.items() if isinstance(mitre_map, dict) else []
+    for mid, entry in entries_iter:
+        try:
+            name = (entry.get("name") or "").strip()
+            if not name:
+                continue
+            key = name.lower()
+            name_index.setdefault(key, []).append(entry)
+        except Exception:
+            continue
+
+    keyword_index = {}
+    heuristics = [
+        "phish",
+        "ransom",
+        "xss",
+        "cross-site",
+        "sql",
+        "injection",
+        "privilege",
+        "exfil",
+        "ddos",
+        "botnet",
+        "remote code",
+        "rce",
+        "malware",
+        "credential",
+    ]
+    try:
+        for mid, entry in entries_iter:
+            ename = (entry.get("name") or "").lower()
+            for k in heuristics:
+                if k in ename:
+                    keyword_index.setdefault(k, []).append(entry)
+    except Exception:
+        pass
+
+    heuristic_label_map = {"phishing": "T1566", "ransomware": "T1486"}
+
+    for t in tech_list:
+        try:
+            if isinstance(t, dict):
+                if t.get("id"):
+                    continue
+                names = t.get("name") or []
+                if isinstance(names, str):
+                    names = [names]
+            elif isinstance(t, str):
+                names = [t]
+            else:
+                names = []
+
+            for nm in names:
+                if not nm:
+                    continue
+                key = str(nm).strip().lower()
+                entries = name_index.get(key) or []
+
+                try:
+                    if not entries:
+                        pm = load_mitre_phrase_map() or {}
+                        entries = pm.get(key) or []
+                except Exception:
+                    pass
+
+                if not entries:
+                    for hk in keyword_index:
+                        if hk in key or hk in str(nm).lower():
+                            entries = keyword_index.get(hk) or []
+                            if entries:
+                                break
+                for e in entries:
+                    tid = e.get("id") or e.get("technique_id") or None
+                    if not tid:
+                        continue
+                    exists = False
+                    for ex in tech_list:
+                        if (
+                            isinstance(ex, dict)
+                            and ex.get("id")
+                            and ex.get("id").upper() == str(tid).upper()
+                        ):
+                            exists = True
+                            break
+                    if exists:
+                        continue
+                    tech_list.append(
+                        {
+                            "id": str(tid).upper(),
+                            "name": e.get("name"),
+                            "inferred": True,
+                            "source": "inferred_by_name",
+                        }
+                    )
+
+            if not entries:
+                try:
+                    lname = str(nm).strip().lower()
+                    hid = heuristic_label_map.get(lname)
+                    if hid:
+                        exists = any(
+                            isinstance(ex, dict)
+                            and ex.get("id")
+                            and ex.get("id").upper() == hid
+                            for ex in tech_list
+                        )
+                        if not exists:
+                            mm = (
+                                mitre_map.get(hid.upper())
+                                if isinstance(mitre_map, dict)
+                                else None
+                            )
+                            tech_list.append(
+                                {
+                                    "id": hid.upper(),
+                                    "name": mm.get("name") if mm else nm,
+                                    "inferred": True,
+                                    "source": "heuristic_label",
+                                }
+                            )
+                except Exception:
+                    pass
+        except Exception:
+            continue
+
+    if isinstance(techs, list):
+        th["technique"] = tech_list
+
+
+def _ensure_technique_names(th: dict) -> None:
+    tech = th.get("technique")
+    if tech is None:
+        th["technique"] = {"name": []}
+    elif isinstance(tech, list):
+        names: list[str] = []
+        for t in tech:
+            if isinstance(t, dict):
+                if isinstance(t.get("name"), list):
+                    names.extend(t.get("name") or [])
+                elif t.get("id"):
+                    names.append(t.get("id"))
+            elif isinstance(t, str):
+                names.append(t)
+        th["technique"] = {"name": names}
+    elif isinstance(tech, dict):
+        if "name" not in tech:
+            tech["name"] = []
 
 
 def build_keyword_summary(
@@ -1350,6 +1453,9 @@ def _normalize_mitre_techniques(threat: dict) -> dict:
     return threat
 
 
+# =========================
+# === Campaign Heuristics =
+# =========================
 def enrich_campaign_heuristics(intel: dict, text: str) -> dict:
     """
     Add lightweight, rule-based enrichment (MITRE techniques, iocs, priority, detections)
@@ -1656,6 +1762,7 @@ def enrich_campaign_heuristics(intel: dict, text: str) -> dict:
         (not summary)
         or low_summary.startswith("iocs")
         or low_summary.startswith("topics")
+        or low_summary.startswith("share")
     ):
         built = build_campaign_summary(text)
         if built:
@@ -1720,6 +1827,108 @@ def enrich_campaign_heuristics(intel: dict, text: str) -> dict:
             ]
             kws = build_keyword_summary(text, ks, max_sentences=3)
             if kws:
+                intel["summary_text"] = kws
+    npm_hit = any(p in core_focus for p in NPM_TRIGGER_PHRASES) or any(
+        p in title_low for p in ("npm", "package")
+    )
+    if npm_hit:
+        _add_technique_if_missing(
+            th,
+            tid="T1190",
+            name="Exploit Public-Facing Application",
+            tactic="Initial Access",
+            confidence=0.6,
+            reason="Supply-chain compromise via malicious npm package installation.",
+            source="npm_supply_chain",
+        )
+        _add_technique_if_missing(
+            th,
+            tid="T1059",
+            name="Command and Scripting Interpreter",
+            tactic="Execution",
+            confidence=0.7,
+            reason="Postinstall scripts in npm package execute JavaScript on install.",
+            source="npm_supply_chain",
+        )
+        _add_technique_if_missing(
+            th,
+            tid="T1547",
+            name="Boot or Logon Autostart Execution",
+            tactic="Persistence",
+            confidence=0.5,
+            reason="Install-time hooks may establish persistence or autorun behavior.",
+            source="npm_supply_chain",
+        )
+        pkg_match = None
+        try:
+            backtick = re.search(r"`([^`]+)`", core_focus)
+            if backtick:
+                raw_pkg = backtick.group(1).strip().strip(".")
+                if raw_pkg and len(raw_pkg) > 3:
+                    pkg_match = re.sub(r"\s+", "-", raw_pkg.lower())
+            if not pkg_match:
+                generic = re.search(
+                    r"(?:npm package|package (?:in question )?is)\s+([a-z0-9._\-\s]+)",
+                    core_focus,
+                )
+                raw_pkg = generic.group(1).strip().strip(".") if generic else None
+                if raw_pkg and len(raw_pkg) > 3:
+                    pkg_match = re.sub(r"\s+", "-", raw_pkg.lower())
+        except Exception:
+            pkg_match = None
+        if pkg_match:
+            iocs = intel.setdefault("iocs", [])
+            already = {
+                (ioc.get("type"), (ioc.get("indicator") or ioc.get("value")))
+                for ioc in iocs
+                if isinstance(ioc, dict)
+            }
+            key = ("software_package", pkg_match)
+            if key not in already:
+                iocs.append(
+                    {
+                        "type": "software_package",
+                        "indicator": pkg_match,
+                        "context": "Malicious npm package distributing hidden scripts",
+                        "confidence": 0.9,
+                    }
+                )
+            intel["iocs"] = iocs
+        # add simple detections/recommendations for npm supply chain
+        try:
+            dets = intel.setdefault("detections", [])
+            dets.append(
+                {
+                    "name": "Suspicious npm package install with postinstall hook",
+                    "type": "Endpoint / DevEnvironment",
+                    "idea": "Alert on npm installs of packages with postinstall scripts or typosquatted names; monitor outbound exfiltration during install.",
+                }
+            )
+            recs = intel.setdefault("recommendations", [])
+            recs.append(
+                {
+                    "type": "Technical",
+                    "text": "Lock dependencies and disallow unknown npm packages with postinstall hooks; vet typosquats before use.",
+                }
+            )
+        except Exception:
+            pass
+        if not intel.get("summary_text"):
+            ks = [
+                "npm package",
+                "postinstall",
+                "typosquatting",
+                "exfiltrate",
+                "environment variables",
+                "hidden prompt",
+            ]
+            kws = build_keyword_summary(text, ks, max_sentences=3)
+            if pkg_match:
+                intel["summary_text"] = (
+                    f"Malicious npm package {pkg_match} uses postinstall/hidden scripts "
+                    "to steal environment variables and exfiltrate data."
+                )
+            elif kws:
                 intel["summary_text"] = kws
     return intel
 
@@ -2386,6 +2595,8 @@ def normalize_and_merge_iocs(intel, source: str | None = None):
         v = (i.get("indicator") or i.get("value") or i.get("ioc") or "").strip()
         if not t or not v:
             continue
+        if t == "malware" and v.lower() in {"exclusive", "submit", "hackernews25"}:
+            continue
         key = (t, v.lower())
         ctx = i.get("context") or i.get("excerpt") or ""
         confidence = i.get("confidence") or 0.75
@@ -2607,31 +2818,7 @@ def score_actionability(title: str | None, description: str | None) -> dict:
     d = (description or "").lower()
     text = f"{t} {d}".strip()
 
-    kw_weights = {
-        "zero-day": 30,
-        "zero day": 30,
-        "active exploit": 30,
-        "exploit": 25,
-        "ransomware": 25,
-        "malware": 20,
-        "cve": 15,
-        "critical": 20,
-        "remote code execution": 25,
-        "rce": 25,
-        "privilege escalation": 20,
-        "elevation of privilege": 20,
-        "sql injection": 18,
-        "xss": 15,
-        "cross-site scripting": 15,
-        "phishing": 12,
-        "botnet": 12,
-        "ddos": 12,
-        "mass scanning": 15,
-        "internet-facing": 15,
-        "public exploit": 20,
-        "poc available": 20,
-        "proof-of-concept": 20,
-    }
+    kw_weights = ACTIONABILITY_KEYWORD_WEIGHTS or {}
 
     score = 0
     matches: list[dict] = []

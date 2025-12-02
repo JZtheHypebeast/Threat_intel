@@ -62,6 +62,404 @@ PROGRESS_PREFIX_ARTICLES = "Articles"
 PROGRESS_PREFIX_WRITE = "Write"
 DATASET_NAME = "unstructured.intel"
 
+
+# =========================
+# ===== Feed Parsing ======
+# =========================
+def _parse_feeds(feeds: list, cutoff: datetime) -> tuple[list, dict]:
+    entries = []
+    for idx, feed_url in enumerate(feeds, 1):
+        parsed = feedparser.parse(feed_url)
+        try:
+            feed_count = len(parsed.entries) if parsed and hasattr(parsed, "entries") else 0
+        except Exception:
+            feed_count = 0
+        status = f"feed={idx}/{len(feeds)} entries={feed_count}"
+        progress_bar(idx, len(feeds), prefix=PROGRESS_PREFIX_FEEDS, status=status)
+        for e in parsed.entries:
+            pub_dt = None
+            try:
+                if e.get("published_parsed"):
+                    pub_dt = datetime.fromtimestamp(
+                        calendar.timegm(e.published_parsed), timezone.utc
+                    )
+                elif e.get("updated_parsed"):
+                    pub_dt = datetime.fromtimestamp(
+                        calendar.timegm(e.updated_parsed), timezone.utc
+                    )
+                else:
+                    pub = e.get("published") or e.get("updated")
+                    pub_dt = dtparser.parse(pub).astimezone(timezone.utc) if pub else None
+            except Exception:
+                pub_dt = None
+            if pub_dt and pub_dt < cutoff:
+                continue
+            if not pub_dt and not CONFIG.get("INCLUDE_ENTRIES_WITHOUT_DATE", True):
+                continue
+            link = e.get("link")
+            title = e.get("title")
+            summary = None
+            try:
+                summary = e.get("summary") or (
+                    e.get("content")[0].get("value") if e.get("content") else None
+                )
+            except Exception:
+                summary = e.get("summary") or None
+            if link:
+                if title and WEEKLY_RECAP_MARKER in str(title).lower():
+                    continue
+                entries.append((link, title, pub_dt, summary))
+
+    seen = set()
+    uniq = []
+    for link, title, pub_dt, summary in entries:
+        if link in seen:
+            continue
+        seen.add(link)
+        uniq.append((link, title, pub_dt, summary))
+
+    diag = {
+        "discovered_entries": len(entries),
+        "after_url_dedupe": len(uniq),
+    }
+    return uniq, diag
+
+
+# =========================
+# ===== Article Processing=
+# =========================
+def _process_entries(
+    uniq: list, total_entries: int, max_workers: int
+) -> tuple[list, dict]:
+    records = []
+    shared = {"current": 0, "status": ""}
+    animator = None
+    if total_entries:
+        animator = start_live_progress(
+            prefix=PROGRESS_PREFIX_ARTICLES, total=total_entries, shared=shared
+        )
+
+    pre_dedupe_count = 0
+    post_dedupe_count = 0
+    merged_count = 0
+    merged_examples = []
+    articles_with_iocs = 0
+    articles_with_enablers = 0
+    articles_with_findings = 0
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {
+            ex.submit(fetch_article_text, link): (link, title, pub_dt, summary)
+            for link, title, pub_dt, summary in uniq
+        }
+        completed = 0
+        for fut in as_completed(futures):
+            completed += 1
+            status = (
+                f"fetched:{completed}/{total_entries} "
+                f"iocs:{articles_with_iocs} enablers:{articles_with_enablers} findings:{articles_with_findings}"
+            )
+            try:
+                shared["current"] = completed
+                shared["status"] = status
+            except Exception:
+                progress_bar(
+                    completed, total_entries, prefix=PROGRESS_PREFIX_ARTICLES, status=status
+                )
+
+            link, title, pub_dt, summary = futures[fut]
+            text = ""
+            fetch_meta = {}
+            try:
+                meta = fut.result()
+                if isinstance(meta, dict):
+                    text = meta.get("text", "") or ""
+                    fetch_meta = {
+                        k: meta.get(k)
+                        for k in ("status_code", "attempts", "used_ua", "error")
+                    }
+                else:
+                    text = str(meta)
+            except Exception:
+                logger.debug(f"error fetching {link}")
+
+            extracted_source = "article_body" if text else None
+            if not text:
+                if summary:
+                    text = summary
+                    extracted_source = "feed_summary"
+                else:
+                    text = ""
+                    extracted_source = "none"
+            try:
+                from .unstructured_core import _dehyphenate_text as _dh
+
+                text = _dh(text)
+            except Exception:
+                pass
+            intel = extract_threat_indicators(text, source=link, title=title)
+
+            try:
+                inferred = infer_missing_vendor_and_actor([intel])
+                if isinstance(inferred, list) and inferred:
+                    intel = inferred[0]
+            except Exception:
+                pass
+
+            try:
+                if CONFIG.get("ENABLE_SUMMARIZATION") and not intel.get("summary_text"):
+                    intel["summary_text"] = summarize_unstructured_description(
+                        text, max_sentences=SUMMARY_SENTENCES
+                    )
+                    try:
+                        built = build_campaign_summary(text)
+                        low = (intel.get("summary_text") or "").strip().lower()
+                        if built and (
+                            not intel.get("summary_text")
+                            or low.startswith("iocs")
+                            or low.startswith("topics")
+                        ):
+                            intel["summary_text"] = built
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                intel = normalize_and_merge_iocs(intel, source=link)
+                extra_iocs = extract_iocs(text, source=link) or []
+                existing = {
+                    (
+                        i.get("type"),
+                        (i.get("indicator") or i.get("value") or "").lower(),
+                    )
+                    for i in intel.get("iocs", []) or []
+                    if isinstance(i, dict)
+                }
+                for i in extra_iocs:
+                    key = (
+                        i.get("type"),
+                        (i.get("indicator") or i.get("value") or "").lower(),
+                    )
+                    if key in existing:
+                        continue
+                    existing.add(key)
+                    intel.setdefault("iocs", []).append(i)
+                try:
+                    src = (link or "").lower().rstrip("/")
+                    filtered = []
+                    for ioc in intel.get("iocs", []) or []:
+                        ind = (
+                            (ioc.get("indicator") or ioc.get("value") or "")
+                            .lower()
+                            .rstrip("/")
+                        )
+                        typ = ioc.get("type")
+                        if typ == "url" and (ind == src or "gbhackers.com" in ind):
+                            continue
+                        if typ == "domain" and "gbhackers.com" in ind:
+                            continue
+                        filtered.append(ioc)
+                    intel["iocs"] = filtered
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    intel["iocs"] = extract_iocs(text, source=link)
+                except Exception:
+                    intel["iocs"] = []
+
+            try:
+                text_sanit = text
+                try:
+                    from .unstructured_core import sanitize_article_text as _sanitize
+
+                    text_sanit = _sanitize(text) or text
+                except Exception:
+                    pass
+
+                prov = detect_provenance(text_sanit) or []
+                if prov:
+                    intel["provenance"] = prov
+                intel["raw_text"] = text_sanit
+
+                rec_for_enablers = dict(intel)
+                rec_for_enablers["text"] = text_sanit
+                ed = extract_enablers_detailed(rec_for_enablers)
+                intel["enablers"] = [e["enabler"] for e in ed]
+                intel["_enablers_detailed"] = ed
+            except Exception:
+                intel["enablers"] = []
+            try:
+                intel["top_findings"] = extract_top_findings(text, k=TOP_FINDINGS_DEFAULT)
+            except Exception:
+                pass
+            try:
+                prov = detect_provenance(text) or []
+                if prov:
+                    intel["provenance"] = prov
+            except Exception:
+                pass
+            intel = compute_relevance_score(intel)
+
+            try:
+                act = score_actionability(
+                    intel.get("title"),
+                    intel.get("summary_text")
+                    or intel.get("top_findings", [])
+                    and " ".join(intel.get("top_findings")),
+                )
+                if act:
+                    intel.setdefault("threat", {})
+                    intel["threat"]["actionability"] = act
+            except Exception:
+                pass
+            try:
+                intel["actionable_summary"] = generate_actionable_summary(intel)
+            except Exception:
+                intel["actionable_summary"] = ""
+            aats = generate_actionable_items(intel)
+            intel.update(aats)
+            try:
+
+                mit_items = []
+                if isinstance(aats, dict):
+                    mit_items = aats.get("mitigations") or []
+                tech_mitigations = []
+                mit_seen = set()
+                for mi in mit_items:
+                    try:
+                        if not isinstance(mi, dict):
+                            continue
+                        if mi.get("type") != "mitigation":
+                            continue
+                        tech = mi.get("technique") or mi.get("technique_id") or None
+                        mid = mi.get("id") or mi.get("mitigation_id") or None
+                        desc = mi.get("description") or mi.get("title") or None
+                        ref = mi.get("reference") or mi.get("url") or None
+                        entry = {}
+                        if tech:
+                            entry["technique"] = tech
+                        if mid:
+                            entry["mitigation_id"] = mid
+                        if desc:
+                            entry["description"] = desc
+                        if ref:
+                            entry["reference"] = ref
+                        key = (entry.get("technique"), entry.get("mitigation_id"))
+                        if entry and key not in mit_seen:
+                            mit_seen.add(key)
+                            tech_mitigations.append(entry)
+                    except Exception:
+                        continue
+                if tech_mitigations:
+                    intel.setdefault("threat", {})
+                    tech_ids = set()
+                    for t in intel.get("threat", {}).get("technique", []) or []:
+                        if isinstance(t, dict) and t.get("id"):
+                            tech_ids.add(str(t.get("id")).upper())
+                    if tech_ids:
+                        tech_mitigations = [
+                            tm
+                            for tm in tech_mitigations
+                            if not tm.get("technique")
+                            or str(tm.get("technique")).upper() in tech_ids
+                        ]
+                    intel["threat"]["technique_mitigations"] = tech_mitigations
+            except Exception:
+                pass
+
+            try:
+                if not intel.get("threat", {}).get("technique_mitigations"):
+                    try:
+                        mitig_map = load_mitre_mitigations()
+                        phrase_map = load_mitre_phrase_map()
+                    except Exception:
+                        mitig_map = {}
+                        phrase_map = {}
+
+                    th_tmp = intel.get("threat") or {}
+                    techs = th_tmp.get("technique") or []
+                    names = []
+                    if isinstance(techs, dict):
+                        n = techs.get("name")
+                        if isinstance(n, list):
+                            names.extend(n)
+                        elif n:
+                            names.append(n)
+                    elif isinstance(techs, list):
+                        for titem in techs:
+                            if isinstance(titem, str):
+                                names.append(titem)
+                            elif isinstance(titem, dict):
+                                nn = titem.get("name")
+                                if nn:
+                                    names.append(nn)
+
+                    resolved = []
+                    for name in names:
+                        key = (name or "").strip().lower()
+                        if not key:
+                            continue
+                        entries = phrase_map.get(key) or []
+                        for ent in entries:
+                            tid = (
+                                ent.get("id") or ent.get("technique_id") or ""
+                            ).upper()
+                            if not tid:
+                                continue
+                            mit = mitig_map.get(tid)
+                            if not mit:
+                                continue
+                            entry = {
+                                "technique": tid,
+                                "mitigation_id": tid,
+                                "description": mit.get("title")
+                                or mit.get("description")
+                                or None,
+                            }
+                            if entry not in resolved:
+                                resolved.append(entry)
+                    if resolved:
+                        intel.setdefault("threat", {})
+                        intel["threat"]["technique_mitigations"] = resolved
+            except Exception:
+                pass
+            intel["@timestamp"] = (pub_dt or datetime.now(timezone.utc)).isoformat()
+            try:
+                intel["extracted_text_source"] = extracted_source
+                if fetch_meta:
+                    intel["fetch"] = fetch_meta
+            except Exception:
+                pass
+            try:
+                intel.setdefault("iocs", [])
+                intel.setdefault("threat", {})
+                thtmp = intel["threat"]
+                if "technique" not in thtmp:
+                    thtmp["technique"] = []
+                if "technique_mitigations" not in thtmp:
+                    thtmp["technique_mitigations"] = []
+            except Exception:
+                pass
+            records.append(intel)
+
+            if intel.get("iocs"):
+                articles_with_iocs += 1
+            if intel.get("enablers"):
+                articles_with_enablers += 1
+            if intel.get("top_findings"):
+                articles_with_findings += 1
+
+    return records, {
+        "pre_dedupe_count": pre_dedupe_count,
+        "post_dedupe_count": post_dedupe_count,
+        "merged_count": merged_count,
+        "merged_examples": merged_examples,
+        "articles_with_iocs": articles_with_iocs,
+        "articles_with_enablers": articles_with_enablers,
+        "articles_with_findings": articles_with_findings,
+    }
+
 def run_unstructured_rss_analysis(hours: int = DEFAULT_HOURS) -> dict:
     mute_console()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -212,7 +610,9 @@ def run_unstructured_rss_analysis(hours: int = DEFAULT_HOURS) -> dict:
                     pass
 
                 try:
-                    if CONFIG.get("ENABLE_SUMMARIZATION"):
+                    if CONFIG.get("ENABLE_SUMMARIZATION") and not intel.get(
+                        "summary_text"
+                    ):
                         intel["summary_text"] = summarize_unstructured_description(
                             text, max_sentences=SUMMARY_SENTENCES
                         )

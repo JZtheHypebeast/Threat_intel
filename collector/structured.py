@@ -30,6 +30,10 @@ COMMUNITY_KEV_URL = CONFIG["COMMUNITY_KEV_URL"]
 OUTPUT_DIR = CONFIG["OUTPUT_DIR_STRUCTURED"]
 PROGRESS_TOTAL_STEPS = 6
 
+# =========================
+# ===== Vendor Helpers ====
+# =========================
+
 
 def build_vendor_pattern(vendor: str) -> re.Pattern:
     if vendor.lower().startswith("forti"):
@@ -272,6 +276,9 @@ def generate_markdown(
     return md_path
 
 
+# =========================
+# === Structured Pipeline =
+# =========================
 def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
     mute_console()
     os.makedirs(OUTPUT_DIR, exist_ok=True)

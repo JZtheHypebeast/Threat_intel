@@ -48,6 +48,9 @@ SUMMARY_SENTENCES = CONFIG.get("SUMMARY_MAX_SENTENCES", 2)
 TOP_FINDINGS_DEFAULT = 5
 
 
+# =========================
+# ===== PDF Extraction ====
+# =========================
 def extract_text_from_file(path):
     texts = []
     if os.path.isdir(path):
@@ -105,6 +108,9 @@ def extract_text_from_file(path):
     return texts
 
 
+# =========================
+# ==== PDF Processing =====
+# =========================
 def run_unstructured_pdf_analysis(path=None, hours=24):
     mute_console()
     out_dir = CONFIG.get("OUTPUT_DIR_UNSTRUCTURED") or "."

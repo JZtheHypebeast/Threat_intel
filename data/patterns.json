@@ -7,7 +7,10 @@
     "\\bcredential[-\\s]?stuffing\\b", "\\bexploit kit\\b", "\\bmalvertising\\b",
     "\\bbrute[-\\s]?force\\b", "\\bwatering hole\\b", "\\bdrive[-\\s]?by\\b",
     "\\bbotnet\\b", "\\brootkit\\b", "\\bwiper\\b", "\\bprivilege escalation\\b",
-    "\\bSQL injection\\b", "\\bcross[-\\s]?site scripting\\b"
+    "\\bSQL injection\\b", "\\bcross[-\\s]?site scripting\\b", "\\bpostinstall\\b",
+    "\\btyposquat\\w*\\b", "\\bphishing page\\b", "\\bcredential theft\\b",
+    "\\bserver wipe\\b", "\\bdata wipe\\b", "\\bmfa bypass\\b", "\\bcloud[-\\s]?hosted\\b",
+    "\\bipfs\\b", "\\bvercel\\b", "\\bcontabo\\b"
   ],
   "actors": [
     "\\bAPT[-\\s]?1\\b", "\\bAPT[-\\s]?10\\b", "\\bAPT[-\\s]?28\\b", "\\bAPT[-\\s]?29\\b",

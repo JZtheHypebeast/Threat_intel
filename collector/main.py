@@ -43,6 +43,9 @@ Threat Intel Collector — Created by Marc R. Kock
 """
 
 
+# =========================
+# ===== Console Output ====
+# =========================
 def _print_banner() -> None:
     logger.info(BANNER)
 
