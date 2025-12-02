@@ -18,7 +18,7 @@ RSS_FEEDS = CONFIG["RSS_FEEDS"]
 NVD_API_BASE = CONFIG["NVD_API_BASE"]
 CISA_KEV_URL = CONFIG["CISA_KEV_URL"]
 COMMUNITY_KEV_URL = CONFIG["COMMUNITY_KEV_URL"]
-OUTPUT_DIR = CONFIG["OUTPUT_DIR"]
+OUTPUT_DIR = CONFIG["OUTPUT_DIR_STRUCTURED"]
 
 
 def build_vendor_pattern(vendor: str) -> re.Pattern:
@@ -264,6 +264,7 @@ def generate_markdown(
 
 def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
     mute_console()
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     if skip_history:
         pass
     try:

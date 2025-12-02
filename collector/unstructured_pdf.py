@@ -91,7 +91,8 @@ def extract_text_from_file(path):
 
 def run_unstructured_pdf_analysis(path=None, hours=24):
     mute_console()
-
+    out_dir = CONFIG.get("OUTPUT_DIR_UNSTRUCTURED") or "."
+    os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(os.getcwd(), "data", "PDF")
     files = extract_text_from_file(path)
     total = len(files)
@@ -228,7 +229,8 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
 
     date_stamp = datetime.now().strftime("%Y%m%d")
     ndjson_path = os.path.join(
-        CONFIG["OUTPUT_DIR"], f"UnstructuredPDFIntel_{date_stamp}.ndjson"
+        CONFIG["OUTPUT_DIR_UNSTRUCTURED"],
+        f"UnstructuredPDFIntel_{date_stamp}.ndjson"
     )
     try:
 
@@ -296,7 +298,8 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
                         }
                     )
                 nav_path = os.path.join(
-                    CONFIG["OUTPUT_DIR"], f"navigator_layer_{date_stamp}.json"
+                    CONFIG["OUTPUT_DIR_UNSTRUCTURED"],
+                    f"navigator_layer_{date_stamp}.json"
                 )
                 with open(nav_path, "w", encoding="utf-8") as nf:
                     json.dump(layer, nf, indent=2)

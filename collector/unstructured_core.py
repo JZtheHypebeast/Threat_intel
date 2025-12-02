@@ -1218,6 +1218,25 @@ def build_campaign_summary(text: str) -> str:
     return " ".join(parts)
 
 
+def build_keyword_summary(
+    text: str, keywords: list[str], max_sentences: int = 3
+) -> str:
+    if not text or not keywords:
+        return ""
+    txt = re.sub(r"\s+", " ", text).strip()
+    sents = re.split(r"(?<=[\.!?])\s+", txt)
+    sents = [s.strip() for s in sents if s.strip()]
+    kw = [k.lower() for k in keywords]
+    chosen = []
+    for s in sents:
+        low = s.lower()
+        if any(k in low for k in kw):
+            chosen.append(s)
+        if len(chosen) >= max_sentences:
+            break
+    return " ".join(chosen)
+
+
 def _prune_placeholder_techniques(threat: dict) -> dict:
     """
     Drop placeholder entries like {'name': ['Other']} when there are real technique IDs present.
@@ -1323,6 +1342,8 @@ def enrich_campaign_heuristics(intel: dict, text: str) -> dict:
     if not text:
         return intel
     txt_low = text.lower()
+    title_low = (intel.get("title") or "").lower()
+    core_txt = txt_low.split("related articles")[0]
     th = intel.setdefault("threat", {})
     _ensure_technique_list(th)
 
@@ -1623,6 +1644,67 @@ def enrich_campaign_heuristics(intel: dict, text: str) -> dict:
         built = build_campaign_summary(text)
         if built:
             intel["summary_text"] = built
+    core_focus = core_txt[:1000]
+    apim_hit = (
+        ("azure api management" in title_low)
+        or (
+            ("azure" in core_focus)
+            and (
+                "api management" in core_focus
+                or (" apim " in f" {core_focus} ")
+            )
+        )
+    )
+    if apim_hit:
+        _add_technique_if_missing(
+            th,
+            tid="T1068",
+            name="Exploitation for Privilege Escalation",
+            tactic="Privilege Escalation",
+            confidence=0.9,
+            reason="Reader-level abuse of legacy ARM API to gain admin control.",
+            source="azure_apim_heuristic",
+        )
+        _add_technique_if_missing(
+            th,
+            tid="T1552",
+            name="Unsecured Credentials",
+            tactic="Credential Access",
+            confidence=0.8,
+            reason="Subscription keys/SSO token dumping from APIM.",
+            source="azure_apim_heuristic",
+        )
+        _add_technique_if_missing(
+            th,
+            tid="T1190",
+            name="Exploit Public-Facing Application",
+            tactic="Initial Access",
+            confidence=0.6,
+            reason="Abuse of public ARM endpoints/legacy API versions.",
+            source="azure_apim_heuristic",
+        )
+        tgt = th.setdefault("target", {})
+        tgt.setdefault("vendor", [])
+        if "Microsoft" not in tgt["vendor"]:
+            tgt["vendor"].append("Microsoft")
+        tgt.setdefault("product", [])
+        if "Azure API Management" not in tgt["product"]:
+            tgt["product"].append("Azure API Management")
+        th["target"] = tgt
+        if (not intel.get("summary_text")) or intel.get(
+            "summary_text", ""
+        ).lower().startswith("related"):
+            ks = [
+                "azure api management",
+                "apim",
+                "subscription key",
+                "reader",
+                "arm api",
+                "disable old api versions",
+            ]
+            kws = build_keyword_summary(text, ks, max_sentences=3)
+            if kws:
+                intel["summary_text"] = kws
     return intel
 
 
@@ -1663,7 +1745,7 @@ def _dehyphenate_text(text: str) -> str:
 def save_full_text(text: str, filename: str) -> str:
     if not text:
         return ""
-    out_dir = os.path.join(CONFIG.get("OUTPUT_DIR", "."), "pdf_text")
+    out_dir = os.path.join(CONFIG.get("OUTPUT_DIR_UNSTRUCTURED", "."), "pdf_text")
     os.makedirs(out_dir, exist_ok=True)
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
     path = os.path.join(out_dir, f"extracted_{safe_name}.txt")

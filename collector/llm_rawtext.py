@@ -34,7 +34,7 @@ _llm_quota_exhausted: bool = False
 
 
 def _get_output_dir() -> Path:
-    out = CONFIG.get("OUTPUT_DIR")
+    out = CONFIG.get("OUTPUT_DIR_LLM")
     if out:
         return Path(out)
     base = Path(__file__).resolve().parent

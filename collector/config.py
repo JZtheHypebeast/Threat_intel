@@ -20,14 +20,21 @@ import requests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_ROOT = os.path.join(BASE_DIR, "results")
+STRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "structured")
+UNSTRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "unstructured")
+LLM_ROOT = os.path.join(RESULTS_ROOT, "llm")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 
 TODAY_STAMP = datetime.now().strftime("%Y%m%d")
-RESULTS_DIR = os.path.join(RESULTS_ROOT, TODAY_STAMP)
+RUN_STAMP = datetime.now().strftime("%H%M%S")
+STRUCTURED_DAY_DIR = os.path.join(STRUCTURED_ROOT, TODAY_STAMP)
+UNSTRUCTURED_DAY_DIR = os.path.join(UNSTRUCTURED_ROOT, TODAY_STAMP)
+LLM_DAY_DIR = os.path.join(LLM_ROOT, TODAY_STAMP)
+STRUCTURED_RUN_DIR = os.path.join(STRUCTURED_DAY_DIR, RUN_STAMP)
+UNSTRUCTURED_RUN_DIR = os.path.join(UNSTRUCTURED_DAY_DIR, RUN_STAMP)
+LLM_RUN_DIR = os.path.join(LLM_DAY_DIR, RUN_STAMP)
 
-os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
-
 LOGS_DAY_DIR = os.path.join(LOGS_DIR, TODAY_STAMP)
 os.makedirs(LOGS_DAY_DIR, exist_ok=True)
 
@@ -44,7 +51,9 @@ CONFIG = {
     "COMMUNITY_KEV_URL": os.getenv(
         "TI_COMMUNITY_KEV_URL", "https://kevin.gtfkd.com/kev"
     ),
-    "OUTPUT_DIR": RESULTS_DIR,
+    "OUTPUT_DIR_STRUCTURED": STRUCTURED_RUN_DIR,
+    "OUTPUT_DIR_UNSTRUCTURED": UNSTRUCTURED_RUN_DIR,
+    "OUTPUT_DIR_LLM": LLM_RUN_DIR,
     "LOG_FILE": os.path.join(LOGS_DIR, TODAY_STAMP, "threat_intel_collector.log"),
     "USER_AGENT": os.getenv(
         "TI_USER_AGENT", "ThreatIntelCollector/5.0 (+https://example.local)"

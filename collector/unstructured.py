@@ -37,9 +37,11 @@ from .unstructured_core import (
     load_mitre_phrase_map,
 )
 
+OUTPUT_DIR = CONFIG["OUTPUT_DIR_UNSTRUCTURED"]
 
 def run_unstructured_rss_analysis(hours: int = 24) -> dict:
     mute_console()
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     try:
         feeds = CONFIG.get("RSS_FEEDS", [])
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -230,7 +232,10 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                                 .lower()
                                 .rstrip("/")
                             )
-                            if ioc.get("type") == "url" and ind == src:
+                            typ = ioc.get("type")
+                            if typ == "url" and (ind == src or "gbhackers.com" in ind):
+                                continue
+                            if typ == "domain" and "gbhackers.com" in ind:
                                 continue
                             filtered.append(ioc)
                         intel["iocs"] = filtered
@@ -450,7 +455,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
 
         date_tag = datetime.now().strftime("%Y%m%d")
         ndjson_fn = f"UnstructuredRSSIntel_{date_tag}.ndjson"
-        out_ndjson = os.path.join(CONFIG.get("OUTPUT_DIR", "."), ndjson_fn)
+        out_ndjson = os.path.join(OUTPUT_DIR, ndjson_fn)
         try:
 
             try:
@@ -674,7 +679,9 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
         try:
             out_raw = None
             rawtext_fn = f"rawtext-{date_tag}.json"
-            out_raw = os.path.join(CONFIG.get("OUTPUT_DIR", "."), rawtext_fn)
+            raw_dir = CONFIG.get("OUTPUT_DIR_LLM") or OUTPUT_DIR
+            os.makedirs(raw_dir, exist_ok=True)
+            out_raw = os.path.join(raw_dir, rawtext_fn)
 
             with open(out_raw, "w", encoding="utf-8") as rf:
                 json.dump(raw_items_snapshot, rf, ensure_ascii=False, indent=2)
@@ -774,7 +781,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
 
                     full_md = generate_unstructured_markdown(records)
 
-                md_path = os.path.join(CONFIG.get("OUTPUT_DIR", "."), md_fn)
+                md_path = os.path.join(OUTPUT_DIR, md_fn)
                 with open(md_path, "w", encoding="utf-8") as mf:
 
                     mf.write(summary_md + "\n\n")

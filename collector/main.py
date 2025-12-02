@@ -59,6 +59,23 @@ Modules:
     logger.info(menu)
 
 
+def _prompt_hours(current_hours: int) -> int:
+    prompt = f"Hours to look back (press Enter for default {current_hours}h): "
+    try:
+        raw = input(prompt).strip()
+    except EOFError:
+        return current_hours
+    if not raw:
+        return current_hours
+    try:
+        chosen = int(raw)
+        logger.info("Using %s hours for this run", chosen)
+        return chosen
+    except ValueError:
+        logger.warning("Invalid hours value: %s (keeping %s)", raw, current_hours)
+        return current_hours
+
+
 def _interactive_loop(default_hours: int, skip_history: bool) -> None:
     hours = default_hours
     while True:
@@ -91,28 +108,23 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
 
         elif key == "structured":
             logger.info("Running structured collection")
-            run_structured_collection(hours=hours, skip_history=skip_history)
+            chosen_hours = _prompt_hours(hours)
+            run_structured_collection(hours=chosen_hours, skip_history=skip_history)
 
         elif key == "unstructured":
             logger.info("Running unstructured RSS analysis")
-            run_unstructured_rss_analysis(hours=hours)
+            chosen_hours = _prompt_hours(hours)
+            run_unstructured_rss_analysis(hours=chosen_hours)
 
         elif key == "pdf":
-            path = None
-            if len(parts) > 1:
-                path = " ".join(parts[1:])
-            else:
-                path = input("PDF file or directory path: ").strip()
-            if path:
-                logger.info("Running unstructured PDF analysis on %s", path)
-                mute_console()
-                run_unstructured_pdf_analysis(path=path, hours=hours)
-            else:
-                logger.warning("No path specified for PDF analysis")
+            logger.info("Running unstructured PDF analysis (data/PDF folder)")
+            mute_console()
+            run_unstructured_pdf_analysis()
 
         elif key == "llm":
             logger.info("Running LLM rawtext translation")
-            run_llm_rawtext(hours=hours)
+            chosen_hours = _prompt_hours(hours)
+            run_llm_rawtext(hours=chosen_hours)
 
         elif key == "tests":
             logger.info("Running unit tests")
@@ -128,12 +140,13 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
                 logger.exception("pytest not found; install with 'pip install pytest'")
 
         elif key == "all":
+            chosen_hours = _prompt_hours(hours)
             logger.info("Running structured collection")
-            run_structured_collection(hours=hours, skip_history=skip_history)
+            run_structured_collection(hours=chosen_hours, skip_history=skip_history)
             logger.info("Running unstructured RSS analysis")
-            run_unstructured_rss_analysis(hours=hours)
+            run_unstructured_rss_analysis(hours=chosen_hours)
             logger.info("Running LLM rawtext translation")
-            run_llm_rawtext(hours=hours)
+            run_llm_rawtext(hours=chosen_hours)
 
         else:
             logger.warning("Unknown command: %s", cmd)
