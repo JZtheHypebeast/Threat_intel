@@ -1,6 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+# =========================
+# === Standard Library ====
+# =========================
 import json
 import logging
 import os
@@ -11,10 +14,17 @@ from functools import lru_cache
 from typing import Dict, List
 from urllib.parse import urlparse
 
+# =========================
+# ===== Third-Party =======
+# =========================
 import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+
+# =========================
+# ====== Local App ========
+# =========================
 from .config import CONFIG, load_enabler_keywords
 
 logger = logging.getLogger(__name__)
@@ -30,6 +40,9 @@ except Exception:
 if TYPE_CHECKING:
     import fitz
 
+# =========================
+# ===== Module Config =====
+# =========================
 CVE_RX = re.compile(CONFIG.get("CVE_REGEX", r"\bCVE-\d{4}-\d{4,7}\b"), re.I)
 BULLET_FINDING_RE = re.compile(
     CONFIG.get(
@@ -46,8 +59,11 @@ SHORT_SOCIAL_RE = re.compile(
 )
 PROMO_PATTERNS = [re.compile(p, re.I) for p in (CONFIG.get("PROMO_PATTERNS") or [])]
 PROVENANCE_STRIP_PATTERNS = [
-    re.compile(p, re.MULTILINE) for p in (CONFIG.get("PROVENANCE_STRIP_PATTERNS") or [])
+    re.compile(p, re.MULTILINE)
+    for p in (CONFIG.get("PROVENANCE_STRIP_PATTERNS") or [])
 ]
+RELATED_ARTICLES_MARKER = "related articles"
+CORE_FOCUS_LIMIT = 1000
 
 
 def load_patterns() -> Dict[str, List[dict]]:
@@ -1343,7 +1359,7 @@ def enrich_campaign_heuristics(intel: dict, text: str) -> dict:
         return intel
     txt_low = text.lower()
     title_low = (intel.get("title") or "").lower()
-    core_txt = txt_low.split("related articles")[0]
+    core_txt = txt_low.split(RELATED_ARTICLES_MARKER)[0]
     th = intel.setdefault("threat", {})
     _ensure_technique_list(th)
 
@@ -1644,7 +1660,7 @@ def enrich_campaign_heuristics(intel: dict, text: str) -> dict:
         built = build_campaign_summary(text)
         if built:
             intel["summary_text"] = built
-    core_focus = core_txt[:1000]
+    core_focus = core_txt[:CORE_FOCUS_LIMIT]
     apim_hit = (
         ("azure api management" in title_low)
         or (
@@ -1890,7 +1906,7 @@ def sanitize_article_text(text: str) -> str:
             pass
 
         low = s.lower()
-        if low.startswith("topics") or "related articles" in low:
+        if low.startswith("topics") or RELATED_ARTICLES_MARKER in low:
             continue
 
         lines.append(s)

@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+# =========================
+# === Standard Library ====
+# =========================
 import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+# =========================
+# ===== Third-Party =======
+# =========================
 import feedparser
 from dateutil import parser as dtparser
 
+# =========================
+# ====== Local App ========
+# =========================
 from .config import CONFIG, fetch_json, logger, mute_console, safe_get, write_jsonl
 from .progress import animate_progress, progress_bar
 
@@ -19,6 +28,7 @@ NVD_API_BASE = CONFIG["NVD_API_BASE"]
 CISA_KEV_URL = CONFIG["CISA_KEV_URL"]
 COMMUNITY_KEV_URL = CONFIG["COMMUNITY_KEV_URL"]
 OUTPUT_DIR = CONFIG["OUTPUT_DIR_STRUCTURED"]
+PROGRESS_TOTAL_STEPS = 6
 
 
 def build_vendor_pattern(vendor: str) -> re.Pattern:
@@ -270,11 +280,11 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
     try:
         end = datetime.now(timezone.utc)
         start = end - timedelta(hours=hours)
-        progress_bar(0, 6, prefix="Structured: initializing")
+        progress_bar(0, PROGRESS_TOTAL_STEPS, prefix="Structured: initializing")
 
         animate_progress("Fetching KEV sources", 15)
         kev_ids = fetch_kev_sources()
-        progress_bar(1, 6, prefix="Structured: KEV fetched")
+        progress_bar(1, PROGRESS_TOTAL_STEPS, prefix="Structured: KEV fetched")
 
         animate_progress("Fetching NVD data", 25)
         patterns = build_vendor_patterns(VENDORS)
@@ -326,7 +336,9 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 entry["modified_only"] = True
                 results[cve["id"]] = entry
 
-        progress_bar(3, 6, prefix=f"Structured: {len(results)} vendor CVEs")
+        progress_bar(
+            3, PROGRESS_TOTAL_STEPS, prefix=f"Structured: {len(results)} vendor CVEs"
+        )
 
         animate_progress("Parsing RSS feeds", 20)
         rss_hits = parse_rss_feeds()
@@ -399,7 +411,7 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
             elif INTERESTING_MIN <= s < CRITICAL_THRESHOLD:
                 interesting.append(r)
 
-        progress_bar(4, 6, prefix="Structured: Categorized")
+        progress_bar(4, PROGRESS_TOTAL_STEPS, prefix="Structured: Categorized")
 
         date_stamp = datetime.now().strftime("%Y%m%d")
         ndjson_path = os.path.join(OUTPUT_DIR, f"StructuredCVEData_{date_stamp}.ndjson")
@@ -423,7 +435,7 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
         except Exception:
             pass
 
-        progress_bar(6, 6, prefix="Structured: done")
+        progress_bar(6, PROGRESS_TOTAL_STEPS, prefix="Structured: done")
 
     finally:
         pass

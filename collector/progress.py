@@ -5,6 +5,16 @@ from typing import Optional
 import threading
 import os
 
+# =========================
+# ===== Module Config =====
+# =========================
+TERMINAL_WIDTH_DEFAULT = 80
+PROGRESS_MIN_LEN = 10
+PROGRESS_MAX_LEN = 60
+INLINE_CLEAR = "\x1b[K"
+DEFAULT_ANIMATE_DELAY = 0.05
+DEFAULT_LIVE_DELAY = 0.08
+
 
 def _terminal_width(default=80) -> int:
     try:
@@ -24,8 +34,8 @@ def progress_bar(
 ):
 
     if length is None:
-        width = _terminal_width()
-        length = max(10, min(60, width - 30))
+        width = _terminal_width(TERMINAL_WIDTH_DEFAULT)
+        length = max(PROGRESS_MIN_LEN, min(PROGRESS_MAX_LEN, width - 30))
 
     try:
         total_val = int(total) if total is not None else 0
@@ -88,7 +98,7 @@ def progress_bar(
                 progress_bar._lock = None
         lock = getattr(progress_bar, "_lock", None)
 
-        to_write = "\r" + out_no_cr + "\x1b[K"
+        to_write = "\r" + out_no_cr + INLINE_CLEAR
         try:
             if lock:
                 lock.acquire()
@@ -129,10 +139,12 @@ def progress_bar(
 def animate_progress(prefix: str, steps: int = 20, delay: float = 0.05):
     for i in range(steps + 1):
         progress_bar(i, steps, prefix)
-        time.sleep(delay)
+        time.sleep(delay or DEFAULT_ANIMATE_DELAY)
 
 
-def start_live_progress(prefix: str, total: int, shared: dict, delay: float = 0.08):
+def start_live_progress(
+    prefix: str, total: int, shared: dict, delay: float = DEFAULT_LIVE_DELAY
+):
     stop_event = threading.Event()
 
     def _runner():

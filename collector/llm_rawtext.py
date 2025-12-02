@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+# =========================
+# === Standard Library ====
+# =========================
 import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
-
 import os
+
+# =========================
+# ===== Module Config =====
+# =========================
+RAWTEXT_GLOB = "rawtext-*.json"
+RAWTEXT_LLM_PREFIX = "rawtext-LLM_"
+LLM_MD_PREFIX = "LLM-UnstructuredReport_"
+RAW_TEXT_SNIPPET_MAX = 8000
 
 from .config import CONFIG
 
@@ -44,7 +54,7 @@ def _get_output_dir() -> Path:
 
 
 def _find_latest_rawtext_file(output_dir: Path) -> Optional[Path]:
-    candidates = sorted(output_dir.glob("rawtext-*.json"))
+    candidates = sorted(output_dir.glob(RAWTEXT_GLOB))
     if not candidates:
         return None
     return candidates[-1]
@@ -113,7 +123,7 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
     raw_text = (
         record.get("raw_text") or record.get("text") or record.get("full_text") or ""
     )
-    snippet = str(raw_text)[:8000]
+    snippet = str(raw_text)[:RAW_TEXT_SNIPPET_MAX]
 
     prompt = (
         "You will receive the full raw text of a cyber security article plus metadata.\n"
@@ -311,8 +321,8 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
         rec = _enrich_record_with_llm(rec)
         processed.append(rec)
     today_stamp = datetime.now().strftime("%Y%m%d")
-    ndjson_path = output_dir / f"rawtext-LLM_{today_stamp}.ndjson"
-    md_path = output_dir / f"LLM-UnstructuredReport_{today_stamp}.md"
+    ndjson_path = output_dir / f"{RAWTEXT_LLM_PREFIX}{today_stamp}.ndjson"
+    md_path = output_dir / f"{LLM_MD_PREFIX}{today_stamp}.md"
     _write_ndjson(ndjson_path, processed)
     md_text = _build_markdown(processed, raw_path)
     md_path.write_text(md_text, encoding="utf-8")

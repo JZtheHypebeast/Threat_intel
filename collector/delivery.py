@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+# =========================
+# === Standard Library ====
+# =========================
 import hashlib
 import json
 import time
 from typing import List
 
+# =========================
+# ===== Third-Party =======
+# =========================
 import requests
 
+# =========================
+# ====== Local App ========
+# =========================
 from .config import CONFIG, logger
+
+# =========================
+# ===== Module Config =====
+# =========================
+BULK_CONTENT_TYPE = "application/x-ndjson"
+DEFAULT_BATCH_SIZE = CONFIG.get("SIEM_BATCH_SIZE", 50)
+DEFAULT_MAX_RETRIES = CONFIG.get("SIEM_MAX_RETRIES", 3)
+DEFAULT_TIMEOUT = CONFIG.get("SIEM_TIMEOUT", 15)
 
 
 def _make_id(doc: dict) -> str:
@@ -39,13 +56,13 @@ def send_batch_to_elastic(docs: List[dict]) -> bool:
 
     endpoint = CONFIG.get("ELASTIC_ENDPOINT")
     index = CONFIG.get("ELASTIC_INDEX")
-    batch_size = CONFIG.get("SIEM_BATCH_SIZE", 50)
-    max_retries = CONFIG.get("SIEM_MAX_RETRIES", 3)
-    timeout = CONFIG.get("SIEM_TIMEOUT", 15)
+    batch_size = DEFAULT_BATCH_SIZE
+    max_retries = DEFAULT_MAX_RETRIES
+    timeout = DEFAULT_TIMEOUT
     dry = CONFIG.get("SIEM_DRY_RUN", True)
 
     session = requests.Session()
-    headers = {"Content-Type": "application/x-ndjson"}
+    headers = {"Content-Type": BULK_CONTENT_TYPE}
     api_key = CONFIG.get("ELASTIC_API_KEY")
     if api_key:
         headers["Authorization"] = f"ApiKey {api_key}"

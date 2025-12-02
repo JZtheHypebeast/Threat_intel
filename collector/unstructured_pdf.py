@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+# =========================
+# === Standard Library ====
+# =========================
 import os
 import json
 from datetime import datetime, timezone
 
+# =========================
+# ===== Third-Party =======
+# =========================
 from pypdf import PdfReader
 
+# =========================
+# ====== Local App ========
+# =========================
 from .config import CONFIG, logger, write_jsonl, mute_console, safe_get
 from .progress import progress_bar, animate_progress
 from . import delivery
@@ -30,6 +39,13 @@ from .unstructured_core import (
     dedupe_records_by_title,
     infer_missing_vendor_and_actor,
 )
+
+# =========================
+# ===== Module Config =====
+# =========================
+PDF_DEFAULT_DIR = os.path.join(os.getcwd(), "data", "PDF")
+SUMMARY_SENTENCES = CONFIG.get("SUMMARY_MAX_SENTENCES", 2)
+TOP_FINDINGS_DEFAULT = 5
 
 
 def extract_text_from_file(path):
@@ -142,7 +158,7 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
             if CONFIG.get("ENABLE_SUMMARIZATION"):
                 try:
                     intel["summary_text"] = summarize_unstructured_description(
-                        text, max_sentences=2
+                        text, max_sentences=SUMMARY_SENTENCES
                     )
                 except Exception:
                     pass
@@ -165,7 +181,9 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
             intel["full_text_path"] = full_text_path
             intel["text_id"] = text_id
             try:
-                intel["top_findings"] = extract_top_findings(text, k=5)
+                intel["top_findings"] = extract_top_findings(
+                    text, k=TOP_FINDINGS_DEFAULT
+                )
             except Exception:
                 intel["top_findings"] = []
 
@@ -247,7 +265,7 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
                 if CONFIG.get("ENABLE_SUMMARIZATION"):
                     r["summary_text"] = summarize_unstructured_description(
                         r.get("full_text_path") and "" or r.get("text", ""),
-                        max_sentences=2,
+                        max_sentences=SUMMARY_SENTENCES,
                     )
             except Exception:
                 pass

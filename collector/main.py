@@ -1,11 +1,18 @@
+from __future__ import annotations
+
+# =========================
+# === Standard Library ====
+# =========================
 import argparse
 import sys
 import warnings
 import subprocess
 import os
 
+# =========================
+# ====== Local App ========
+# =========================
 warnings.filterwarnings("ignore", category=Warning, module=r"urllib3.*")
-
 from .config import logger, mute_console
 from .structured import run_structured_collection
 from .unstructured import run_unstructured_rss_analysis
@@ -16,9 +23,11 @@ from .llm_rawtext import run_llm_rawtext
 
 run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis
 
-
-def _print_banner() -> None:
-    banner = r"""
+# =========================
+# ===== Module Config =====
+# =========================
+DEFAULT_HOURS = 24
+BANNER = r"""
 /==================================================================\
 ||  ____           _             _        ____              _     ||
 || / ___|___ _ __ | |_ _ __ __ _| | ___  | __ )  __ _ _ __ | | __ ||
@@ -32,7 +41,10 @@ def _print_banner() -> None:
 \==================================================================/
 Threat Intel Collector — Created by Marc R. Kock
 """
-    logger.info(banner)
+
+
+def _print_banner() -> None:
+    logger.info(BANNER)
 
 
 def _print_menu(current_hours: int) -> None:
@@ -169,7 +181,7 @@ def main() -> None:
     if not (getattr(args, "no_banner", False) or no_banner_env):
         _print_banner()
 
-    hours = args.hours or 24
+    hours = args.hours or DEFAULT_HOURS
     skip_history = args.no_history
 
     try:

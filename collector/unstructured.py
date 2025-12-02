@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+# =========================
+# === Standard Library ====
+# =========================
 import os
 import json
 import calendar
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# =========================
+# ===== Third-Party =======
+# =========================
 import feedparser
 from dateutil import parser as dtparser
 
+# =========================
+# ====== Local App ========
+# =========================
 from .config import CONFIG, logger, mute_console
 from .progress import progress_bar, start_live_progress, stop_live_progress
 from . import delivery
@@ -37,9 +46,23 @@ from .unstructured_core import (
     load_mitre_phrase_map,
 )
 
+# =========================
+# ===== Module Config =====
+# =========================
 OUTPUT_DIR = CONFIG["OUTPUT_DIR_UNSTRUCTURED"]
+DEFAULT_HOURS = 24
+WEEKLY_RECAP_MARKER = "weekly recap"
+MAX_WORKERS_DEFAULT = CONFIG.get("MAX_WORKERS", 6)
+SUMMARY_SENTENCES = 2
+TOP_FINDINGS_DEFAULT = 5
+SUMMARY_TOP_VENDOR_LIMIT = 3
+SUMMARY_TOP_TACTIC_LIMIT = 5
+PROGRESS_PREFIX_FEEDS = "Feeds"
+PROGRESS_PREFIX_ARTICLES = "Articles"
+PROGRESS_PREFIX_WRITE = "Write"
+DATASET_NAME = "unstructured.intel"
 
-def run_unstructured_rss_analysis(hours: int = 24) -> dict:
+def run_unstructured_rss_analysis(hours: int = DEFAULT_HOURS) -> dict:
     mute_console()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     try:
@@ -55,7 +78,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
             except Exception:
                 feed_count = 0
             status = f"feed={idx}/{len(feeds)} entries={feed_count}"
-            progress_bar(idx, len(feeds), prefix="Feeds", status=status)
+            progress_bar(idx, len(feeds), prefix=PROGRESS_PREFIX_FEEDS, status=status)
             for e in parsed.entries:
                 pub_dt = None
                 try:
@@ -92,7 +115,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                     summary = e.get("summary") or None
                 if link:
                     # Skip weekly recap posts explicitly
-                    if title and "weekly recap" in str(title).lower():
+                    if title and WEEKLY_RECAP_MARKER in str(title).lower():
                         continue
                     entries.append((link, title, pub_dt, summary))
 
@@ -105,7 +128,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
             uniq.append((link, title, pub_dt, summary))
 
         records = []
-        max_workers = CONFIG.get("MAX_WORKERS", 6)
+        max_workers = MAX_WORKERS_DEFAULT
         total_entries = len(uniq)
         discovered_entries = len(entries)
         after_url_dedupe = len(uniq)
@@ -118,7 +141,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
         animator = None
         if total_entries:
             animator = start_live_progress(
-                prefix="Articles", total=total_entries, shared=shared
+                prefix=PROGRESS_PREFIX_ARTICLES, total=total_entries, shared=shared
             )
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {
@@ -138,7 +161,10 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                     except Exception:
 
                         progress_bar(
-                            completed, total_entries, prefix="Articles", status=status
+                            completed,
+                            total_entries,
+                            prefix=PROGRESS_PREFIX_ARTICLES,
+                            status=status,
                         )
                 except Exception:
                     pass
@@ -188,7 +214,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                 try:
                     if CONFIG.get("ENABLE_SUMMARIZATION"):
                         intel["summary_text"] = summarize_unstructured_description(
-                            text, max_sentences=2
+                            text, max_sentences=SUMMARY_SENTENCES
                         )
                         try:
                             built = build_campaign_summary(text)
@@ -277,7 +303,9 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                 except Exception:
                     intel["enablers"] = []
                 try:
-                    intel["top_findings"] = extract_top_findings(text, k=5)
+                    intel["top_findings"] = extract_top_findings(
+                        text, k=TOP_FINDINGS_DEFAULT
+                    )
                 except Exception:
                     pass
                 try:
@@ -655,7 +683,7 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                                 "kind": "intelligence",
                                 "category": ["threat"],
                                 "type": ["report"],
-                                "dataset": "unstructured.intel",
+                                "dataset": DATASET_NAME,
                             }
                     except Exception:
                         pass
@@ -711,13 +739,18 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                         _tmp = group_threat_items_by_vendor_or_sector(records)
                         by_vendor = _tmp.get("by_vendor", {})
 
-                    vendor_counts = [(v, len(lst)) for v, lst in by_vendor.items()]
-                    vendor_counts.sort(key=lambda x: x[1], reverse=True)
-                    top_vendors = (
-                        ", ".join([f"{v} ({c})" for v, c in vendor_counts[:3]])
-                        if vendor_counts
-                        else "None"
-                    )
+                        vendor_counts = [(v, len(lst)) for v, lst in by_vendor.items()]
+                        vendor_counts.sort(key=lambda x: x[1], reverse=True)
+                        top_vendors = (
+                            ", ".join(
+                                [
+                                    f"{v} ({c})"
+                                    for v, c in vendor_counts[:SUMMARY_TOP_VENDOR_LIMIT]
+                                ]
+                            )
+                            if vendor_counts
+                            else "None"
+                        )
 
                     try:
                         from .unstructured_core import classify_threat
@@ -737,7 +770,12 @@ def run_unstructured_rss_analysis(hours: int = 24) -> dict:
                         tact_counts = Counter([t for t in tactics if t])
                         most_common_tactics = (
                             ", ".join(
-                                [f"{t} ({c})" for t, c in tact_counts.most_common(5)]
+                                [
+                                    f"{t} ({c})"
+                                    for t, c in tact_counts.most_common(
+                                        SUMMARY_TOP_TACTIC_LIMIT
+                                    )
+                                ]
                             )
                             if tact_counts
                             else "None"
