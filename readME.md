@@ -64,6 +64,9 @@ Notes:
 - Results are written under `collector/results/<YYYYMMDD>/` by default.
 - Full article bodies are written into `rawtext-<date>.json` (kept separate
   from NDJSON to avoid embedding long text directly in the NDJSON records).
+- Optional LLM summarization uses a locally running Ollama instance
+  (`OLLAMA_HOST`, `OLLAMA_MODEL`, `LLM_ENABLED=true`). If Ollama is not
+  running the collector skips LLM calls.
 
 ## What the collector does (high level)
 
@@ -96,10 +99,11 @@ Important note about the interactive menu and `--tests`:
 
 ## Outputs and file conventions
 
-- `UnstructuredRSSIntel_<date>.ndjson` — sanitized NDJSON output. Each line is
-  a JSON object with fields such as `id`, `source`, `title`, `@timestamp`,
-  `threat` (including `technique` names/IDs and `technique_mitigations`),
-  `iocs`, and `provenance`.
+- `UnstructuredRSSIntel_<date>.ndjson` — sanitized NDJSON output. Each line now
+  contains only action-focused fields: `title`, `source`, `@timestamp`,
+  `summary_text`, `threat.labels/technique/actor`, `iocs`, `detections`,
+  `recommendations`, `priority`, `financial_relevance`, `countries`,
+  `vendors`, `tags`, `source_analysis`, and `event`.
 - `rawtext-<date>.json` — array of objects containing full article text and
   metadata (full extracted article bodies).
 - `UnstructuredRSSReport_<date>.md` — human-readable Markdown report for
@@ -124,6 +128,9 @@ General
 - `OUTPUT_DIR` / `TI_OUTPUT_DIR` — output directory (default: `collector/results/<YYYYMMDD>`).
 - `LOG_FILE` — log file path (default: `collector/logs/threat_intel_collector.log`).
 - `USER_AGENT` / `TI_USER_AGENT` — HTTP User-Agent header (default: `ThreatIntelCollector/5.0 (+https://example.local)`).
+- `OLLAMA_HOST` / `TI_OLLAMA_HOST` — Ollama API host (default: `http://localhost:11434`).
+- `LLM_MODEL` / `OLLAMA_MODEL` — Ollama model name (default: `llama3`).
+- `LLM_ENABLED` — enable/disable LLM enrichment (default: true).
 
 Feeds & external APIs
 - `NVD_API_BASE` / `TI_NVD_API_BASE` — base URL for NVD API (default NVD v2 endpoint).

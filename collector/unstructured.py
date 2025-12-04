@@ -1078,6 +1078,36 @@ def run_unstructured_rss_analysis(hours: int = DEFAULT_HOURS) -> dict:
                         for f in forbidden:
                             rec.pop(f, None)
 
+                    keep_keys = {
+                        "title",
+                        "source",
+                        "id",
+                        "text_id",
+                        "@timestamp",
+                        "summary_text",
+                        "threat",
+                        "iocs",
+                        "detections",
+                        "recommendations",
+                        "priority",
+                        "financial_relevance",
+                        "countries",
+                        "vendors",
+                        "tags",
+                        "source_analysis",
+                        "event",
+                    }
+                    for k in list(rec.keys()):
+                        if k not in keep_keys:
+                            rec.pop(k, None)
+
+                    th = rec.get("threat")
+                    if isinstance(th, dict):
+                        keep_th = {"labels", "technique", "actor"}
+                        for tk in list(th.keys()):
+                            if tk not in keep_th:
+                                th.pop(tk, None)
+
                     return rec
 
                 for r in records:
