@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 import os
+import requests
 
 # =========================
 # ===== Module Config =====
@@ -17,30 +18,15 @@ RAWTEXT_GLOB = "rawtext-*.json"
 RAWTEXT_LLM_PREFIX = "rawtext-LLM_"
 LLM_MD_PREFIX = "LLM-UnstructuredReport_"
 RAW_TEXT_SNIPPET_MAX = 8000
+OLLAMA_DEFAULT_HOST = "http://localhost:11434"
 
 from .config import CONFIG
 
 logger = logging.getLogger(__name__)
 
 
-def _get_openai_client() -> Optional[Any]:
-    key = os.environ.get("OPENAI_API_KEY")
-    if not key:
-        logger.warning("OPENAI_API_KEY not set; skipping LLM calls")
-        return None
-    try:
-        try:
-            from openai import OpenAI
-        except ImportError:
-            logger.warning("`openai` package not installed; skipping LLM calls")
-            return None
-        return OpenAI(api_key=key)
-    except Exception as exc:
-        logger.warning("Failed to create OpenAI client: %s", exc)
-        return None
-
-
-_llm_quota_exhausted: bool = False
+def _ollama_host() -> str:
+    return os.getenv("OLLAMA_HOST", CONFIG.get("OLLAMA_HOST", OLLAMA_DEFAULT_HOST)).rstrip("/")
 
 
 def _get_output_dir() -> Path:
@@ -198,48 +184,23 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
 def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
     if not CONFIG.get("LLM_ENABLED", True):
         return None
+    if not prompt:
+        return None
     try:
-        global _llm_quota_exhausted
-        if _llm_quota_exhausted:
-            logger.warning("LLM quota previously exhausted; skipping further LLM calls")
-            return None
-        client = _get_openai_client()
-        if client is None:
-            return None
-        model = CONFIG.get("LLM_MODEL", "gpt-4o-mini")
-        response = client.responses.create(
-            model=model,
-            instructions=SYSTEM_INSTRUCTION,
-            input=prompt,
+        model = CONFIG.get("LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3"))
+        url = f"{_ollama_host()}/api/generate"
+        payload = {
+            "model": model,
+            "prompt": f"{SYSTEM_INSTRUCTION}\n\n{prompt}",
+            "stream": False,
+            "temperature": float(CONFIG.get("LLM_TEMPERATURE", 0.2)),
+        }
+        resp = requests.post(
+            url, json=payload, timeout=CONFIG.get("REQUEST_TIMEOUT", 20)
         )
-
-        text = getattr(response, "output_text", None)
-        if not text:
-            out = getattr(response, "output", None)
-            if not out and isinstance(response, dict):
-                out = response.get("output")
-            parts: List[str] = []
-            if out:
-                for item in out:
-                    content = None
-                    if isinstance(item, dict):
-                        content = item.get("content")
-                    else:
-                        content = getattr(item, "content", None)
-                    if content:
-                        for c in content:
-                            if isinstance(c, dict):
-                                txt = c.get("text") or c.get("content")
-                            else:
-                                txt = getattr(c, "text", None) or getattr(
-                                    c, "content", None
-                                )
-                            if txt:
-                                parts.append(str(txt))
-                    else:
-                        parts.append(str(item))
-            text = "\n".join(parts) if parts else None
-
+        resp.raise_for_status()
+        data = resp.json()
+        text = data.get("response")
         if not text:
             return None
 
@@ -260,11 +221,6 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
             return None
         return enriched
     except Exception as exc:
-        msg = str(exc)
-        if "insufficient_quota" in msg or "quota" in msg.lower():
-            logger.warning("LLM quota error detected: %s", exc)
-            _llm_quota_exhausted = True
-            return None
         logger.warning("LLM call failed: %s", exc)
         return None
 
