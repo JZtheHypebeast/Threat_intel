@@ -115,7 +115,6 @@ SYSTEM_INSTRUCTION = (
     "You convert raw security articles into structured, actionable threat intelligence."
 )
 
-
 def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
     title = record.get("title") or "(no title)"
     source = record.get("source") or ""
@@ -128,8 +127,9 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
     prompt = (
         "You will receive the full raw text of a cyber security article plus metadata.\n"
         "From this raw text alone, extract structured, actionable threat intelligence.\n\n"
-        "Return a STRICT JSON object with these fields:\n\n"
-        '- "summary": string (1–3 sentences plain language)\n'
+        "Return a STRICT JSON object with these fields, in this order:\n\n"
+        '- "summary": string (1–3 sentences, plain language, high-level summary of the entire article: who/what/impact)\n'
+        '- "attack_summary": string (2–4 sentences, plain language, explaining how the attack or issue works end-to-end in simple terms)\n'
         '- "mitre_techniques": list of objects:\n'
         '    - "id": MITRE ATT&CK ID, e.g. "T1190", or null if unknown\n'
         '    - "name": technique name\n'
@@ -155,7 +155,7 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         '    - "name": country or region mentioned as victim/target/origin\n'
         '    - "role": e.g. "Victim","Target","Origin","Infrastructure"\n'
         '    - "confidence": float 0–1\n'
-        '- "vendors": list of objects:\n'
+        '- "vendors": list of objects (must include every vendor or product explicitly mentioned in the text):\n'
         '    - "name": vendor/organization producing affected product/service\n'
         '    - "product": product/service name if mentioned\n'
         '    - "confidence": float 0–1\n'
@@ -181,16 +181,19 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         "- Base everything only on the article text and general MITRE knowledge.\n"
         "- If the article does not state an actor/country/vendor/IOC, either omit it or set confidence low and explain.\n"
         "- For MITRE, do not invent IDs; if unsure, set id to null and confidence low.\n"
-        "- For IOCs, ONLY extract values explicitly present in the text (IPs, domains, URLs, hashes, emails, filenames, etc.); do NOT fabricate or normalize beyond what is visible.\n"
+        "- For IOCs, ONLY extract values explicitly present in the text (IPs, domains, URLs, hashes, emails, filenames, registry keys, etc.); do NOT fabricate or normalize beyond what is visible.\n"
+        "- Be exhaustive with IOCs and vendors: systematically scan the entire text and ensure that every IOC-like artifact and every vendor/product mention is captured in the respective lists, with no omissions and no duplicates.\n"
+        "- If you are unsure whether something is an IOC, include it with type \"other\" and low confidence, and explain in the context.\n"
         "- Priority should reflect technique criticality, exploit status (e.g. 'zero-day','actively exploited','PoC/public exploit'), and business impact.\n"
         "- Financial relevance is about banks, PSPs, card data, securities, insurance, etc.\n"
-        "- Detections and recommendations should be concise but concrete enough to guide SOC and incident response teams.\n\n"
+        "- The attack_summary should clearly describe the end-to-end flow (initial access, execution, persistence, lateral movement, impact) in simple language.\n"
+        "- Detections and recommendations should be concise but concrete enough to guide SOC and incident response teams.\n"
+        "- Do NOT include any markdown, bullet points, or commentary outside the JSON object.\n\n"
         "Return ONLY the JSON object, no extra commentary.\n\n"
         f"Article metadata:\n- Title: {title}\n- URL: {source}\n- Timestamp: {ts}\n\n"
         f'Full raw text:\n"""{"".join(snippet)}"""'
     )
     return prompt
-
 
 def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
     if not CONFIG.get("LLM_ENABLED", True):

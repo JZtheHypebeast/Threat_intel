@@ -10,7 +10,11 @@
     "\\bSQL injection\\b", "\\bcross[-\\s]?site scripting\\b", "\\bpostinstall\\b",
     "\\btyposquat\\w*\\b", "\\bphishing page\\b", "\\bcredential theft\\b",
     "\\bserver wipe\\b", "\\bdata wipe\\b", "\\bmfa bypass\\b", "\\bcloud[-\\s]?hosted\\b",
-    "\\bipfs\\b", "\\bvercel\\b", "\\bcontabo\\b"
+    "\\bipfs\\b", "\\bvercel\\b", "\\bcontabo\\b", "\\bmatanbuchus\\b",
+    "\\bquickassist\\b", "\\bquick assist\\b", "\\bmsi installer\\b", "\\bdll sideload\\w*\\b",
+    "\\bloader\\b", "\\bwordpress\\b", "\\belementor\\b", "\\bking addons\\b",
+    "\\badmin-ajax\\.php\\b", "\\bunauthenticated\\b", "\\bwp-admin\\b",
+    "\\brole=administrator\\b", "\\bplugin vulnerability\\b"
   ],
   "actors": [
     "\\bAPT[-\\s]?1\\b", "\\bAPT[-\\s]?10\\b", "\\bAPT[-\\s]?28\\b", "\\bAPT[-\\s]?29\\b",

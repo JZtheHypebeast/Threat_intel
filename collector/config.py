@@ -236,6 +236,9 @@ CONFIG = {
     "INFERRED_TECHNIQUE_SCORE_MULTIPLIER": float(
         os.getenv("TI_INFERRED_TECHNIQUE_SCORE_MULTIPLIER", 0.8)
     ),
+    "IOC_IP_BLOCKLIST": set(
+        json.loads(os.getenv("TI_IOC_IP_BLOCKLIST", '["1.1.6.1"]'))
+    ),
     "MITRE_SIGNAL_MENTION": int(os.getenv("TI_MITRE_SIGNAL_MENTION", 30)),
     "MITRE_SIGNAL_CVE": int(os.getenv("TI_MITRE_SIGNAL_CVE", 20)),
     "MITRE_SIGNAL_IOC": int(os.getenv("TI_MITRE_SIGNAL_IOC", 15)),

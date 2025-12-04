@@ -37,6 +37,81 @@
       "url": "https://attack.mitre.org/techniques/T1027.005/"
     }
   ],
+  "quickassist": [
+    {
+      "id": "T1219",
+      "name": "Remote Access Software",
+      "url": "https://attack.mitre.org/techniques/T1219/"
+    }
+  ],
+  "microsoft quick assist": [
+    {
+      "id": "T1219",
+      "name": "Remote Access Software",
+      "url": "https://attack.mitre.org/techniques/T1219/"
+    }
+  ],
+  "dll sideloading": [
+    {
+      "id": "T1574.002",
+      "name": "DLL Side-Loading",
+      "url": "https://attack.mitre.org/techniques/T1574/002/"
+    }
+  ],
+  "malicious msi": [
+    {
+      "id": "T1204.002",
+      "name": "User Execution: Malicious File",
+      "url": "https://attack.mitre.org/techniques/T1204/002/"
+    }
+  ],
+  "msi installer": [
+    {
+      "id": "T1204.002",
+      "name": "User Execution: Malicious File",
+      "url": "https://attack.mitre.org/techniques/T1204/002/"
+    }
+  ],
+  "wordpress": [
+    {
+      "id": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "url": "https://attack.mitre.org/techniques/T1190/"
+    }
+  ],
+  "wordpress plugin": [
+    {
+      "id": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "url": "https://attack.mitre.org/techniques/T1190/"
+    }
+  ],
+  "elementor": [
+    {
+      "id": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "url": "https://attack.mitre.org/techniques/T1190/"
+    }
+  ],
+  "admin-ajax.php": [
+    {
+      "id": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "url": "https://attack.mitre.org/techniques/T1190/"
+    },
+    {
+      "id": "T1068",
+      "name": "Exploitation for Privilege Escalation",
+      "url": "https://attack.mitre.org/techniques/T1068/"
+    }
+  ],
+  "role=administrator": [
+    {
+      "id": "T1068",
+      "name": "Exploitation for Privilege Escalation",
+      "url": "https://attack.mitre.org/techniques/T1068/"
+    }
+  ],
   "archive via utility": [
     {
       "id": "T1560.001",

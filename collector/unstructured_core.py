@@ -609,7 +609,23 @@ def fetch_article_text(url: str, timeout: int | None = None) -> str:
         return ""
     ctype = (resp.headers.get("Content-Type") or "").lower()
     if "text/html" in ctype or "<html" in resp.text.lower():
-        return html_to_main_text(resp.text)
+        try:
+            main_text = html_to_main_text(resp.text)
+        except Exception:
+            main_text = ""
+        extras = []
+        try:
+            raw_iocs = extract_iocs(resp.text) or []
+            for i in raw_iocs:
+                t = (i.get("type") or "").lower()
+                if t in {"ip", "cve"}:
+                    val = i.get("indicator") or i.get("value")
+                    if val:
+                        extras.append(val)
+        except Exception:
+            pass
+        extra_text = "\n".join(extras)
+        return f"{main_text}\n{extra_text}".strip()
     return resp.text
 
 
@@ -693,14 +709,28 @@ def extract_iocs(
         return results
 
     text = str(text_or_intel or "")
+    defanged_text = (
+        text.replace("[.]", ".")
+        .replace("(.)", ".")
+        .replace("{.}", ".")
+        .replace("hxxp://", "http://")
+        .replace("hxxps://", "https://")
+    )
+    texts_to_scan = [text, defanged_text]
     iocs = []
     seen = set()
     package_pattern = re.compile(
         r"@?[a-z0-9][\w.-]*(?:/[a-z0-9][\w.-]*)?@[0-9]+(?:\.[0-9]+){2,}", re.I
     )
 
+    ipv4_pattern = re.compile(r"(?<!\d)(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?!\d)")
+    ipv6_pattern = re.compile(
+        r"(?<![A-F0-9])(?:[A-F0-9]{1,4}:){2,7}[A-F0-9:]{1,4}(?![A-F0-9])", re.I
+    )
+    cve_pattern = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.I)
+
     patterns = {
-        "ip": re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"),
+        "ip": ipv4_pattern,
         "sha256": re.compile(r"\b[a-fA-F0-9]{64}\b"),
         "sha1": re.compile(r"\b[a-fA-F0-9]{40}\b"),
         "md5": re.compile(r"\b[a-fA-F0-9]{32}\b"),
@@ -722,44 +752,90 @@ def extract_iocs(
         "iso",
         "scr",
         "json",
+        "php",
+        "asp",
+        "aspx",
+        "jsp",
+        "cgi",
+        "html",
+        "htm",
+    }
+
+    image_ext = {
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "svg",
+        "webp",
+        "bmp",
+        "ico",
     }
 
     def _add(t, v):
         key = (t, v.lower())
+        if v.startswith("block_domain:") or v.startswith("block_url:"):
+            return
         if key in seen:
             return
         seen.add(key)
         typ = "hash" if t in ("sha256", "sha1", "md5") else t
         val = v.lower()
+        if typ == "ip":
+            blocked_ips = CONFIG.get("IOC_IP_BLOCKLIST") or set()
+            if val in blocked_ips:
+                return
+        if typ == "ip":
+            if ":" in val and "." not in val:
+                try:
+                    parts = val.split(":")
+                    if len(parts) <= 3 and all(p.isdigit() for p in parts if p):
+                        return
+                except Exception:
+                    pass
+        if typ == "filename":
+            try:
+                ext = val.rsplit(".", 1)[1]
+                if ext in image_ext:
+                    return
+            except Exception:
+                pass
         iocs.append({"type": typ, "indicator": val, "value": val})
 
-    for m in package_pattern.finditer(text):
-        val = m.group(0)
-        _add("software_package", val)
-
-    for t, p in patterns.items():
-        for m in p.finditer(text):
+    for scan_text in texts_to_scan:
+        for m in package_pattern.finditer(scan_text):
             val = m.group(0)
-            if t == "domain" and val.startswith("www."):
-                val = val[4:]
-            if t == "domain":
-                try:
-                    suffix = val.rsplit(".", 1)[1].lower()
-                    if suffix in file_ext_block:
-                        _add("filename", val)
-                        continue
-                except Exception:
-                    pass
-            if t == "email":
-                try:
-                    local, _, dom = val.partition("@")
-                    if "/" in local or "\\" in local:
-                        continue
-                    if dom and dom.replace(".", "").isdigit():
-                        continue
-                except Exception:
-                    pass
-            _add(t, val)
+            _add("software_package", val)
+
+        for m in ipv6_pattern.finditer(scan_text):
+            _add("ip", m.group(0))
+
+        for m in cve_pattern.finditer(scan_text):
+            _add("cve", m.group(0).upper())
+
+        for t, p in patterns.items():
+            for m in p.finditer(scan_text):
+                val = m.group(0)
+                if t == "domain" and val.startswith("www."):
+                    val = val[4:]
+                if t == "domain":
+                    try:
+                        suffix = val.rsplit(".", 1)[1].lower()
+                        if suffix in file_ext_block:
+                            _add("filename", val)
+                            continue
+                    except Exception:
+                        pass
+                if t == "email":
+                    try:
+                        local, _, dom = val.partition("@")
+                        if "/" in local or "\\" in local:
+                            continue
+                        if dom and dom.replace(".", "").isdigit():
+                            continue
+                    except Exception:
+                        pass
+                _add(t, val)
 
     return iocs
 
@@ -2566,7 +2642,7 @@ def _get_excerpt(text: str, idx: int, radius: int | None = None) -> str:
     return snippet
 
 
-def normalize_and_merge_iocs(intel, source: str | None = None):
+def normalize_and_merge_iocs(intel, source: str | None = None, context_text: str | None = None):
     if isinstance(intel, str):
         raw = extract_iocs(intel, source=source)
         out = []
@@ -2583,6 +2659,31 @@ def normalize_and_merge_iocs(intel, source: str | None = None):
         return {"iocs": []}
 
     iocs = intel_dict.get("iocs", []) or []
+    ctx_low = (context_text or "").lower()
+
+    def in_context(val: str) -> bool:
+        if not ctx_low or not val:
+            return True
+        return val.lower() in ctx_low
+
+    def looks_like_version_ip(val: str) -> bool:
+        try:
+            parts = [int(p) for p in val.split(".")]
+        except Exception:
+            return False
+        if len(parts) != 4:
+            return False
+        if all(p <= 10 for p in parts):
+            if ctx_low:
+                idx = ctx_low.find(val)
+                if idx != -1:
+                    window = ctx_low[max(0, idx - 24) : idx + len(val) + 24]
+                    for kw in ("cve", "version", "v", "release", "build"):
+                        if kw in window:
+                            return True
+            return True
+        return False
+
     if not iocs:
         intel_dict["iocs"] = []
         return intel_dict
@@ -2595,7 +2696,11 @@ def normalize_and_merge_iocs(intel, source: str | None = None):
         v = (i.get("indicator") or i.get("value") or i.get("ioc") or "").strip()
         if not t or not v:
             continue
+        if not in_context(v):
+            continue
         if t == "malware" and v.lower() in {"exclusive", "submit", "hackernews25"}:
+            continue
+        if t == "ip" and looks_like_version_ip(v):
             continue
         key = (t, v.lower())
         ctx = i.get("context") or i.get("excerpt") or ""

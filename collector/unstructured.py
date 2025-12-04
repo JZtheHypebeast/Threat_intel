@@ -52,6 +52,7 @@ from .unstructured_core import (
 OUTPUT_DIR = CONFIG["OUTPUT_DIR_UNSTRUCTURED"]
 DEFAULT_HOURS = 24
 WEEKLY_RECAP_MARKER = "weekly recap"
+ZDI_MARKER = "zdi-"
 MAX_WORKERS_DEFAULT = CONFIG.get("MAX_WORKERS", 6)
 SUMMARY_SENTENCES = 2
 TOP_FINDINGS_DEFAULT = 5
@@ -225,7 +226,7 @@ def _process_entries(
             except Exception:
                 pass
             try:
-                intel = normalize_and_merge_iocs(intel, source=link)
+                intel = normalize_and_merge_iocs(intel, source=link, context_text=text)
                 extra_iocs = extract_iocs(text, source=link) or []
                 existing = {
                     (
@@ -515,6 +516,10 @@ def run_unstructured_rss_analysis(hours: int = DEFAULT_HOURS) -> dict:
                     # Skip weekly recap posts explicitly
                     if title and WEEKLY_RECAP_MARKER in str(title).lower():
                         continue
+                    low_title = str(title or "").lower()
+                    low_link = str(link or "").lower()
+                    if ZDI_MARKER in low_title or "zerodayinitiative" in low_link:
+                        continue
                     entries.append((link, title, pub_dt, summary))
 
         seen = set()
@@ -630,7 +635,7 @@ def run_unstructured_rss_analysis(hours: int = DEFAULT_HOURS) -> dict:
                 except Exception:
                     pass
                 try:
-                    intel = normalize_and_merge_iocs(intel, source=link)
+                    intel = normalize_and_merge_iocs(intel, source=link, context_text=text)
                     extra_iocs = extract_iocs(text, source=link) or []
                     existing = {
                         (
