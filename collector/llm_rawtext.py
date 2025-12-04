@@ -115,7 +115,7 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         "From this raw text alone, extract structured, actionable threat intelligence.\n\n"
         "Return a STRICT JSON object with these fields, in this order:\n\n"
         '- "summary": string (1–3 sentences, plain language, high-level summary of the entire article: who/what/impact)\n'
-        '- "attack_summary": string (2–4 sentences, plain language, explaining how the attack or issue works end-to-end in simple terms)\n'
+        '- "attack_summary": string (2–4 sentences, plain language, explaining how the attack or issue works end-to-end in simple terms; if the article describes a step-by-step flow or shows commands/scripts, briefly describe that sequence at a high level without copying commands)\n'
         '- "mitre_techniques": list of objects:\n'
         '    - "id": MITRE ATT&CK ID, e.g. "T1190", or null if unknown\n'
         '    - "name": technique name\n'
@@ -146,10 +146,15 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         '    - "product": product/service name if mentioned\n'
         '    - "confidence": float 0–1\n'
         '- "iocs": list of objects (only what is explicitly in the text, do NOT invent values):\n'
-        '    - "type": one of ["ip","domain","url","email","hash","filename","registry_key","artifact","other"]\n'
+        '    - "type": one of ["ip","domain","url","email","hash","filename","registry_key","artifact","cve","other"]\n'
         '    - "value": the exact IOC string as seen in the text\n'
-        '    - "context": short description of how this IOC is used (e.g. "C2 server","phishing URL","payload hash")\n'
+        '    - "context": short description of how this IOC is used (e.g. "C2 server","phishing URL","payload hash","vulnerable endpoint","CVE reference")\n'
         '    - "confidence": float 0–1\n'
+        '- "cves": list of objects (must include every CVE ID explicitly mentioned in the text):\n'
+        '    - "id": string CVE identifier, e.g. "CVE-2025-12345"\n'
+        '    - "severity": string or null (e.g. "Critical","High","Medium","Low") if stated in the article\n'
+        '    - "cvss": string or null if a CVSS score is stated in the article\n'
+        '    - "description": short description of what is affected and impact, based only on the article\n'
         '- "detections": list of objects describing practical detection ideas/analytics:\n'
         '    - "name": short name, e.g. "Yurei ransomware filesystem behavior"\n'
         '    - "type": e.g. "Network","Endpoint","Email","Cloud","Identity","Generic"\n'
@@ -165,14 +170,14 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         '    - "reason": why this source is low/med/high confidence\n'
         "Guidelines:\n"
         "- Base everything only on the article text and general MITRE knowledge.\n"
-        "- If the article does not state an actor/country/vendor/IOC, either omit it or set confidence low and explain.\n"
+        "- If the article does not state an actor/country/vendor/IOC/CVE, either omit it or set confidence low and explain.\n"
         "- For MITRE, do not invent IDs; if unsure, set id to null and confidence low.\n"
-        "- For IOCs, ONLY extract values explicitly present in the text (IPs, domains, URLs, hashes, emails, filenames, registry keys, etc.); do NOT fabricate or normalize beyond what is visible.\n"
-        "- Be exhaustive with IOCs and vendors: systematically scan the entire text and ensure that every IOC-like artifact and every vendor/product mention is captured in the respective lists, with no omissions and no duplicates.\n"
+        "- For IOCs, ONLY extract values explicitly present in the text (IPs, domains, URLs, hashes, emails, filenames, registry keys, CVE strings, etc.); do NOT fabricate or normalize beyond what is visible.\n"
+        "- Be exhaustive with IOCs, CVEs, and vendors: systematically scan the entire text and ensure that every IOC-like artifact, every CVE, and every vendor/product mention is captured in the respective lists, with no omissions and no exact-duplicate entries.\n"
         "- If you are unsure whether something is an IOC, include it with type \"other\" and low confidence, and explain in the context.\n"
         "- Priority should reflect technique criticality, exploit status (e.g. 'zero-day','actively exploited','PoC/public exploit'), and business impact.\n"
         "- Financial relevance is about banks, PSPs, card data, securities, insurance, etc.\n"
-        "- The attack_summary should clearly describe the end-to-end flow (initial access, execution, persistence, lateral movement, impact) in simple language.\n"
+        "- The attack_summary should clearly describe the end-to-end flow (initial access, execution, persistence, lateral movement, impact) in simple language. If the article shows specific commands, scripts, or a step-by-step guide, explicitly mention that the article provides such a sequence and summarize the steps at a conceptual level without reproducing raw commands.\n"
         "- Detections and recommendations should be concise but concrete enough to guide SOC and incident response teams.\n"
         "- Do NOT include any markdown, bullet points, or commentary outside the JSON object.\n\n"
         "Return ONLY the JSON object, no extra commentary.\n\n"
@@ -180,6 +185,7 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         f'Full raw text:\n"""{"".join(snippet)}"""'
     )
     return prompt
+
 
 def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
     if not CONFIG.get("LLM_ENABLED", True):
