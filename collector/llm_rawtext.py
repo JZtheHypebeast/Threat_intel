@@ -266,11 +266,16 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
             if s != -1 and e != -1 and e > s:
                 try:
                     enriched = json.loads(text[s : e + 1])
-                except Exception:
-                    logger.warning("Failed to parse JSON from LLM response substring")
+                except Exception as ex_sub:
+                    logger.warning(
+                        "Failed to parse JSON from LLM response substring: %s ...",
+                        text[s : min(e + 1, s + 500)],
+                    )
                     return None
             else:
-                logger.warning("LLM response not JSON parsable")
+                logger.warning(
+                    "LLM response not JSON parsable. Snippet: %s", text[:500]
+                )
                 return None
 
         if not isinstance(enriched, dict):
@@ -354,8 +359,13 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
         records = _filter_by_hours(records, hours)
         logger.info("Filtered records by last %s hours: %s -> %s", hours, total, len(records))
     processed: List[Dict[str, Any]] = []
-    for rec in records:
+    for idx, rec in enumerate(records, start=1):
+        start_ts = datetime.now()
+        title = rec.get("title") or "(no title)"
+        logger.info("LLM enriching %s/%s: %s", idx, len(records), title)
         rec = _enrich_record_with_llm(rec)
+        elapsed = (datetime.now() - start_ts).total_seconds()
+        logger.info("LLM completed %s/%s in %.1fs: %s", idx, len(records), elapsed, title)
         processed.append(rec)
     today_stamp = datetime.now().strftime("%Y%m%d")
     ndjson_path = output_dir / f"{RAWTEXT_LLM_PREFIX}{today_stamp}.ndjson"
