@@ -4,7 +4,8 @@ __pycache__/
 .pytest_cache/
 .vscode/
 collector/logs/
+collector/results/**
+!collector/results/llm/**
 data/PDF/
 .DS_Store
 backups/
-
