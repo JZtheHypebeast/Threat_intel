@@ -302,11 +302,19 @@ def _enrich_record_with_llm(record: Dict[str, Any]) -> Dict[str, Any]:
     return record
 
 
+def _strip_raw_text_fields(record: Dict[str, Any]) -> Dict[str, Any]:
+    for k in ("raw_text", "text", "full_text"):
+        if k in record:
+            record.pop(k, None)
+    return record
+
+
 def _write_ndjson(path: Path, records: Iterable[Dict[str, Any]]) -> None:
     logger.info("Writing LLM NDJSON to %s", path)
     with path.open("w", encoding="utf-8") as f:
         for rec in records:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            rec = _strip_raw_text_fields(rec)
+            f.write(json.dumps(rec, ensure_ascii=False, indent=2) + "\n\n")
 
 
 def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
@@ -322,10 +330,47 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
         lines.append(f"## {idx}. {title}")
         if source:
             lines.append(f"_Source: {source}_")
-        llm_block = (rec.get("llm") or {}).get("markdown_section")
+        llm_payload = rec.get("llm") or {}
+        llm_block = llm_payload.get("markdown_section")
         if llm_block:
             lines.append("")
             lines.append(llm_block)
+        else:
+            # Fallback rendering from llm fields
+            summary = llm_payload.get("summary") or llm_payload.get("attack_summary")
+            if summary:
+                lines.append("")
+                lines.append(f"**Summary:** {summary}")
+            mitre = llm_payload.get("mitre_techniques") or []
+            if mitre:
+                lines.append("**MITRE Techniques:**")
+                for t in mitre:
+                    tid = t.get("id") or "N/A"
+                    name = t.get("name") or ""
+                    tactic = t.get("tactic") or ""
+                    lines.append(f"- {tid} {name} {f'({tactic})' if tactic else ''}".strip())
+            iocs = llm_payload.get("iocs") or []
+            if iocs:
+                lines.append("**IOCs:**")
+                for i in iocs:
+                    typ = i.get("type") or ""
+                    val = i.get("value") or i.get("indicator") or ""
+                    ctx = i.get("context") or ""
+                    ctx_str = f" — {ctx}" if ctx else ""
+                    lines.append(f"- {typ}: {val}{ctx_str}")
+            detections = llm_payload.get("detections") or []
+            if detections:
+                lines.append("**Detections:**")
+                for d in detections:
+                    name = d.get("name") or ""
+                    idea = d.get("idea") or ""
+                    lines.append(f"- {name}: {idea}")
+            recommendations = llm_payload.get("recommendations") or []
+            if recommendations:
+                lines.append("**Recommendations:**")
+                for r in recommendations:
+                    txt = r.get("text") or ""
+                    lines.append(f"- {txt}")
         lines.append("")
     return "\n".join(lines)
 
@@ -374,6 +419,7 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
         title = rec.get("title") or "(no title)"
         logger.info("LLM enriching %s/%s: %s", idx, len(records), title)
         rec = _enrich_record_with_llm(rec)
+        rec = _strip_raw_text_fields(rec)
         elapsed = (datetime.now() - start_ts).total_seconds()
         # update rolling average for ETA
         avg_secs = ((avg_secs * (idx - 1)) + elapsed) / idx
