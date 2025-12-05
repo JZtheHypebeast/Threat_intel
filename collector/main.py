@@ -137,9 +137,8 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             run_unstructured_pdf_analysis()
 
         elif key == "llm":
-            logger.info("Running LLM rawtext translation")
-            chosen_hours = _prompt_hours(hours)
-            run_llm_rawtext(hours=chosen_hours)
+            logger.info("Running LLM rawtext translation (no hours filter)")
+            run_llm_rawtext(hours=None)
 
         elif key == "tests":
             logger.info("Running unit tests")
@@ -212,8 +211,8 @@ def main() -> None:
                 ran_any = True
 
             if args.llm:
-                logger.info("Running LLM rawtext translation")
-                run_llm_rawtext(hours=hours)
+                logger.info("Running LLM rawtext translation (no hours filter)")
+                run_llm_rawtext(hours=None)
                 ran_any = True
 
             if args.tests:

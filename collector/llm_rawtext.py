@@ -136,10 +136,8 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
     title = record.get("title") or "(no title)"
     source = record.get("source") or ""
     ts = record.get("@timestamp") or record.get("timestamp") or ""
-    raw_text = (
-        record.get("raw_text") or record.get("text") or record.get("full_text") or ""
-    )
-    snippet = str(raw_text)[:RAW_TEXT_SNIPPET_MAX]
+    raw_text = record.get("raw_text") or record.get("text") or record.get("full_text") or ""
+    snippet = str(raw_text)
 
     prompt = (
         "You will receive the full raw text of a cyber security article plus metadata.\n"
@@ -358,14 +356,41 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     if hours:
         records = _filter_by_hours(records, hours)
         logger.info("Filtered records by last %s hours: %s -> %s", hours, total, len(records))
+    if not records:
+        logger.warning("No records to enrich after filtering; exiting LLM run")
+        return {
+            "input_file": str(raw_path),
+            "output_ndjson": None,
+            "output_markdown": None,
+            "records_total": total,
+            "records_processed": 0,
+        }
     processed: List[Dict[str, Any]] = []
+    overall_start = datetime.now()
+    avg_secs = 0.0
+    success_count = 0
     for idx, rec in enumerate(records, start=1):
         start_ts = datetime.now()
         title = rec.get("title") or "(no title)"
         logger.info("LLM enriching %s/%s: %s", idx, len(records), title)
         rec = _enrich_record_with_llm(rec)
         elapsed = (datetime.now() - start_ts).total_seconds()
-        logger.info("LLM completed %s/%s in %.1fs: %s", idx, len(records), elapsed, title)
+        # update rolling average for ETA
+        avg_secs = ((avg_secs * (idx - 1)) + elapsed) / idx
+        remaining = len(records) - idx
+        eta_secs = avg_secs * remaining
+        if rec.get("llm"):
+            success_count += 1
+        logger.info(
+            "LLM completed %s/%s in %.1fs (avg %.1fs, ETA %.1fs, remaining %s): %s",
+            idx,
+            len(records),
+            elapsed,
+            avg_secs,
+            eta_secs,
+            remaining,
+            title,
+        )
         processed.append(rec)
     today_stamp = datetime.now().strftime("%Y%m%d")
     ndjson_path = output_dir / f"{RAWTEXT_LLM_PREFIX}{today_stamp}.ndjson"
@@ -379,6 +404,11 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
         len(processed),
         ndjson_path,
         md_path,
+    )
+    logger.info(
+        "LLM enrichment summary: successes=%s failures=%s",
+        success_count,
+        len(processed) - success_count,
     )
     return {
         "input_file": str(raw_path),
