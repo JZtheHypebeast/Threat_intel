@@ -226,7 +226,7 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
         logger.warning("LLM prompt is empty; skipping")
         return None
     try:
-        model = CONFIG.get("LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3"))
+        model = CONFIG.get("LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1"))
         url = f"{_ollama_host()}/api/generate"
         payload = {
             "model": model,
@@ -243,7 +243,11 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
         resp = requests.post(
             url, json=payload, timeout=CONFIG.get("REQUEST_TIMEOUT", 20)
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            logger.warning(
+                "LLM HTTP error status=%s body=%s", resp.status_code, resp.text[:500]
+            )
+            resp.raise_for_status()
         data = resp.json()
         text = data.get("response")
         if not text:
@@ -271,7 +275,11 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
         logger.info("LLM call succeeded")
         return enriched
     except Exception as exc:
-        logger.warning("LLM call failed: %s", exc)
+        logger.warning(
+            "LLM call failed: %s. If this is model-not-found, run `ollama pull %s` or set OLLAMA_MODEL.",
+            exc,
+            CONFIG.get("LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3")),
+        )
         return None
 
 
