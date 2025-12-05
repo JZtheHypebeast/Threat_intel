@@ -241,7 +241,7 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
             len(payload.get("prompt", "")),
         )
         resp = requests.post(
-            url, json=payload, timeout=CONFIG.get("REQUEST_TIMEOUT", 20)
+            url, json=payload, timeout=CONFIG.get("REQUEST_TIMEOUT", 300)
         )
         if resp.status_code != 200:
             logger.warning(
