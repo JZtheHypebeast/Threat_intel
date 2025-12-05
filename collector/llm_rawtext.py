@@ -32,28 +32,55 @@ def _ollama_host() -> str:
 def _get_output_dir() -> Path:
     out = CONFIG.get("OUTPUT_DIR_LLM")
     if out:
-        return Path(out)
+        path = Path(out)
+        logger.debug("LLM output dir from CONFIG: %s", path)
+        return path
     base = Path(__file__).resolve().parent
     results_root = base / "results"
     today_stamp = datetime.now().strftime("%Y%m%d")
-    return results_root / today_stamp
+    path = results_root / today_stamp
+    logger.debug("LLM output dir defaulting to: %s", path)
+    return path
 
 
 def _find_latest_rawtext_file(output_dir: Path) -> Optional[Path]:
     candidates = sorted(output_dir.glob(RAWTEXT_GLOB))
     if not candidates:
+        logger.debug("No rawtext files found in %s", output_dir)
         return None
-    return candidates[-1]
+    latest = candidates[-1]
+    logger.debug("Latest rawtext file: %s", latest)
+    return latest
+
+
+def _find_latest_rawtext_any(base_dir: Path) -> Optional[Path]:
+    """
+    Locate the newest rawtext-*.json anywhere under the llm results root.
+    Assumes layout: <...>/results/llm/<YYYYMMDD>/<HHMMSS>/rawtext-<date>.json
+    """
+    if not base_dir.exists():
+        logger.debug("LLM base dir does not exist: %s", base_dir)
+        return None
+    matches = list(base_dir.glob("**/rawtext-*.json"))
+    if not matches:
+        logger.debug("No rawtext matches under %s", base_dir)
+        return None
+    latest = max(matches, key=lambda p: p.stat().st_mtime)
+    logger.debug("Latest rawtext (global search): %s", latest)
+    return latest
 
 
 def _load_rawtext_records(path: Path) -> List[Dict[str, Any]]:
+    logger.info("Loading rawtext records from %s", path)
     text = path.read_text(encoding="utf-8").strip()
     if not text:
+        logger.warning("Rawtext file %s is empty", path)
         return []
     if text.startswith("["):
         try:
             data = json.loads(text)
         except Exception:
+            logger.warning("Failed to parse rawtext array from %s", path)
             return []
         if isinstance(data, list):
             return [r for r in data if isinstance(r, dict)]
@@ -69,6 +96,7 @@ def _load_rawtext_records(path: Path) -> List[Dict[str, Any]]:
             continue
         if isinstance(obj, dict):
             records.append(obj)
+    logger.info("Loaded %s rawtext records", len(records))
     return records
 
 
@@ -77,6 +105,7 @@ def _filter_by_hours(
 ) -> List[Dict[str, Any]]:
     if not hours or hours <= 0:
         return records
+    logger.info("Filtering records by last %s hours", hours)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     filtered: List[Dict[str, Any]] = []
     for rec in records:
@@ -93,6 +122,7 @@ def _filter_by_hours(
             ts = ts.replace(tzinfo=timezone.utc)
         if ts >= cutoff:
             filtered.append(rec)
+    logger.info("Records after hour filter: %s", len(filtered))
     return filtered
 
 
@@ -102,6 +132,7 @@ SYSTEM_INSTRUCTION = (
 )
 
 def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
+    logger.debug("Building prompt for title=%s source=%s", record.get("title"), record.get("source"))
     title = record.get("title") or "(no title)"
     source = record.get("source") or ""
     ts = record.get("@timestamp") or record.get("timestamp") or ""
@@ -189,8 +220,10 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
 
 def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
     if not CONFIG.get("LLM_ENABLED", True):
+        logger.info("LLM disabled via config; skipping LLM call")
         return None
     if not prompt:
+        logger.warning("LLM prompt is empty; skipping")
         return None
     try:
         model = CONFIG.get("LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3"))
@@ -201,6 +234,12 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
             "stream": False,
             "temperature": float(CONFIG.get("LLM_TEMPERATURE", 0.2)),
         }
+        logger.info(
+            "Calling Ollama model=%s host=%s prompt_chars=%s",
+            model,
+            url,
+            len(payload.get("prompt", "")),
+        )
         resp = requests.post(
             url, json=payload, timeout=CONFIG.get("REQUEST_TIMEOUT", 20)
         )
@@ -208,6 +247,7 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
         data = resp.json()
         text = data.get("response")
         if not text:
+            logger.warning("LLM response missing 'response' field")
             return None
 
         try:
@@ -219,12 +259,16 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
                 try:
                     enriched = json.loads(text[s : e + 1])
                 except Exception:
+                    logger.warning("Failed to parse JSON from LLM response substring")
                     return None
             else:
+                logger.warning("LLM response not JSON parsable")
                 return None
 
         if not isinstance(enriched, dict):
+            logger.warning("LLM response JSON is not an object")
             return None
+        logger.info("LLM call succeeded")
         return enriched
     except Exception as exc:
         logger.warning("LLM call failed: %s", exc)
@@ -232,20 +276,26 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
 
 
 def _enrich_record_with_llm(record: Dict[str, Any]) -> Dict[str, Any]:
+    logger.debug("Enriching record title=%s", record.get("title"))
     prompt = _build_prompt_from_raw(record)
     enriched = _call_llm(prompt)
     if enriched and isinstance(enriched, dict):
         record["llm"] = enriched
+        logger.info("LLM enrichment succeeded for title=%s", record.get("title"))
+    else:
+        logger.info("LLM enrichment skipped/failed for title=%s", record.get("title"))
     return record
 
 
 def _write_ndjson(path: Path, records: Iterable[Dict[str, Any]]) -> None:
+    logger.info("Writing LLM NDJSON to %s", path)
     with path.open("w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
 def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
+    logger.info("Building LLM markdown from %s records", len(records))
     lines: List[str] = []
     lines.append("# LLM Unstructured Threat Intelligence Report")
     lines.append("")
@@ -268,8 +318,16 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
 def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     output_dir = _get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = _find_latest_rawtext_file(output_dir)
+    # Find latest rawtext across llm results root
+    llm_root = output_dir
+    try:
+        llm_root = output_dir.parents[1]
+    except Exception:
+        llm_root = output_dir.parent
+    logger.debug("Searching for latest rawtext under %s", llm_root)
+    raw_path = _find_latest_rawtext_any(llm_root)
     if raw_path is None:
+        logger.warning("No rawtext file found under %s; skipping LLM run", llm_root)
         return {
             "input_file": None,
             "output_ndjson": None,
@@ -277,10 +335,12 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
             "records_total": 0,
             "records_processed": 0,
         }
+    logger.info("Using rawtext file: %s", raw_path)
     records = _load_rawtext_records(raw_path)
     total = len(records)
     if hours:
         records = _filter_by_hours(records, hours)
+        logger.info("Filtered records by last %s hours: %s -> %s", hours, total, len(records))
     processed: List[Dict[str, Any]] = []
     for rec in records:
         rec = _enrich_record_with_llm(rec)
@@ -291,6 +351,13 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     _write_ndjson(ndjson_path, processed)
     md_text = _build_markdown(processed, raw_path)
     md_path.write_text(md_text, encoding="utf-8")
+    logger.info(
+        "LLM rawtext run complete: total=%s processed=%s ndjson=%s md=%s",
+        total,
+        len(processed),
+        ndjson_path,
+        md_path,
+    )
     return {
         "input_file": str(raw_path),
         "output_ndjson": str(ndjson_path),
