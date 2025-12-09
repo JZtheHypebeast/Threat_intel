@@ -290,12 +290,35 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _normalize_llm_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize LLM output keys to expected schema."""
+    if not isinstance(payload, dict):
+        return {}
+    out = dict(payload)
+    if "iocs" not in out and "indicators_of_compromise" in out:
+        out["iocs"] = out.get("indicators_of_compromise") or []
+    for key in (
+        "mitre_techniques",
+        "threat_actors",
+        "countries",
+        "vendors",
+        "iocs",
+        "cves",
+        "detections",
+        "recommendations",
+        "tags",
+    ):
+        if key not in out or out.get(key) is None:
+            out[key] = []
+    return out
+
+
 def _enrich_record_with_llm(record: Dict[str, Any]) -> Dict[str, Any]:
     logger.debug("Enriching record title=%s", record.get("title"))
     prompt = _build_prompt_from_raw(record)
     enriched = _call_llm(prompt)
     if enriched and isinstance(enriched, dict):
-        record["llm"] = enriched
+        record["llm"] = _normalize_llm_payload(enriched)
         logger.info("LLM enrichment succeeded for title=%s", record.get("title"))
     else:
         logger.info("LLM enrichment skipped/failed for title=%s", record.get("title"))
