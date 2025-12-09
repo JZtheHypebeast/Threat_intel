@@ -638,6 +638,10 @@ def extract_threat_indicators(
     parsed_record, aggregate_text = _normalize_record_input(
         parsed_record, source, title
     )
+    if _is_nav_placeholder(aggregate_text, parsed_record.get("title")):
+        th = parsed_record.setdefault("threat", {})
+        th["technique"] = {"name": []}
+        return parsed_record
     if not aggregate_text:
         return parsed_record
 
@@ -690,7 +694,48 @@ def extract_threat_indicators(
     except Exception:
         pass
 
+    try:
+        _coerce_technique_output(parsed_record)
+    except Exception:
+        pass
+
     return parsed_record
+
+
+def _coerce_technique_output(rec: dict) -> None:
+    th = rec.get("threat") or {}
+    labels = th.get("labels") or []
+    tech = th.get("technique")
+    if isinstance(tech, list):
+        names: list[str] = []
+        for t in tech:
+            if isinstance(t, dict):
+                n = t.get("name")
+                if isinstance(n, list):
+                    names.extend(n)
+                elif isinstance(n, str):
+                    names.append(n)
+                elif t.get("id"):
+                    names.append(t.get("id"))
+            elif isinstance(t, str):
+                names.append(t)
+        # ensure labels are included as names
+        for lbl in labels:
+            cap = str(lbl).capitalize()
+            if cap not in names:
+                names.append(cap)
+        th["technique"] = {"name": names, "mitre": tech}
+        rec["threat"] = th
+    elif isinstance(tech, dict):
+        if "name" not in tech:
+            tech["name"] = []
+        if "mitre" not in tech:
+            tech["mitre"] = []
+        for lbl in labels:
+            cap = str(lbl).capitalize()
+            if cap not in tech["name"]:
+                tech["name"].append(cap)
+        rec["threat"] = th
 
 
 def extract_iocs(
@@ -1078,6 +1123,20 @@ def _normalize_record_input(
     return parsed_record, aggregate_text
 
 
+def _is_nav_placeholder(text: str, title: str | None) -> bool:
+    if title and str(title).strip():
+        return False
+    lower = (text or "").strip().lower()
+    if not lower:
+        return False
+    nav_prefixes = ("nav", "menu", "navigation")
+    if not lower.startswith(nav_prefixes):
+        return False
+    tokens = [t for t in re.findall(r"[a-z0-9]+", lower)]
+    tokens = [t for t in tokens if t not in {"nav", "menu", "navigation", "item", "link"}]
+    return len(tokens) == 1 and tokens[0] == "phishing"
+
+
 def _collect_pattern_hits(aggregate_text: str) -> Dict[str, set]:
     found: Dict[str, set] = defaultdict(set)
     compiled = load_compiled_patterns()
@@ -1142,6 +1201,8 @@ def _apply_pattern_hits(found: Dict[str, set], parsed_record: dict) -> None:
 
 def _maybe_classify_from_text(aggregate_text: str, parsed_record: dict) -> None:
     if not aggregate_text:
+        return
+    if _is_nav_placeholder(aggregate_text, parsed_record.get("title")):
         return
     words = [w.lower() for w in re.findall(r"\w+", aggregate_text)]
     min_repeat = int(CONFIG.get("MIN_REPEAT_FOR_SHORT_MATCH", 2))
@@ -1257,7 +1318,12 @@ def _apply_phrase_map_to_record(aggregate_text: str, parsed_record: dict) -> Non
 def _expand_mitre_by_name(parsed_record: dict) -> None:
     th = parsed_record.setdefault("threat", {})
     techs = th.get("technique") or []
-    tech_list = techs if isinstance(techs, list) else []
+    if isinstance(techs, list):
+        tech_list = techs
+    elif isinstance(techs, dict):
+        tech_list = [techs]
+    else:
+        tech_list = []
 
     try:
         mitre_map = load_mitre_map() or {}

@@ -3,12 +3,15 @@
 Version: 1
 
 This repository contains a lightweight threat-intel collector and processing
-pipeline. It supports two collection flows:
+pipeline. It supports three collection flows:
 
 - Structured CVE/KEV collection (CVE feeds and known exploited vulnerabilities).
 - Unstructured RSS/article pipeline — fetches articles from RSS feeds,
   extracts indicators (IOCs), infers MITRE ATT&CK techniques, computes
   relevance/priority scores, and writes sanitized NDJSON + Markdown reports.
+- LLM enrichment pipeline — reads the latest rawtext bundle, sends it to a
+  local Ollama model (default `llama3.1`) and produces cleaned NDJSON +
+  Markdown without embedding full raw text.
 
 This README explains how to run the collector, expected outputs, testing,
 configuration, and useful helper scripts.
@@ -60,13 +63,22 @@ python3 -m collector.main --unstructured --hours 28
 python3 -m collector.main --structured --unstructured --hours 24
 ```
 
+- Run the LLM enrichment pipeline on the most recent rawtext bundle (no hours prompt):
+
+```bash
+python3 -m collector.main --llm
+```
+
 Notes:
-- Results are written under `collector/results/<YYYYMMDD>/` by default.
-- Full article bodies are written into `rawtext-<date>.json` (kept separate
-  from NDJSON to avoid embedding long text directly in the NDJSON records).
-- Optional LLM summarization uses a locally running Ollama instance
-  (`OLLAMA_HOST`, `OLLAMA_MODEL`, `LLM_ENABLED=true`). If Ollama is not
-  running the collector skips LLM calls.
+- Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/`.
+  Categories: `structured/`, `unstructured/`, and `llm/`.
+- Unstructured pipeline writes full article bodies to `collector/results/llm/<date>/<time>/rawtext-<date>.json`
+  so the LLM pipeline can consume them; NDJSON excludes raw bodies.
+- LLM summarization uses a local Ollama instance (`OLLAMA_HOST`, `OLLAMA_MODEL`
+  or `LLM_MODEL`, `LLM_ENABLED=true`), default model `llama3.1`, and a 300s
+  request timeout. If Ollama is not reachable the run logs the failure and moves on.
+- The LLM pipeline automatically selects the most recent `rawtext-<date>.json`
+  under `collector/results/llm/` and skips any `--hours` prompt.
 
 ## What the collector does (high level)
 
@@ -84,7 +96,7 @@ Notes:
 - `--structured` — run structured CVE/KEV collection.
 - `--unstructured` — run unstructured RSS/article pipeline.
 - `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path.
-- `--llm` — run LLM rawtext translation pipeline (if enabled).
+- `--llm` — run LLM rawtext translation pipeline (uses latest rawtext bundle; no hours prompt).
 - `--tests` — run unit tests using the active Python interpreter.
 - `--hours <N>` — look-back window in hours for RSS items.
 - `--no-banner` — suppress ASCII banner at program start.
@@ -99,15 +111,18 @@ Important note about the interactive menu and `--tests`:
 
 ## Outputs and file conventions
 
-- `UnstructuredRSSIntel_<date>.ndjson` — sanitized NDJSON output. Each line now
-  contains only action-focused fields: `title`, `source`, `@timestamp`,
-  `summary_text`, `threat.labels/technique/actor`, `iocs`, `detections`,
-  `recommendations`, `priority`, `financial_relevance`, `countries`,
-  `vendors`, `tags`, `source_analysis`, and `event`.
-- `rawtext-<date>.json` — array of objects containing full article text and
-  metadata (full extracted article bodies).
-- `UnstructuredRSSReport_<date>.md` — human-readable Markdown report for
-  quick review and triage.
+- `collector/results/unstructured/<date>/<time>/UnstructuredRSSIntel_<date>.ndjson` —
+  sanitized NDJSON output for RSS runs (action-focused fields; no raw text).
+- `collector/results/unstructured/<date>/<time>/UnstructuredRSSReport_<date>.md` —
+  human-readable Markdown for unstructured runs.
+- `collector/results/llm/<date>/<time>/rawtext-<date>.json` — raw article bodies
+  produced by the unstructured pipeline for LLM consumption.
+- `collector/results/llm/<date>/<time>/rawtext-LLM_<date>.ndjson` —
+  LLM-enriched NDJSON (pretty-printed; no `raw_text`/`text` fields).
+- `collector/results/llm/<date>/<time>/LLM-UnstructuredReport_<date>.md` —
+  LLM-enriched Markdown summary.
+- `collector/results/structured/<date>/<time>/StructuredCVEReport_<date>.md` —
+  structured CVE/KEV Markdown.
 
 NDJSON records intentionally exclude the full article bodies; they are kept
 in `rawtext-<date>.json` to simplify downstream indexing and reduce NDJSON size.
@@ -218,6 +233,8 @@ MITRE priority tuning
 
 Advanced / developer
 - `COMPILED_PATTERNS_CACHE_MAXSIZE` — compiled regex cache size.
+- `LLM_REQUEST_TIMEOUT` — Ollama request timeout seconds (default: 300).
+- `OLLAMA_MODEL`/`LLM_MODEL` — Ollama model name (default: `llama3.1`).
 
 Refer to `collector/config.py` for exact defaults and the code-side behavior. Environment variables that accept JSON (arrays/dicts) should be provided as valid JSON strings.
 
@@ -272,6 +289,9 @@ historical outputs.
   `collector/logs/<YYYYMMDD>/threat_intel_collector.log`
 
 - This behavior is configured in `collector/config.py` via `CONFIG['LOG_FILE']`.
+- CLI shows per-entry progress (`entry X/Y`) and elapsed time per article; the
+  same timing is emitted to logs to trace long-running steps (fetching, parsing,
+  LLM enrichment).
 - Alternatives:
   - Use a `TimedRotatingFileHandler` or `RotatingFileHandler` (in `logging.handlers`) if you prefer
     automatic rotation/compression inside a single `logs/` directory. I can add this option if you want.

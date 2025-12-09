@@ -26,6 +26,7 @@ RESULTS_ROOT = os.path.join(BASE_DIR, "results")
 STRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "structured")
 UNSTRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "unstructured")
 LLM_ROOT = os.path.join(RESULTS_ROOT, "llm")
+REPORTING_ROOT = os.path.join(RESULTS_ROOT, "reporting")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 
 TODAY_STAMP = datetime.now().strftime("%Y%m%d")
@@ -33,9 +34,11 @@ RUN_STAMP = datetime.now().strftime("%H%M%S")
 STRUCTURED_DAY_DIR = os.path.join(STRUCTURED_ROOT, TODAY_STAMP)
 UNSTRUCTURED_DAY_DIR = os.path.join(UNSTRUCTURED_ROOT, TODAY_STAMP)
 LLM_DAY_DIR = os.path.join(LLM_ROOT, TODAY_STAMP)
+REPORTING_DAY_DIR = os.path.join(REPORTING_ROOT, TODAY_STAMP)
 STRUCTURED_RUN_DIR = os.path.join(STRUCTURED_DAY_DIR, RUN_STAMP)
 UNSTRUCTURED_RUN_DIR = os.path.join(UNSTRUCTURED_DAY_DIR, RUN_STAMP)
 LLM_RUN_DIR = os.path.join(LLM_DAY_DIR, RUN_STAMP)
+REPORTING_RUN_DIR = os.path.join(REPORTING_DAY_DIR, RUN_STAMP)
 
 os.makedirs(LOGS_DIR, exist_ok=True)
 LOGS_DAY_DIR = os.path.join(LOGS_DIR, TODAY_STAMP)
@@ -45,6 +48,9 @@ os.makedirs(LOGS_DAY_DIR, exist_ok=True)
 # ===== Config Values =====
 # =========================
 CONFIG = {
+    # =========================
+    # External APIs
+    # =========================
     "VENDORS": os.getenv("TI_VENDORS", None),
     "RSS_FEEDS": os.getenv("TI_RSS_FEEDS", None),
     "NVD_API_BASE": os.getenv(
@@ -57,29 +63,45 @@ CONFIG = {
     "COMMUNITY_KEV_URL": os.getenv(
         "TI_COMMUNITY_KEV_URL", "https://kevin.gtfkd.com/kev"
     ),
+    # =========================
+    # Output / Logging
+    # =========================
     "OUTPUT_DIR_STRUCTURED": STRUCTURED_RUN_DIR,
     "OUTPUT_DIR_UNSTRUCTURED": UNSTRUCTURED_RUN_DIR,
     "OUTPUT_DIR_LLM": LLM_RUN_DIR,
+    "OUTPUT_DIR_REPORTING": REPORTING_RUN_DIR,
     "LOG_FILE": os.path.join(LOGS_DIR, TODAY_STAMP, "threat_intel_collector.log"),
     "USER_AGENT": os.getenv(
         "TI_USER_AGENT", "ThreatIntelCollector/5.0 (+https://example.local)"
     ),
+    # =========================
+    # Feature Toggles
+    # =========================
     "ENABLE_SUMMARIZATION": os.getenv("ENABLE_SUMMARIZATION", "true").lower() == "true",
     "ENABLE_SCORING": os.getenv("ENABLE_SCORING", "true").lower() == "true",
-    "WEIGHT_ACTORS": int(os.getenv("WEIGHT_ACTORS", 30)),
-    "WEIGHT_CAMPAIGNS": int(os.getenv("WEIGHT_CAMPAIGNS", 25)),
-    "WEIGHT_THREATS": int(os.getenv("WEIGHT_THREATS", 25)),
-    "WEIGHT_DENSITY": int(os.getenv("WEIGHT_DENSITY", 20)),
-    "TECHNIQUE_SCORE_BOOST": json.loads(os.getenv("TECHNIQUE_SCORE_BOOST", "{}")),
     "EXPORT_NAVIGATOR": os.getenv("EXPORT_NAVIGATOR", "false").lower() == "true",
     "ARCHIVE_TTL_DAYS": int(os.getenv("ARCHIVE_TTL_DAYS", 90)),
     "FUZZY_MATCHING_ENABLE": os.getenv("FUZZY_MATCHING_ENABLE", "false").lower()
     == "true",
     "FUZZY_MATCH_THRESHOLD": int(os.getenv("FUZZY_MATCH_THRESHOLD", 85)),
+    # =========================
+    # Weights
+    # =========================
+    "WEIGHT_ACTORS": int(os.getenv("WEIGHT_ACTORS", 30)),
+    "WEIGHT_CAMPAIGNS": int(os.getenv("WEIGHT_CAMPAIGNS", 25)),
+    "WEIGHT_THREATS": int(os.getenv("WEIGHT_THREATS", 25)),
+    "WEIGHT_DENSITY": int(os.getenv("WEIGHT_DENSITY", 20)),
+    "TECHNIQUE_SCORE_BOOST": json.loads(os.getenv("TECHNIQUE_SCORE_BOOST", "{}")),
+    # =========================
+    # Concurrency / Windows
+    # =========================
     "MAX_WORKERS": int(os.getenv("TI_MAX_WORKERS", 8)),
     "MIN_SENTENCE_WORDS": int(os.getenv("MIN_SENTENCE_WORDS", 5)),
     "MIN_PARAGRAPH_WORDS": int(os.getenv("MIN_PARAGRAPH_WORDS", 20)),
     "MIN_REPEAT_FOR_SHORT_MATCH": int(os.getenv("MIN_REPEAT_FOR_SHORT_MATCH", 2)),
+    # =========================
+    # HTTP / Networking
+    # =========================
     "HTTP_RETRIES_TOTAL": int(os.getenv("TI_HTTP_RETRIES_TOTAL", 3)),
     "HTTP_BACKOFF_FACTOR": float(os.getenv("TI_HTTP_BACKOFF_FACTOR", 0.3)),
     "HTTP_STATUS_FORCELIST": json.loads(
@@ -204,6 +226,9 @@ CONFIG = {
             "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/116.0",
         ]
     ),
+    # =========================
+    # Parsing / HTML / Extraction
+    # =========================
     "INCLUDE_ENTRIES_WITHOUT_DATE": os.getenv(
         "TI_INCLUDE_ENTRIES_WITHOUT_DATE", "true"
     ).lower()
@@ -216,6 +241,9 @@ CONFIG = {
     "CRITICAL_THRESHOLD": float(os.getenv("TI_CRITICAL", 8.5)),
     "INTERESTING_MIN": float(os.getenv("TI_INTERESTING_MIN", 6.5)),
     "INTERESTING_MAX": float(os.getenv("TI_INTERESTING_MAX", 8.5)),
+    # =========================
+    # SIEM / Delivery
+    # =========================
     "SIEM_ENABLED": os.getenv("TI_SIEM_ENABLED", "false").lower() == "true",
     "SIEM_TYPE": os.getenv("TI_SIEM_TYPE", "elastic"),
     "ELASTIC_ENDPOINT": os.getenv("TI_ELASTIC_ENDPOINT", "http://localhost:9200"),
@@ -227,13 +255,23 @@ CONFIG = {
     "SIEM_MAX_RETRIES": int(os.getenv("TI_SIEM_MAX_RETRIES", 3)),
     "SIEM_TIMEOUT": int(os.getenv("TI_SIEM_TIMEOUT", 15)),
     "SIEM_DRY_RUN": os.getenv("TI_SIEM_DRY_RUN", "true").lower() == "true",
+    # =========================
+    # LLM / Ollama
+    # =========================
+    "LLM_REQUEST_TIMEOUT": int(os.getenv("TI_LLM_REQUEST_TIMEOUT", 420)),
+    "OLLAMA_HOST": os.getenv("TI_OLLAMA_HOST", "http://localhost:11434"),
+    "LLM_MODEL": os.getenv("TI_LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1")),
+    "LLM_ENABLED": os.getenv("TI_LLM_ENABLED", "true").lower() == "true",
+    "LLM_TEMPERATURE": float(os.getenv("TI_LLM_TEMPERATURE", 0.2)),
+    # =========================
+    # MITRE Priority / Signals
+    # =========================
     "MITRE_PRIORITY_BASE_WEIGHT": float(
         os.getenv("TI_MITRE_PRIORITY_BASE_WEIGHT", 0.6)
     ),
     "MITRE_PRIORITY_EVIDENCE_WEIGHT": float(
         os.getenv("TI_MITRE_PRIORITY_EVIDENCE_WEIGHT", 0.4)
     ),
-    "LLM_REQUEST_TIMEOUT": int(os.getenv("TI_LLM_REQUEST_TIMEOUT", 420)),
     "INFERRED_TECHNIQUE_SCORE_MULTIPLIER": float(
         os.getenv("TI_INFERRED_TECHNIQUE_SCORE_MULTIPLIER", 0.8)
     ),
@@ -341,6 +379,10 @@ CONFIG = {
     ),
 }
 
+# =========================
+# VENDORS
+# =========================
+
 if not CONFIG["VENDORS"]:
     CONFIG["VENDORS"] = [
         "Microsoft",
@@ -391,6 +433,10 @@ if not CONFIG["VENDORS"]:
         "Forti",
     ]
 
+# =========================
+# FEEDS
+# =========================
+
 if not CONFIG["RSS_FEEDS"]:
     CONFIG["RSS_FEEDS"] = [
         "https://gbhackers.com/feed/",
@@ -403,6 +449,10 @@ if not CONFIG["RSS_FEEDS"]:
         "https://www.zerodayinitiative.com/rss/upcoming/",
         "https://www.zerodayinitiative.com/rss/published/",
     ]
+
+# =========================
+# ENABLERS
+# =========================
 
 if not CONFIG.get("ENABLER_KEYWORDS"):
     CONFIG["ENABLER_KEYWORDS"] = [

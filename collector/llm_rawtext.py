@@ -324,53 +324,184 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
     lines.append("")
     lines.append(f"_Source file: {input_file.name}_")
     lines.append("")
+
+    def _fmt_kv(label: str, value: str | None) -> str:
+        return f"**{label}:** {value}" if value else f"**{label}:** N/A"
+
     for idx, rec in enumerate(records, start=1):
         title = rec.get("title") or "(no title)"
         source = rec.get("source") or ""
+        ts = rec.get("@timestamp") or rec.get("timestamp") or ""
         lines.append(f"## {idx}. {title}")
         if source:
             lines.append(f"_Source: {source}_")
+        if ts:
+            lines.append(f"_Timestamp: {ts}_")
         llm_payload = rec.get("llm") or {}
-        llm_block = llm_payload.get("markdown_section")
-        if llm_block:
+        # Always render markdown from structured fields (ignore llm-provided markdown blobs)
+        summary = llm_payload.get("summary")
+        attack_summary = llm_payload.get("attack_summary")
+        if summary:
             lines.append("")
-            lines.append(llm_block)
+            lines.append(_fmt_kv("Summary", summary))
+        if attack_summary:
+            lines.append(_fmt_kv("Attack Summary", attack_summary))
+
+        mitre = llm_payload.get("mitre_techniques") or []
+        lines.append("")
+        lines.append("**MITRE Techniques:**")
+        if mitre:
+            for t in mitre:
+                tid = t.get("id") or "N/A"
+                name = t.get("name") or ""
+                tactic = t.get("tactic") or ""
+                conf = t.get("confidence")
+                reason = t.get("reason") or ""
+                conf_str = f" (conf {conf})" if conf is not None else ""
+                tactic_str = f" ({tactic})" if tactic else ""
+                reason_str = f" — {reason}" if reason else ""
+                lines.append(f"- {tid} {name}{tactic_str}{conf_str}{reason_str}".strip())
         else:
-            # Fallback rendering from llm fields
-            summary = llm_payload.get("summary") or llm_payload.get("attack_summary")
-            if summary:
-                lines.append("")
-                lines.append(f"**Summary:** {summary}")
-            mitre = llm_payload.get("mitre_techniques") or []
-            if mitre:
-                lines.append("**MITRE Techniques:**")
-                for t in mitre:
-                    tid = t.get("id") or "N/A"
-                    name = t.get("name") or ""
-                    tactic = t.get("tactic") or ""
-                    lines.append(f"- {tid} {name} {f'({tactic})' if tactic else ''}".strip())
-            iocs = llm_payload.get("iocs") or []
-            if iocs:
-                lines.append("**IOCs:**")
-                for i in iocs:
-                    typ = i.get("type") or ""
-                    val = i.get("value") or i.get("indicator") or ""
-                    ctx = i.get("context") or ""
-                    ctx_str = f" — {ctx}" if ctx else ""
-                    lines.append(f"- {typ}: {val}{ctx_str}")
-            detections = llm_payload.get("detections") or []
-            if detections:
-                lines.append("**Detections:**")
-                for d in detections:
-                    name = d.get("name") or ""
-                    idea = d.get("idea") or ""
-                    lines.append(f"- {name}: {idea}")
-            recommendations = llm_payload.get("recommendations") or []
-            if recommendations:
-                lines.append("**Recommendations:**")
-                for r in recommendations:
-                    txt = r.get("text") or ""
-                    lines.append(f"- {txt}")
+            lines.append("- N/A")
+
+        priority = llm_payload.get("priority") or {}
+        if priority:
+            lines.append("")
+            lines.append("**Priority:**")
+            lines.append(
+                f"- {priority.get('label','N/A')} {priority.get('score','N/A')} — {priority.get('reason','')}"
+            )
+
+        fin = llm_payload.get("financial_relevance") or {}
+        if fin:
+            lines.append("")
+            lines.append("**Financial Relevance:**")
+            lines.append(
+                f"- {fin.get('label','N/A')} {fin.get('score','N/A')} — {fin.get('reason','')}"
+            )
+
+        actors = llm_payload.get("threat_actors") or []
+        lines.append("")
+        lines.append("**Threat Actors:**")
+        if actors:
+            for a in actors:
+                name = a.get("name") or "Unknown"
+                typ = a.get("type") or ""
+                country = a.get("country") or ""
+                role = a.get("role") or ""
+                conf = a.get("confidence")
+                reason = a.get("reason") or ""
+                parts = [name]
+                if typ:
+                    parts.append(f"({typ})")
+                extras = []
+                if country:
+                    extras.append(country)
+                if role:
+                    extras.append(role)
+                if conf is not None:
+                    extras.append(f"conf {conf}")
+                detail = ", ".join(extras)
+                suffix = f" — {reason}" if reason else ""
+                lines.append(f"- {' '.join(parts)}{f' [{detail}]' if detail else ''}{suffix}")
+        else:
+            lines.append("- N/A")
+
+        countries = llm_payload.get("countries") or []
+        lines.append("")
+        lines.append("**Countries:**")
+        if countries:
+            for c in countries:
+                nm = c.get("name") or "Unknown"
+                role = c.get("role") or ""
+                conf = c.get("confidence")
+                lines.append(f"- {nm} {f'({role})' if role else ''}{f' conf {conf}' if conf is not None else ''}".strip())
+        else:
+            lines.append("- N/A")
+
+        vendors = llm_payload.get("vendors") or []
+        lines.append("")
+        lines.append("**Vendors/Products:**")
+        if vendors:
+            for v in vendors:
+                nm = v.get("name") or "Unknown"
+                prod = v.get("product") or ""
+                conf = v.get("confidence")
+                lines.append(f"- {nm}{f' / {prod}' if prod else ''}{f' (conf {conf})' if conf is not None else ''}")
+        else:
+            lines.append("- N/A")
+
+        iocs = llm_payload.get("iocs") or []
+        lines.append("")
+        lines.append("**IOCs:**")
+        if iocs:
+            for i in iocs:
+                typ = i.get("type") or ""
+                val = i.get("value") or i.get("indicator") or ""
+                ctx = i.get("context") or ""
+                conf = i.get("confidence")
+                ctx_str = f" — {ctx}" if ctx else ""
+                conf_str = f" (conf {conf})" if conf is not None else ""
+                lines.append(f"- {typ}: {val}{ctx_str}{conf_str}")
+        else:
+            lines.append("- N/A")
+
+        cves = llm_payload.get("cves") or []
+        lines.append("")
+        lines.append("**CVEs:**")
+        if cves:
+            for cve in cves:
+                cid = cve.get("id") or ""
+                sev = cve.get("severity") or ""
+                cvss = cve.get("cvss") or ""
+                desc = cve.get("description") or ""
+                parts = [cid]
+                if sev:
+                    parts.append(f"[{sev}]")
+                if cvss:
+                    parts.append(f"CVSS {cvss}")
+                suffix = f" — {desc}" if desc else ""
+                lines.append(f"- {' '.join(parts)}{suffix}")
+        else:
+            lines.append("- N/A")
+
+        detections = llm_payload.get("detections") or []
+        lines.append("")
+        lines.append("**Detections:**")
+        if detections:
+            for d in detections:
+                name = d.get("name") or ""
+                typ = d.get("type") or ""
+                idea = d.get("idea") or ""
+                lines.append(f"- {name}{f' ({typ})' if typ else ''}: {idea}")
+        else:
+            lines.append("- N/A")
+
+        recommendations = llm_payload.get("recommendations") or []
+        lines.append("")
+        lines.append("**Recommendations:**")
+        if recommendations:
+            for r in recommendations:
+                typ = r.get("type") or ""
+                txt = r.get("text") or ""
+                lines.append(f"- {f'[{typ}] ' if typ else ''}{txt}")
+        else:
+            lines.append("- N/A")
+
+        tags = llm_payload.get("tags") or []
+        if tags:
+            lines.append("")
+            lines.append("**Tags:** " + ", ".join(tags))
+
+        src = llm_payload.get("source_analysis") or {}
+        if src:
+            lines.append("")
+            lines.append("**Source Analysis:**")
+            lines.append(
+                f"- {src.get('source_name','N/A')} ({src.get('trust_level','N/A')}): {src.get('reason','')}"
+            )
+            if src.get("source_url"):
+                lines.append(f"- URL: {src.get('source_url')}")
         lines.append("")
     return "\n".join(lines)
 

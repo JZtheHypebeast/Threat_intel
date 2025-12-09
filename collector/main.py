@@ -20,6 +20,7 @@ from .unstructured_pdf import (
     run_unstructured_pdf_analysis as _run_unstructured_pdf_analysis,
 )
 from .llm_rawtext import run_llm_rawtext
+from .reporting import run_reporting
 
 run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis
 
@@ -67,6 +68,7 @@ Modules:
 |-- unstructured     :: Run unstructured RSS analysis
 |-- pdf <PATH>       :: Run unstructured PDF analysis on PATH
 |-- llm              :: Run LLM rawtext translation
+|-- reporting        :: Build cumulative LLM-based report (2/7/14/30 days)
 |-- tests            :: Run unit tests
 |-- all              :: Run structured + unstructured + llm
 --------------------------------------------------------------
@@ -89,6 +91,26 @@ def _prompt_hours(current_hours: int) -> int:
     except ValueError:
         logger.warning("Invalid hours value: %s (keeping %s)", raw, current_hours)
         return current_hours
+
+
+def _prompt_reporting_period() -> int:
+    prompt = (
+        "Reporting window (days): choose 2, 7, 14, or 30 (press Enter for 7): "
+    )
+    try:
+        raw = input(prompt).strip()
+    except EOFError:
+        return 7
+    if not raw:
+        return 7
+    try:
+        chosen = int(raw)
+        if chosen in (2, 7, 14, 30):
+            return chosen
+    except ValueError:
+        pass
+    logger.warning("Invalid selection; defaulting to 7 days")
+    return 7
 
 
 def _interactive_loop(default_hours: int, skip_history: bool) -> None:
@@ -140,6 +162,11 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             logger.info("Running LLM rawtext translation (no hours filter)")
             run_llm_rawtext(hours=None)
 
+        elif key == "reporting":
+            logger.info("Building cumulative LLM-based report")
+            days = _prompt_reporting_period()
+            run_reporting(period_days=days)
+
         elif key == "tests":
             logger.info("Running unit tests")
             try:
@@ -175,6 +202,7 @@ def main() -> None:
     parser.add_argument("--unstructured", action="store_true")
     parser.add_argument("--unstructured-pdf")
     parser.add_argument("--llm", action="store_true")
+    parser.add_argument("--reporting", type=int, help="Build cumulative report over N days (2/7/14/30)")
     parser.add_argument("--no-history", action="store_true")
     parser.add_argument("-h", "--help", dest="show_help", action="store_true")
     args = parser.parse_args()
@@ -191,7 +219,13 @@ def main() -> None:
             _print_menu(hours)
             sys.exit(0)
 
-        if args.structured or args.unstructured or args.unstructured_pdf or args.llm:
+        if (
+            args.structured
+            or args.unstructured
+            or args.unstructured_pdf
+            or args.llm
+            or args.reporting
+        ):
             ran_any = False
 
             if args.structured:
@@ -214,6 +248,15 @@ def main() -> None:
                 logger.info("Running LLM rawtext translation (no hours filter)")
                 run_llm_rawtext(hours=None)
                 ran_any = True
+
+            if args.reporting:
+                days = args.reporting
+                if days not in (2, 7, 14, 30):
+                    logger.warning("Invalid reporting days %s; use 2,7,14,30", days)
+                else:
+                    logger.info("Building cumulative LLM-based report over %s days", days)
+                    run_reporting(period_days=days)
+                    ran_any = True
 
             if args.tests:
                 logger.info("Running unit tests")
