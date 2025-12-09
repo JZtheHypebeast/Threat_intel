@@ -1,0 +1,4359 @@
+{
+  "title": "LOLPROX Unveils Undetected Exploitation Routes for Stealthy Hypervisor Attacks",
+  "source": "https://gbhackers.com/hypervisor-attacks/",
+  "@timestamp": "2025-12-08T10:45:23+00:00",
+  "llm": {
+    "summary": "LOLPROX, a stealthy hypervisor attack framework, has been uncovered by security researcher Andy Gill. It leverages built-in tools to execute deep persistence attacks on Proxmox Virtual Environment (VE), bypassing traditional network monitoring and endpoint detection systems.",
+    "attack_summary": "The LOLPROX methodology uses vsock operations to establish a Command and Control (C2) channel between the hypervisor and guest VMs, evading firewalls and intrusion detection systems. It also abuses QEMU Guest Agent capabilities for arbitrary command execution inside guest VMs. Additionally, it leverages kernel level threats like malicious kernel modules or eBPF to intercept data as it's written to disk, enabling ransomware encryption or data theft.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "LOLPROX Hypervisor Attack",
+        "tactic": "Initial Access",
+        "confidence": 0.8,
+        "reason": "Use of vsock operations for C2 channel establishment"
+      },
+      {
+        "id": "T1218",
+        "name": "File and Directory Discovery",
+        "tactic": "Lateral Movement",
+        "confidence": 0.7,
+        "reason": "Abuse of QEMU Guest Agent capabilities"
+      },
+      {
+        "id": null,
+        "name": "Kernel Level Threats",
+        "tactic": "Persistence",
+        "confidence": 0.9,
+        "reason": "Use of malicious kernel modules or eBPF for data interception"
+      }
+    ],
+    "priority": {
+      "score": 85,
+      "label": "High",
+      "reason": "Stealthy attacks, deep persistence, and ability to evade traditional security controls"
+    },
+    "financial_relevance": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "Potential for data theft or ransomware encryption affecting financial institutions"
+    },
+    "threat_actors": [
+      {
+        "name": null,
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.6,
+        "role": "Attributed",
+        "reason": "Researcher Andy Gill attributed the LOLPROX framework to threat actors"
+      }
+    ],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "Proxmox",
+        "product": "Proxmox Virtual Environment (VE)",
+        "confidence": 1.0
+      },
+      {
+        "name": "QEMU",
+        "product": "QEMU Guest Agent",
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [
+      {
+        "type": "domain",
+        "value": "vsock operations",
+        "context": "C2 channel establishment between hypervisor and guest VMs",
+        "confidence": 0.9
+      },
+      {
+        "type": "url",
+        "value": "https://gbhackers.com/",
+        "context": "Researcher's website for LOLPROX analysis",
+        "confidence": 1.0
+      }
+    ],
+    "cves": [],
+    "detections": [
+      {
+        "name": "LOLPROX Hypervisor Attack Detection",
+        "type": "Network",
+        "idea": "Monitor vsock operations and QEMU Guest Agent usage for suspicious activity"
+      },
+      {
+        "name": "Kernel Level Threats Detection",
+        "type": "Endpoint",
+        "idea": "Audit kernel modules and eBPF for malicious behavior"
+      }
+    ],
+    "tags": [
+      "cyber security",
+      "LOLPROX",
+      "Proxmox Virtual Environment (VE)",
+      "QEMU Guest Agent"
+    ]
+  }
+}
+
+{
+  "title": "WatchGuard Firebox Vulnerabilities Let Hackers Skip Integrity Validation and Plant Malicious Code",
+  "source": "https://gbhackers.com/watchguard-firebox-vulnerabilities/",
+  "@timestamp": "2025-12-08T06:57:18+00:00",
+  "llm": {
+    "summary": "WatchGuard has disclosed six vulnerabilities affecting its Firebox firewall products, which could allow attackers to bypass system integrity checks and execute malicious code.",
+    "attack_summary": "The attack involves multiple steps. First, the attacker uses a vulnerability like CVE-2025-13940 to bypass system integrity validation. Then, they exploit another vulnerability to execute arbitrary code. The final step is to plant malicious code on the compromised system.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Boot Integrity Check Bypass",
+        "tactic": "Lateral Movement",
+        "confidence": 0.5,
+        "reason": "The article does not provide enough information to determine the exact MITRE technique."
+      },
+      {
+        "id": "T1212",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Execution",
+        "confidence": 1.0,
+        "reason": "The article states that attackers can exploit vulnerabilities in public-facing applications to execute arbitrary code."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "Critical",
+      "reason": "The vulnerabilities pose a significant risk to enterprise network security, and the attack could result in complete system compromise."
+    },
+    "financial_relevance": {
+      "score": 50,
+      "label": "Medium",
+      "reason": "While the article does not specifically mention financial institutions, the vulnerability could potentially be exploited by attackers targeting financial organizations."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Attributed",
+        "reason": "The article mentions that a researcher discovered the vulnerability, but it does not provide information about the attacker's identity or motivations."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Unknown",
+        "role": "Origin",
+        "confidence": 0.5,
+        "reason": "The article does not specify which countries are affected by the vulnerability."
+      }
+    ],
+    "vendors": [
+      {
+        "name": "WatchGuard Technologies",
+        "product": "Firebox Firewall Products",
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [
+      {
+        "type": "cve",
+        "value": "CVE-2025-13940",
+        "context": "Vulnerability ID",
+        "confidence": 1.0
+      },
+      {
+        "type": "cve",
+        "value": "CVE-2025-1545",
+        "context": "Vulnerability ID",
+        "confidence": 1.0
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-13940",
+        "severity": "Medium",
+        "cvss": "6.7",
+        "description": "Boot integrity check bypass vulnerability in Firebox Firewall Products"
+      },
+      {
+        "id": "CVE-2025-1545",
+        "severity": "High",
+        "cvss": "8.6",
+        "description": "XPath injection vulnerability in Firebox Firewall Products"
+      }
+    ],
+    "detections": [
+      {
+        "name": "Firewall Rule Monitoring",
+        "type": "Network",
+        "idea": "Monitor firewall rules for suspicious activity and alert on any changes."
+      },
+      {
+        "name": "Vulnerability Scanning",
+        "type": "Network",
+        "idea": "Regularly scan the network for vulnerabilities like CVE-2025-13940 and CVE-2025-1545."
+      }
+    ],
+    "tags": [
+      "cyber security",
+      "watchguard",
+      "firebox",
+      "vulnerability"
+    ]
+  }
+}
+
+{
+  "title": "OceanLotus Targets Xinchuang Ecosystem with Sophisticated Supply Chain Attacks",
+  "source": "https://gbhackers.com/xinchuang-ecosystem/",
+  "@timestamp": "2025-12-08T07:36:31+00:00",
+  "llm": {
+    "summary": "OceanLotus (APT32) targets China's Xinchuang ecosystem with sophisticated supply chain attacks, compromising Linux-based operating systems and internal supply chains.",
+    "attack_summary": "The attack involves spear phishing with tailored Windows attack methods for Linux environments. The attackers use Desktop Entry files (.desktop) as bait, which execute a base64 encoded bash command creating a scheduled task for C2 communication. They exploit document viewer vulnerabilities (CVE-2023-52076) and compromise internal supply chains by brute forcing security servers or using zero-day exploits.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Spear Phishing via Social Engineering",
+        "tactic": "Initial Access",
+        "confidence": 0.8,
+        "reason": "The attackers use tailored Windows attack methods for Linux environments to compromise the Xinchuang ecosystem."
+      },
+      {
+        "id": "T1190",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Execution",
+        "confidence": 0.9,
+        "reason": "The attackers exploit document viewer vulnerabilities (CVE-2023-52076) to execute malicious code."
+      },
+      {
+        "id": "T1068",
+        "name": "Valid Accounts",
+        "tactic": "Lateral Movement",
+        "confidence": 0.7,
+        "reason": "The attackers use compromised internal supply chains and brute force security servers to move laterally within the network."
+      }
+    ],
+    "priority": {
+      "score": 90,
+      "label": "High",
+      "reason": "The attack has a high business impact, compromising critical infrastructure and potentially leading to data breaches or system crashes."
+    },
+    "financial_relevance": {
+      "score": 80,
+      "label": "Medium-High",
+      "reason": "The attack targets the Xinchuang ecosystem, which is likely used by financial institutions, making it relevant to the financial sector."
+    },
+    "threat_actors": [
+      {
+        "name": "OceanLotus (APT32)",
+        "type": "State-sponsored",
+        "country": "China",
+        "confidence": 0.9,
+        "role": "Attributed",
+        "reason": "The attackers are attributed to OceanLotus (APT32), a known state-sponsored threat actor."
+      }
+    ],
+    "countries": [
+      {
+        "name": "China",
+        "role": "Victim/Target",
+        "confidence": 0.8,
+        "reason": "The attack targets the Xinchuang ecosystem in China, which is likely used by financial institutions."
+      },
+      {
+        "name": "Russia",
+        "role": "Origin",
+        "confidence": 0.5,
+        "reason": "There is no concrete evidence to link Russia directly to this attack, but it's possible given the attackers' modus operandi."
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Atril Document Viewer",
+        "product": "default viewer for MATE desktop environment",
+        "confidence": 0.9,
+        "reason": "The attackers exploit a vulnerability in Atril Document Viewer, which is widely used in the Xinchuang ecosystem."
+      },
+      {
+        "name": "Java and Python environments",
+        "product": "pre-installed on government ICT terminals",
+        "confidence": 0.7,
+        "reason": "The attackers use Java and Python environments to compromise Linux-based operating systems."
+      }
+    ],
+    "iocs": [
+      {
+        "type": "ip",
+        "value": null,
+        "context": "",
+        "confidence": 0
+      },
+      {
+        "type": "domain",
+        "value": null,
+        "context": "",
+        "confidence": 0
+      },
+      {
+        "type": "file",
+        "value": "Desktop Entry file (.desktop)",
+        "context": "Used as bait to execute malicious code",
+        "confidence": 0.8
+      }
+    ],
+    "tags": [
+      "cybersecurity",
+      "Xinchuang ecosystem",
+      "supply chain attack",
+      "Linux-based operating systems"
+    ]
+  }
+}
+
+{
+  "title": "CISA Adds Critical React2Shell Vulnerability to KEV Catalog After Active Exploitation",
+  "source": "https://gbhackers.com/cisa-adds-critical-react2shell-vulnerability-to-kev-catalog/",
+  "@timestamp": "2025-12-08T10:25:26+00:00",
+  "llm": {
+    "summary": "The CISA has added a high-severity vulnerability, 'React2Shell', to its Known Exploited Vulnerabilities (KEV) catalog. This RCE bug affects Meta's React Server Components and is actively being exploited in the wild.",
+    "attack_summary": "React2Shell is a Remote Code Execution (RCE) vulnerability found in React Server Components. Attackers can send specially crafted requests to vulnerable servers, allowing them to take control of the system, execute arbitrary code, or steal sensitive data without authentication.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": null,
+        "tactic": null,
+        "confidence": 0.5,
+        "reason": "Unknown MITRE ID; possible match: T1210"
+      }
+    ],
+    "priority": {
+      "score": 90,
+      "label": "High",
+      "reason": "Critical vulnerability actively being exploited in the wild, with potential for significant business impact and high exploitability."
+    },
+    "financial_relevance": {
+      "score": 80,
+      "label": "Medium",
+      "reason": "Vulnerability affects React Server Components, a widely used framework, potentially impacting financial institutions using modern web applications."
+    },
+    "threat_actors": [
+      {
+        "name": null,
+        "type": null,
+        "country": null,
+        "confidence": 0.5,
+        "role": null,
+        "reason": "Unknown threat actor; possible match: 'Threat Actor Group'"
+      }
+    ],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "Meta",
+        "product": "React Server Components",
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [
+      {
+        "type": null,
+        "value": "CVE-2025-55182",
+        "context": "Vulnerability ID",
+        "confidence": 1.0
+      },
+      {
+        "type": null,
+        "value": "React2Shell",
+        "context": "Vulnerability name",
+        "confidence": 1.0
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-55182",
+        "severity": "Critical",
+        "cvss": null,
+        "description": "Remote Code Execution (RCE) vulnerability in React Server Components"
+      }
+    ],
+    "detections": [
+      {
+        "name": "Check for vulnerable React Server Components versions",
+        "type": "Network",
+        "idea": "Analyze server responses to detect potential RCE attempts."
+      },
+      {
+        "name": "Monitor for suspicious requests to React Server Function endpoints",
+        "type": "Network",
+        "idea": "Identify and block malicious requests that may exploit the vulnerability."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Apply vendor-provided patches or mitigations immediately, or consider discontinuing use of affected product until it can be secured."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "react",
+      "server-components"
+    ],
+    "source_analysis": {
+      "source_name": "GBHackers",
+      "source_url": "https://gbhackers.com/cisa-adds-critical-react2shell-vulnerability-to-kev-catalog/",
+      "trust_level": "Medium",
+      "reason": "Reputable cybersecurity news platform, but may contain general or unverified information."
+    }
+  }
+}
+
+{
+  "title": "Indonesia’s Gambling Industry Reveals Clues of Nationwide Cyber Involvement",
+  "source": "https://gbhackers.com/indonesias-gambling/",
+  "@timestamp": "2025-12-08T06:14:10+00:00",
+  "llm": {
+    "summary": "Indonesia's gambling industry has been infiltrated by a sophisticated cybercrime operation that has lasted for over 14 years, with characteristics aligning more closely with state-sponsored threat operations than conventional financial cybercrime.",
+    "attack_summary": "The attack involves the exploitation of WordPress vulnerabilities and PHP component weaknesses to weaponize trusted domains. The attackers then use these domains to distribute malware, hijack legitimate domains, and infiltrate enterprise and government networks worldwide. They also utilize a technique called 'TLS terminating reverse proxies' to disguise command and control traffic as legitimate HTTPS connections from government domains.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Unknown",
+        "confidence": 0.3,
+        "reason": "MITRE ID not specified"
+      },
+      {
+        "id": "T1210",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "confidence": 0.9,
+        "reason": "Attackers exploited WordPress vulnerabilities to gain access"
+      },
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Execution",
+        "confidence": 0.2,
+        "reason": "No MITRE ID specified for execution tactic"
+      }
+    ],
+    "priority": {
+      "score": 90,
+      "label": "High",
+      "reason": "Sophisticated operation with state-level resources and capabilities, impacting multiple industries worldwide."
+    },
+    "financial_relevance": {
+      "score": 80,
+      "label": "Medium",
+      "reason": "Operation involves financial institutions, including banks and digital wallets, but does not specifically target them."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Financially motivated",
+        "country": null,
+        "confidence": 0.6,
+        "role": "Attributed",
+        "reason": "Characteristics align more closely with state-sponsored threat operations"
+      }
+    ],
+    "countries": [
+      {
+        "name": "Indonesia",
+        "role": "Victim",
+        "confidence": 1.0
+      },
+      {
+        "name": "United States",
+        "role": "Origin",
+        "confidence": 0.8,
+        "reason": "Hosting concentrated on U.S.-based IP addresses"
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Cloudflare",
+        "product": null,
+        "confidence": 1.0
+      },
+      {
+        "name": "AWS",
+        "product": null,
+        "confidence": 1.0
+      },
+      {
+        "name": "Azure",
+        "product": null,
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [
+      {
+        "type": "domain",
+        "value": "jp api.namesvr[.]dev",
+        "context": "Command and control traffic",
+        "confidence": 1.0
+      },
+      {
+        "type": "IP address",
+        "value": "600 IP addresses",
+        "context": "Hosting multiple domains",
+        "confidence": 0.9
+      }
+    ],
+    "tags": [
+      "cyber security",
+      "Cyber Security News"
+    ]
+  }
+}
+
+{
+  "title": "Next.js Releases Scanner to Detect and Fix Apps Affected by React2Shell Vulnerability",
+  "source": "https://gbhackers.com/next-js-releases-scanner-react2shell-vulnerability/",
+  "@timestamp": "2025-12-08T08:50:00+00:00",
+  "llm": {
+    "summary": "Next.js developers have released a scanner to detect and fix apps affected by the critical 'React2Shell' vulnerability, tracked as CVE-2025-66478.",
+    "attack_summary": "The React2Shell RCE flaw affects multiple branches of Next.js and React Server Components. The scanner checks for specific versions and applies patches automatically, reducing the time required to secure applications. It identifies vulnerable packages, updates package.json files, and refreshes lockfiles using the detected package manager (npm, yarn, pnpm, or bun).",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": null,
+        "confidence": 0.5,
+        "reason": "Unknown ATT&CK technique mentioned in the article"
+      }
+    ],
+    "priority": {
+      "score": 90,
+      "label": "High",
+      "reason": "Critical RCE flaw, actively exploited"
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "Vulnerability affects Next.js and React Server Components, but financial institutions are not explicitly mentioned as targets"
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Mentioned",
+        "reason": "Article mentions no specific threat actor or group"
+      }
+    ],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "Next.js developers (Vercel Labs)",
+        "product": "fix-react2shell-next tool",
+        "confidence": 1
+      },
+      {
+        "name": "npm, yarn, pnpm, or bun package managers",
+        "product": "",
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [],
+    "cves": [
+      {
+        "id": "CVE-2025-66478",
+        "severity": "Critical",
+        "cvss": null,
+        "description": "Remote Code Execution (RCE) flaw in Next.js and React Server Components"
+      }
+    ],
+    "detections": [
+      {
+        "name": "Vulnerable package detection",
+        "type": "Network",
+        "idea": "Monitor for vulnerable packages in package.json files, especially those matching specific versions listed in the article (e.g., 15.0.0 – 15.0.4)"
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Use the fix-react2shell-next tool to automatically detect and patch vulnerable applications"
+      }
+    ],
+    "tags": [
+      "cyber security",
+      "vulnerability"
+    ],
+    "source_analysis": {
+      "source_name": "GBHackers",
+      "source_url": "https://gbhackers.com/next-js-releases-scanner-react2shell-vulnerability/",
+      "trust_level": "Medium",
+      "reason": "GBHackers is a reputable cybersecurity news platform, but the article may not provide in-depth technical analysis"
+    }
+  }
+}
+
+{
+  "title": "Porsche Cars Disabled After Major Failure in Installed Satellite Security System",
+  "source": "https://gbhackers.com/porsche-cars-disabled-after-failure-in-installed-satellite-security-system/",
+  "@timestamp": "2025-12-08T09:13:17+00:00",
+  "llm": {
+    "summary": "A security system failure in Porsche cars has left hundreds of owners in Russia unable to drive their vehicles. The issue affects only gasoline-powered models and is believed to be related to the car's \"telematics\" system, which connects the vehicle to the internet.",
+    "attack_summary": "The attack appears to be a failure of the factory-installed security and tracking systems, rather than an intentional cyberattack. However, experts believe that the \"telematics\" system, which receives software updates over the air, may be a weak point that could be exploited by hackers in the future.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.2,
+        "reason": "Unclear whether this is a cyberattack or a systems failure"
+      },
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Persistence",
+        "confidence": 0.3,
+        "reason": "Possible software updates over the air may be relevant"
+      }
+    ],
+    "priority": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "Potential for significant disruption to vehicle owners, but unclear whether this is a cyberattack or a systems failure"
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "No clear financial implications mentioned in the article"
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": null,
+        "country": null,
+        "confidence": 0.1,
+        "role": null,
+        "reason": "Unclear whether this is a cyberattack or a systems failure"
+      }
+    ],
+    "countries": [
+      {
+        "name": "Russia",
+        "role": "Victim",
+        "confidence": 0.9
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Porsche",
+        "product": null,
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Telematics system usage detection",
+        "type": "Network",
+        "idea": "Monitor network traffic related to the telematics system for unusual activity"
+      },
+      {
+        "name": "Software update analysis",
+        "type": "Endpoint",
+        "idea": "Analyze software updates sent over the air to vehicles for potential malware or unauthorized code execution"
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Awareness",
+        "text": "Vehicle owners should be aware of the potential risks associated with the telematics system and take steps to mitigate them, such as updating their vehicle's software regularly"
+      },
+      {
+        "type": "Technical",
+        "text": "Porsche should investigate the cause of the security system failure and implement measures to prevent similar incidents in the future"
+      }
+    ],
+    "tags": [
+      "cybersecurity",
+      "vehicle systems",
+      "telematics"
+    ],
+    "source_analysis": {
+      "source_name": "gbhackers.com",
+      "source_url": "https://gbhackers.com/porsche-cars-disabled-after-failure-in-installed-satellite-security-system/",
+      "trust_level": "Medium",
+      "reason": "Article appears to be a reputable source of cybersecurity news, but some information may be unclear or biased"
+    }
+  }
+}
+
+{
+  "title": "Hackers Target Developers Using Malicious VS Code and Cursor AI Extensions",
+  "source": "https://gbhackers.com/vs-code-and-cursor-ai/",
+  "@timestamp": "2025-12-08T08:43:29+00:00",
+  "llm": {
+    "summary": "Hackers are targeting developers using malicious VS Code and Cursor AI extensions, which can lead to persistent access to developer machines and potentially severe breaches.",
+    "attack_summary": "The attack starts with a seemingly benign extension being installed on the developer's machine. This extension, often pitched as a code formatter or linter, quietly exfiltrates environment variables and system metadata each time the IDE launches. The stolen data can include highly sensitive secrets such as cloud keys and access tokens, which are then sent to an attacker-controlled C2 server. In some cases, the extension is designed to evade Microsoft's marketplace checks, antivirus engines, and popular endpoint security products.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Lateral Movement",
+        "tactic": "Persistence",
+        "confidence": 0.6,
+        "reason": "The malicious extension gains persistent access to the developer's machine, allowing for future attacks."
+      },
+      {
+        "id": "T1218",
+        "name": "File and Directory Discovery",
+        "tactic": "Reconnaissance",
+        "confidence": 0.4,
+        "reason": "The extension is designed to gather system metadata and environment variables, which could be used for further exploitation."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "The potential impact on developer machines and the ease of exploiting these vulnerabilities make this a high-priority threat."
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "While the attack could potentially compromise sensitive secrets, there is no explicit mention of financial institutions or specific financial data being targeted."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "The researcher, Mazin Ahmed, demonstrated the vulnerability, but the actors behind the attack are unknown."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Global",
+        "role": "Origin",
+        "confidence": 0.9
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Microsoft",
+        "product": "VS Code Marketplace",
+        "confidence": 0.8
+      },
+      {
+        "name": "Cursor AI",
+        "product": "AI-powered IDE",
+        "confidence": 0.7
+      }
+    ],
+    "iocs": [
+      {
+        "type": "other",
+        "value": "Piithon linter",
+        "context": "Malicious extension submitted to the VS Code Marketplace.",
+        "confidence": 0.9
+      },
+      {
+        "type": "other",
+        "value": "Merlin post-exploitation agent",
+        "context": "Agent used for Windows, macOS, and Linux exploitation.",
+        "confidence": 0.8
+      }
+    ],
+    "cves": [],
+    "detections": [
+      {
+        "name": "VS Code extension behavior analysis",
+        "type": "Endpoint",
+        "idea": "Monitor for suspicious extension activity, such as exfiltration of environment variables or system metadata."
+      },
+      {
+        "name": "PII extraction detection",
+        "type": "Endpoint",
+        "idea": "Detect and block the extraction of sensitive PII data, such as cloud keys or access tokens."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Implement stronger security controls on VS Code, OpenVSX, and AI-powered IDEs to prevent malicious extensions from being installed."
+      },
+      {
+        "type": "Operational",
+        "text": "Regularly update and patch all software and dependencies to prevent exploitation of known vulnerabilities."
+      }
+    ],
+    "tags": [
+      "cybersecurity",
+      "Cyber Security News"
+    ]
+  }
+}
+
+{
+  "title": "OpenAI denies rolling out ads on ChatGPT paid plans",
+  "source": "https://www.bleepingcomputer.com/news/artificial-intelligence/openai-denies-rolling-out-ads-on-chatgpt-paid-plans/",
+  "@timestamp": "2025-12-07T20:51:08+00:00",
+  "llm": {
+    "summary": "OpenAI denies rolling out ads on ChatGPT paid plans, claims it's app recommendations from pilot partners.",
+    "attack_summary": "ChatGPT users noticed that the AI was recommending shopping apps in response to unrelated questions. OpenAI executive Daniel McAuley explained that this is part of a pilot program where partner apps are integrated into the service. The goal is to make these app suggestions more 'organic' within the ChatGPT experience.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Social Engineering",
+        "confidence": 0.5,
+        "reason": "The article mentions 'recommendations' and 'app suggestions', but it's unclear if this is a social engineering tactic or just an app integration feature."
+      }
+    ],
+    "priority": {
+      "score": 20,
+      "label": "Low",
+      "reason": "This appears to be a non-malicious, customer-facing change by OpenAI."
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "There's no mention of financial data, transactions, or institutions in the article."
+    },
+    "threat_actors": [],
+    "countries": [
+      {
+        "name": "United States",
+        "role": "Target",
+        "confidence": 0.8,
+        "reason": "The Target logo was mentioned as one of the recommended shopping apps."
+      }
+    ],
+    "vendors": [
+      {
+        "name": "OpenAI",
+        "product": null,
+        "confidence": 1
+      },
+      {
+        "name": "Target",
+        "product": null,
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "ChatGPT app recommendations monitoring",
+        "type": "Network",
+        "idea": "Monitor for any unusual or unsolicited app recommendations from ChatGPT."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Awareness",
+        "text": "Users should be aware of the potential for commercial suggestions within ChatGPT and report any suspicious activity to OpenAI support."
+      }
+    ],
+    "tags": [
+      "chatgpt",
+      "openai"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/artificial-intelligence/openai-denies-rolling-out-ads-on-chatgpt-paid-plans/",
+      "trust_level": "Medium",
+      "reason": "BleepingComputer is a reputable technology news source, but this article appears to be a breaking news piece without much analysis or depth."
+    }
+  }
+}
+
+{
+  "title": "Portugal updates cybercrime law to exempt security researchers",
+  "source": "https://www.bleepingcomputer.com/news/security/portugal-updates-cybercrime-law-to-exempt-security-researchers/",
+  "@timestamp": "2025-12-07T15:09:44+00:00",
+  "llm": {
+    "summary": "Portugal updates its cybercrime law to exempt security researchers from punishment when conducting good-faith research and reporting vulnerabilities.",
+    "attack_summary": "The article does not describe a specific attack flow, but it outlines conditions under which security research is considered exempt from prosecution. Security researchers must act in good faith, only target pre-existing vulnerabilities, report findings promptly, and refrain from disrupting services or engaging in prohibited techniques such as DoS attacks, social engineering, or malware deployment.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": null,
+        "tactic": null,
+        "confidence": 0.3,
+        "reason": "Unknown technique; article focuses on legal exemption for security research."
+      }
+    ],
+    "priority": {
+      "score": 10,
+      "label": "Informational",
+      "reason": "This update pertains to a change in legal framework regarding security research, rather than an imminent threat or significant vulnerability."
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "The article does not mention financial institutions, sensitive data, or other elements typically associated with financial relevance."
+    },
+    "threat_actors": [
+      {
+        "name": null,
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.2,
+        "role": "Mentioned",
+        "reason": "The article does not explicitly identify a specific threat actor or group; it discusses the legal exemption for security researchers."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Portugal",
+        "role": "Origin",
+        "confidence": 1.0
+      },
+      {
+        "name": "Germany",
+        "role": "Mentioned",
+        "confidence": 0.8,
+        "reason": "The article mentions Germany's draft law providing similar protections to security researchers."
+      }
+    ],
+    "vendors": [
+      {
+        "name": null,
+        "product": null,
+        "confidence": 0.2
+      },
+      {
+        "name": "CNCS (Portuguese National Cybersecurity Authority)",
+        "product": null,
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [
+      {
+        "type": "other",
+        "value": "Article 8.o A, titled \"Acts not punishable due to public interest in cybersecurity\"",
+        "context": "Legal provision",
+        "confidence": 0.9,
+        "reason": "While this is a legal document, it is part of the article's content and thus included here."
+      }
+    ],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Detection of prohibited techniques in security research",
+        "type": "Generic",
+        "idea": "Monitor for attempts to disrupt services, alter or delete data, or cause harm during security research efforts. Identify prohibited techniques such as DoS attacks, social engineering, phishing, password theft, intentional data alteration, system damage, or malware deployment."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Awareness",
+        "text": "Security researchers should be aware of the legal exemptions for good-faith research and report vulnerabilities promptly to avoid prosecution. Ensure that all security activities are conducted within the bounds of the law and in compliance with GDPR regulations."
+      }
+    ],
+    "tags": [
+      "security research",
+      "cybercrime law",
+      "Portugal"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/portugal-updates-cybercrime-law-to-exempt-security-researchers/",
+      "trust_level": "High",
+      "reason": "BleepingComputer is a reputable and trustworthy source for cybersecurity news."
+    }
+  }
+}
+
+{
+  "title": "Critical Cal.com Flaw Allows Attackers to Bypass Authentication Using Fake TOTP Codes",
+  "source": "https://gbhackers.com/critical-cal-com-flaw-allows-attackers-to-bypass-authentication-using-fake-totp-codes/",
+  "@timestamp": "2025-12-08T06:05:05+00:00",
+  "llm": {
+    "summary": "A critical authentication bypass vulnerability, tracked as CVE-2025-66489, affects all versions of Cal.com up to and including 5.9.7. Attackers can exploit this flaw by submitting a fake TOTP code, allowing them to gain unauthorized access to user accounts.",
+    "attack_summary": "The attack occurs when an attacker submits a non-empty value in the 'totpCode' field alongside the victim's email address. This bypasses both password and TOTP verification, enabling attackers to take over accounts with minimal effort. For users with 2FA enabled, the vulnerability reduces multi-factor authentication to single-factor authentication.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.6,
+        "reason": "This attack exploits a specific vulnerability, but the exact technique is unclear."
+      }
+    ],
+    "priority": {
+      "score": 95,
+      "label": "High",
+      "reason": "The critical CVSS v4 score of 9.3 and potential for sensitive information exposure justify a high priority."
+    },
+    "financial_relevance": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "Although the article does not specifically mention financial institutions, the vulnerability affects user accounts, which may store sensitive financial data."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.6,
+        "role": "Attributed",
+        "reason": "The article mentions a security researcher who reported the vulnerability, but does not attribute it to any specific threat actor."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Global",
+        "role": "Victim",
+        "confidence": 0.9
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Cal.com",
+        "product": null,
+        "confidence": 1
+      }
+    ],
+    "iocs": [
+      {
+        "type": "other",
+        "value": "CVE-2025-66489",
+        "context": "Vulnerability ID",
+        "confidence": 0.9
+      },
+      {
+        "type": "url",
+        "value": null,
+        "context": "Malicious TOTP code submission URL",
+        "confidence": 0.6
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-66489",
+        "severity": "Critical",
+        "cvss": "9.3",
+        "description": "A critical authentication bypass vulnerability affecting Cal.com versions up to and including 5.9.7."
+      }
+    ],
+    "detections": [
+      {
+        "name": "TOTP code submission detection",
+        "type": "Network",
+        "idea": "Monitor for non-empty TOTP code submissions alongside user email addresses, potentially indicating unauthorized access attempts."
+      },
+      {
+        "name": "User account takeover detection",
+        "type": "Endpoint",
+        "idea": "Watch for unusual login activity or suspicious changes in user accounts, which may indicate the exploitation of this vulnerability."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Update Cal.com to version 5.9.8 immediately to patch the vulnerability and protect against potential exploitation."
+      },
+      {
+        "type": "Process",
+        "text": "Implement additional security measures, such as multi-factor authentication or session management, to reduce the risk of unauthorized access."
+      }
+    ],
+    "tags": [
+      "authentication bypass",
+      "TOTP code submission",
+      "Cal.com",
+      "vulnerability"
+    ],
+    "source_analysis": {
+      "source_name": "gbhackers.com",
+      "source_url": "https://gbhackers.com/critical-cal-com-flaw-allows-attackers-to-bypass-authentication-using-fake-totp-codes/",
+      "trust_level": "High",
+      "reason": "The article is from a reputable cybersecurity news platform, delivering up-to-date coverage on emerging threats and vulnerabilities."
+    }
+  }
+}
+
+{
+  "title": "React2Shell flaw exploited to breach 30 orgs, 77k IP addresses vulnerable",
+  "source": "https://www.bleepingcomputer.com/news/security/react2shell-flaw-exploited-to-breach-30-orgs-77k-ip-addresses-vulnerable/",
+  "@timestamp": "2025-12-06T19:07:33+00:00",
+  "llm": {
+    "summary": "The React2Shell remote code execution flaw (CVE-2025-55182) has been exploited to breach over 30 organizations and affect 77k IP addresses, with attackers primarily using PowerShell commands to confirm vulnerability and execute base64 encoded scripts.",
+    "attack_summary": "Attackers exploit the React2Shell flaw by sending a single HTTP request, which can be done via automated tools. Once vulnerable, attackers execute basic math functions in PowerShell to confirm exploitation, then download additional scripts directly into memory. These scripts disable AMSI, deploy Cobalt Strike beacons, and attempt to steal AWS configuration and credential files.",
+    "mitre_techniques": [
+      {
+        "id": "T1210",
+        "name": "Exploitation of Remote Services",
+        "tactic": "Initial Access",
+        "confidence": 0.8,
+        "reason": "Attackers exploit the React2Shell flaw to gain initial access."
+      },
+      {
+        "id": null,
+        "name": "Remote Code Execution",
+        "tactic": "Execution",
+        "confidence": 0.9,
+        "reason": "Attackers execute PowerShell scripts directly into memory, which download additional payloads."
+      },
+      {
+        "id": "T1071",
+        "name": "Custom Implementation",
+        "tactic": "Command and Control",
+        "confidence": 0.7,
+        "reason": "Attackers use custom PowerShell scripts to download Cobalt Strike beacons and disable AMSI."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "The flaw is critical, actively exploited, and affects multiple sectors with high business impact."
+    },
+    "financial_relevance": {
+      "score": 70,
+      "label": "Medium",
+      "reason": "Attackers attempt to steal AWS configuration and credential files, which has financial implications for affected organizations."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Attributed",
+        "reason": "Attackers are attributed to Chinese state-sponsored threat groups."
+      }
+    ],
+    "countries": [
+      {
+        "name": "United States",
+        "role": "Victim",
+        "confidence": 0.8
+      },
+      {
+        "name": "China",
+        "role": "Origin",
+        "confidence": 0.9
+      },
+      {
+        "name": "Netherlands",
+        "role": "Origin",
+        "confidence": 0.5
+      }
+    ],
+    "vendors": [
+      {
+        "name": "React",
+        "product": null,
+        "confidence": 1.0
+      },
+      {
+        "name": "Next.js",
+        "product": null,
+        "confidence": 0.9
+      },
+      {
+        "name": "Amazon AWS",
+        "product": null,
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [
+      {
+        "type": "ip",
+        "value": "23[.]235[.]188[.]3",
+        "context": "C2 server",
+        "confidence": 1.0
+      },
+      {
+        "type": "url",
+        "value": "powershell c \"40138*41979\"",
+        "context": "Phishing URL",
+        "confidence": 0.9
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-55182",
+        "severity": "Critical",
+        "cvss": null,
+        "description": "Remote code execution flaw in React Server Components."
+      }
+    ],
+    "detections": [
+      {
+        "name": "Yurei ransomware filesystem behavior",
+        "type": "Endpoint",
+        "idea": "Monitor for PowerShell commands and base64 encoded scripts executing on endpoints, indicating potential exploitation of the React2Shell flaw."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Update React to the latest version, rebuild applications, and redeploy them immediately to fix the vulnerability."
+      },
+      {
+        "type": "Process",
+        "text": "Review logs for signs of PowerShell or shell command execution, indicating potential exploitation of the React2Shell flaw."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "windows",
+      "cloud",
+      "reactjs",
+      "nextjs"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/react2shell-flaw-exploited-to-breach-30-orgs-77k-ip-addresses-vulnerable/",
+      "trust_level": "High",
+      "reason": "Established and reputable security news source."
+    }
+  }
+}
+
+{
+  "title": "New wave of VPN login attempts targets Palo Alto GlobalProtect portals",
+  "source": "https://www.bleepingcomputer.com/news/security/new-wave-of-vpn-login-attempts-targets-palo-alto-globalprotect-portals/",
+  "@timestamp": "2025-12-06T15:18:19+00:00",
+  "llm": {
+    "summary": "A new wave of VPN login attempts, targeting Palo Alto GlobalProtect portals and SonicWall SonicOS API endpoints. The attacks originated from over 7,000 IP addresses in Germany, attributed to the same actor.",
+    "attack_summary": "The attackers target GlobalProtect portals with brute-force login attempts. After gaining access, they pivot to scanning SonicWall API endpoints for vulnerabilities and misconfigurations. This activity is likely used to identify exposed infrastructure for potential exploitation of upcoming flaws.",
+    "mitre_techniques": [
+      {
+        "id": "T1210",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "confidence": 0.9,
+        "reason": "The attackers target publicly accessible VPN portals and API endpoints."
+      },
+      {
+        "id": null,
+        "name": "Brute Force",
+        "tactic": "Lateral Movement",
+        "confidence": 0.8,
+        "reason": "The attackers use brute-force login attempts to gain access to the GlobalProtect portals."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "The attacks are targeted, widespread, and likely intended for exploitation of vulnerabilities or misconfigurations."
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "There is no indication that the attacks target financial institutions or sensitive data."
+    },
+    "threat_actors": [
+      {
+        "name": null,
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.7,
+        "role": "Attributed",
+        "reason": "The attackers are attributed to the same actor by GreyNoise, but their motivations and capabilities are unknown."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Germany",
+        "role": "Origin",
+        "confidence": 0.9,
+        "reason": "Over 7,000 IP addresses from Germany were used in the attacks."
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Palo Alto Networks",
+        "product": "GlobalProtect",
+        "confidence": 1
+      },
+      {
+        "name": "SonicWall",
+        "product": "SonicOS API",
+        "confidence": 0.9
+      }
+    ],
+    "iocs": [
+      {
+        "type": "ip",
+        "value": null,
+        "context": "Originating IP addresses of the attacks.",
+        "confidence": 0.7
+      },
+      {
+        "type": "other",
+        "value": "3xK GmbH's BGP network (AS200373)",
+        "context": "The company operating the originating infrastructure.",
+        "confidence": 0.5
+      }
+    ],
+    "cves": [],
+    "detections": [
+      {
+        "name": "GlobalProtect VPN portal scans",
+        "type": "Network",
+        "idea": "Monitor for IP addresses associated with this type of activity and block them. Monitor authentication surfaces for abnormal velocity/repeated failures."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Enforce Multi-Factor Authentication (MFA) to protect against credential abuse. Monitor for IPs associated with this type of activity and block them."
+      }
+    ],
+    "tags": [
+      "VPN",
+      "login attempts",
+      "SonicWall"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/new-wave-of-vpn-login-attempts-targets-palo-alto-globalprotect-portals/",
+      "trust_level": "High"
+    }
+  }
+}
+
+{
+  "title": "Barts Health NHS discloses data breach after Oracle zero-day hack",
+  "source": "https://www.bleepingcomputer.com/news/security/barts-health-nhs-discloses-data-breach-after-oracle-zero-day-hack/",
+  "@timestamp": "2025-12-05T18:55:26+00:00",
+  "llm": {
+    "summary": "Barts Health NHS Trust in England disclosed a data breach after Clop ransomware actors exploited a vulnerability in its Oracle E business Suite software, stealing invoices with sensitive information.",
+    "attack_summary": "Clop ransomware actors initially exploited the critical Oracle EBS flaw tracked as CVE-2025-61882 to gain access to Barts Health NHS Trust's database. They then stole files containing invoices spanning several years, exposing personal data of individuals who paid for treatment or services at the hospital.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.5,
+        "reason": "Article does not specify the exact MITRE ATT&CK technique used"
+      },
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Execution",
+        "confidence": 0.5,
+        "reason": "Article does not specify the exact MITRE ATT&CK technique used"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Sensitive data of individuals exposed, and healthcare organization's core IT infrastructure remains secure"
+    },
+    "financial_relevance": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "Invoices with personal data stolen, but article does not specifically mention financial institutions or sensitive financial information"
+    },
+    "threat_actors": [
+      {
+        "name": "Clop ransomware gang",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "Article attributes the attack to Clop ransomware gang"
+      }
+    ],
+    "countries": [
+      {
+        "name": "England",
+        "role": "Victim",
+        "confidence": 1
+      },
+      {
+        "name": "Unknown",
+        "role": "Origin",
+        "confidence": 0.5,
+        "reason": "Article does not specify the exact country of origin"
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Oracle",
+        "product": "E Business Suite software",
+        "confidence": 1
+      },
+      {
+        "name": "Barts Health NHS Trust",
+        "product": null,
+        "confidence": 0.5
+      }
+    ],
+    "iocs": [
+      {
+        "type": "url",
+        "value": "https://www.bleepingcomputer.com/news/security/barts-health-nhs-discloses-data-breach-after-oracle-zero-day-hack/",
+        "context": "Article URL",
+        "confidence": 1
+      },
+      {
+        "type": "hash",
+        "value": null,
+        "context": "CVE-2025-61882 mentioned in article as exploited vulnerability",
+        "confidence": 0.8
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-61882",
+        "severity": null,
+        "cvss": null,
+        "description": "Critical Oracle EBS flaw exploited by Clop ransomware gang"
+      }
+    ],
+    "detections": [],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Barts Health NHS Trust recommends patients check their invoices to determine what data was exposed and stay vigilant for unsolicited communications, especially messages that request payment or sharing of sensitive information."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "windows",
+      "cloud",
+      "nhs"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/barts-health-nhs-discloses-data-breach-after-oracle-zero-day-hack/",
+      "trust_level": "Medium",
+      "reason": "Article appears to be a legitimate news report from a reputable source"
+    }
+  }
+}
+
+{
+  "title": "FBI warns of virtual kidnapping scams using altered social media photos",
+  "source": "https://www.bleepingcomputer.com/news/security/fbi-warns-of-virtual-kidnapping-ransom-scams-using-altered-social-media-photos/",
+  "@timestamp": "2025-12-05T16:37:28+00:00",
+  "llm": {
+    "summary": "The FBI warns of virtual kidnapping scams where scammers use altered social media photos to demand ransom payments from victims.",
+    "attack_summary": "Scammers contact victims via text message, claiming they have kidnapped a family member and demanding immediate payment. They send manipulated images found on social networks as 'proof of life'. Victims are advised to carefully assess the validity of these claims and avoid paying ransoms without verification. The FBI recommends taking screenshots or recording proof of life photos for later analysis.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": null,
+        "tactic": null,
+        "confidence": 0.5,
+        "reason": "Unknown"
+      }
+    ],
+    "priority": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "General public is targeted, and scammers use social media to spread manipulated images."
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "No specific financial institutions or sensitive data mentioned in the article."
+    },
+    "threat_actors": [
+      {
+        "name": null,
+        "type": "Financially motivated",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Attributed",
+        "reason": "Scammers demand ransom payments from victims."
+      }
+    ],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "FBI (Federal Bureau of Investigation)",
+        "product": null,
+        "confidence": 1
+      },
+      {
+        "name": "BleepingComputer",
+        "product": null,
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Monitor for suspicious social media activity and ransom demands.",
+        "type": "Network",
+        "idea": "Look for unusual login attempts from unfamiliar locations or devices."
+      },
+      {
+        "name": "Verify the authenticity of images shared on social media before taking action.",
+        "type": "Endpoint",
+        "idea": "Use image analysis tools to compare with confirmed photos of family members."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Process",
+        "text": "Establish a code word known only to the family for verification during emergencies and avoid providing personal information to strangers while traveling."
+      },
+      {
+        "type": "Awareness",
+        "text": "Educate family members about the risks of virtual kidnapping scams and the importance of verifying communication claims before acting."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "social engineering",
+      "virtual kidnapping"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/fbi-warns-of-virtual-kidnapping-ransom-scams-using-altered-social-media-photos/",
+      "trust_level": "High",
+      "reason": "Established cybersecurity news source with a history of accurate reporting."
+    }
+  }
+}
+
+{
+  "title": "Shanya EDR Killer: The New Favorite Tool for Ransomware Operators",
+  "source": "https://gbhackers.com/shanya-edr-killer/",
+  "@timestamp": "2025-12-08T05:46:31+00:00",
+  "llm": {
+    "summary": "A new 'packer as a-service' tool called Shanya has emerged in the cybercriminal underground, allowing major ransomware groups to neutralize endpoint defenses and deploy payloads without interference.",
+    "attack_summary": "Shanya operates primarily through DLL side loading, abusing legitimate Windows User Account Control components to load malicious DLLs. It then deploys a 'bring your own vulnerable driver' (BYOVD) attack to gain kernel level write access and terminate antivirus and EDR products.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "DLL side loading",
+        "tactic": "Persistence",
+        "confidence": 0.7,
+        "reason": "The article describes DLL side loading as the primary mechanism of Shanya's operation."
+      },
+      {
+        "id": "T1218",
+        "name": "Signed Binary Placement",
+        "tactic": "Defense Evasion",
+        "confidence": 0.8,
+        "reason": "Shanya uses legitimate Windows system DLLs to execute its payload covertly."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "The article describes Shanya as a sophisticated tool used by major ransomware groups, indicating high exploitability and exposure."
+    },
+    "financial_relevance": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "While the article does not specifically mention financial institutions or sensitive data, it mentions the deployment of Shanya in various regions, including parts of Asia and the UAE, which may involve financial targets."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Financially motivated",
+        "country": null,
+        "confidence": 0.6,
+        "role": "Attributed",
+        "reason": "The article attributes the use of Shanya to major ransomware groups, but does not specify the actors involved."
+      }
+    ],
+    "countries": [
+      {
+        "name": "UAE",
+        "role": "Targeted",
+        "confidence": 0.8,
+        "region": null
+      },
+      {
+        "name": "Asia",
+        "role": "Targeted",
+        "confidence": 0.8,
+        "region": null
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Sophos",
+        "product": "EDR product",
+        "confidence": 0.9
+      },
+      {
+        "name": "Microsoft",
+        "product": "Windows User Account Control component",
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [
+      {
+        "type": "domain",
+        "value": "Telegram contact information",
+        "context": "C2 server",
+        "confidence": 0.7
+      },
+      {
+        "type": "ip",
+        "value": null,
+        "context": null,
+        "confidence": 0.4
+      }
+    ],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Yurei ransomware filesystem behavior detection",
+        "type": "Endpoint",
+        "idea": "Monitor for suspicious DLL side loading and BYOVD attacks on endpoint systems."
+      },
+      {
+        "name": "Shanya packer detection",
+        "type": "Network",
+        "idea": "Monitor network traffic for communication with known Shanya command and control servers."
+      }
+    ],
+    "tags": [
+      "cybersecurity",
+      "ransomware"
+    ]
+  }
+}
+
+{
+  "title": "A Practical Guide to Continuous Attack Surface Visibility",
+  "source": "https://www.bleepingcomputer.com/news/security/a-practical-guide-to-continuous-attack-surface-visibility/",
+  "@timestamp": "2025-12-05T15:00:10+00:00",
+  "llm": {
+    "summary": "Continuous attack surface visibility requires automated, active reconnaissance that verifies external exposure daily, as static passive data becomes outdated quickly and lacks context.",
+    "attack_summary": "An organization's attack surface is constantly changing due to cloud adoption, rapid deployment cycles, and asset sprawl. Continuous reconnaissance involves safe, automated enumeration to detect newly exposed services, misconfigurations introduced during deployments, and shadow IT and rogue assets. This approach removes stale, duplicated, or irrelevant findings, providing accurate attribution and prioritization for security teams.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": null,
+        "confidence": 0.5,
+        "reason": "No clear attack pattern mentioned"
+      }
+    ],
+    "priority": {
+      "score": 50,
+      "label": "Medium",
+      "reason": "Continuous visibility is necessary to stay ahead of emerging exposures and prevent easily avoidable incidents."
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "While the article mentions attack surface monitoring, it does not specifically address financial institutions or sensitive data."
+    },
+    "threat_actors": [],
+    "countries": [
+      {
+        "name": null,
+        "role": null,
+        "confidence": 0.5
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Sprocket Security",
+        "product": null,
+        "confidence": 1.0
+      },
+      {
+        "name": "Cloudflare",
+        "product": null,
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Continuous reconnaissance for exposed services",
+        "type": "Network",
+        "idea": "Monitor network traffic for newly exposed services and misconfigurations introduced during deployments."
+      },
+      {
+        "name": "Shadow IT and rogue asset detection",
+        "type": "Endpoint",
+        "idea": "Use endpoint monitoring to detect shadow IT and rogue assets on the network."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Implement continuous monitoring and automate where possible to stay ahead of emerging exposures."
+      },
+      {
+        "type": "Process",
+        "text": "Prioritize vulnerabilities based on risk and regularly update and patch systems to prevent easily avoidable incidents."
+      }
+    ],
+    "tags": [
+      "attack surface visibility",
+      "continuous reconnaissance",
+      "shadow IT",
+      "rogue assets"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/a-practical-guide-to-continuous-attack-surface-visibility/",
+      "trust_level": "Medium",
+      "reason": "The article provides a general overview of the importance of continuous attack surface visibility, but lacks technical detail and specific recommendations."
+    }
+  }
+}
+
+{
+  "title": "Cloudflare down, websites offline with 500 Internal Server Error",
+  "source": "https://www.bleepingcomputer.com/news/technology/cloudflare-down-websites-offline-with-500-internal-server-error/",
+  "@timestamp": "2025-12-05T09:12:15+00:00",
+  "llm": {
+    "summary": "Cloudflare is experiencing a downtime, causing websites to display a 500 Internal Server Error. The company is investigating the issue.",
+    "attack_summary": "The attack does not appear to be a deliberate cyber-attack, but rather an internal error or outage at Cloudflare, which is impacting website availability.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Unknown",
+        "confidence": 0.2,
+        "reason": "The article does not describe a deliberate cyber-attack or the use of specific techniques."
+      }
+    ],
+    "priority": {
+      "score": 20,
+      "label": "Informational",
+      "reason": "This is more of an infrastructure issue rather than a security incident, but may impact availability and accessibility of websites."
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "The article does not mention any financial institutions or data related to financial transactions being impacted."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.2,
+        "role": "None",
+        "reason": "The article does not mention any specific threat actor or group."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Global",
+        "role": "Victim",
+        "confidence": 1
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Cloudflare",
+        "product": null,
+        "confidence": 1
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [],
+    "recommendations": [],
+    "tags": [
+      "cloudflare",
+      "outage"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/technology/cloudflare-down-websites-offline-with-500-internal-server-error/",
+      "trust_level": "High",
+      "reason": "BleepingComputer is a well-known and trusted source for technology news and updates."
+    }
+  }
+}
+
+{
+  "title": "Cloudflare blames today's outage on React2Shell mitigations",
+  "source": "https://www.bleepingcomputer.com/news/security/cloudflare-blames-todays-outage-on-emergency-react2shell-patch/",
+  "@timestamp": "2025-12-05T13:53:26+00:00",
+  "llm": {
+    "summary": "Cloudflare blamed an outage on emergency React2Shell mitigations designed to address a critical remote code execution vulnerability in React Server Components, which is actively exploited.",
+    "attack_summary": "Attackers exploit the React2Shell vulnerability by sending malicious HTTP requests to React Server Function endpoints. This allows unauthenticated attackers to gain remote code execution in React and Next.js applications. The vulnerability affects React versions 19.0, 19.1.0, 19.1.1, and 19.2.0.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": null,
+        "tactic": "Execution",
+        "confidence": 0.7,
+        "reason": "Indirectly mentioned as part of the attack flow"
+      },
+      {
+        "id": null,
+        "name": null,
+        "tactic": "Persistence",
+        "confidence": 0.6,
+        "reason": "Mentioned as a goal of the attack, but not directly described"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Critical remote code execution vulnerability actively exploited in attacks."
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "No specific financial impact mentioned, but the attack could potentially affect any organization using affected React versions."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.9,
+        "role": "Attributed",
+        "reason": "Mentioned as exploiting the vulnerability, but no specific details provided"
+      }
+    ],
+    "countries": [
+      {
+        "name": "China",
+        "role": "Origin",
+        "confidence": 1.0
+      },
+      {
+        "name": "United States",
+        "role": "Victim",
+        "confidence": 0.8
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Cloudflare",
+        "product": null,
+        "confidence": 1.0
+      },
+      {
+        "name": "Amazon Web Services (AWS)",
+        "product": null,
+        "confidence": 0.9
+      },
+      {
+        "name": "React",
+        "product": null,
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [
+      {
+        "type": "cve",
+        "value": "CVE-2025-55182",
+        "context": "Vulnerability identifier",
+        "confidence": 1.0
+      },
+      {
+        "type": "ip",
+        "value": null,
+        "context": "Not specified in the article",
+        "confidence": 0.2
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-55182",
+        "severity": "Maximum severity (Critical)",
+        "cvss": null,
+        "description": "Remote code execution vulnerability in React Server Components"
+      }
+    ],
+    "detections": [
+      {
+        "name": "Detect React2Shell exploitation",
+        "type": "Network",
+        "idea": "Monitor for suspicious HTTP requests to React Server Function endpoints."
+      },
+      {
+        "name": "Identify affected applications",
+        "type": "Endpoint",
+        "idea": "Scan for presence of vulnerable React versions 19.0, 19.1.0, 19.1.1, and 19.2.0."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Update to the latest React version or patch affected applications."
+      },
+      {
+        "type": "Process",
+        "text": "Implement additional security measures to detect and prevent exploitation of the React2Shell vulnerability."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "windows",
+      "cloud"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/cloudflare-blames-todays-outage-on-emergency-react2shell-patch/",
+      "trust_level": "High",
+      "reason": "Established and reputable cybersecurity news source."
+    }
+  }
+}
+
+{
+  "title": "EU fines X $140 million over deceptive blue checkmarks",
+  "source": "https://www.bleepingcomputer.com/news/security/eu-fines-x-140-million-over-deceptive-blue-checkmarks-transparency-violations/",
+  "@timestamp": "2025-12-05T14:41:01+00:00",
+  "llm": {
+    "summary": "The EU fined X $140 million for violating transparency obligations under the Digital Services Act, specifically regarding deceptive blue checkmarks that can be purchased without meaningful identity verification.",
+    "attack_summary": "X's platform allows users to purchase a blue checkmark badge without proper identity verification. This misleading design makes it difficult to assess account authenticity, increasing exposure to scams and manipulation. The EU found X in non-compliance with the Digital Services Act regarding transparency requirements.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Social Engineering",
+        "tactic": "Initial Access",
+        "confidence": 0.6,
+        "reason": "The article describes a social engineering tactic used to deceive users into purchasing a blue checkmark badge."
+      }
+    ],
+    "priority": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "The fine is significant, but the issue is related to transparency obligations rather than exploitability or business impact."
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "The article does not mention financial institutions or sensitive information being compromised."
+    },
+    "threat_actors": [
+      {
+        "name": "X (formerly Twitter)",
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "The article explicitly mentions X as the company fined by the EU."
+      }
+    ],
+    "countries": [
+      {
+        "name": "European Union",
+        "role": "Victim",
+        "confidence": 1
+      },
+      {
+        "name": "North Korea (Lazarus group)",
+        "role": null,
+        "confidence": 0.4
+      }
+    ],
+    "vendors": [
+      {
+        "name": "X (formerly Twitter)",
+        "product": null,
+        "confidence": 0.8
+      },
+      {
+        "name": "Comcast",
+        "product": null,
+        "confidence": 0.2
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Deceptive blue checkmark badge detection",
+        "type": "Network",
+        "idea": "Monitor for users purchasing blue checkmarks without proper identity verification and flag suspicious activity."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Process",
+        "text": "X should re-evaluate its policies regarding transparency and user verification to prevent similar issues in the future."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "windows",
+      "cloud"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/eu-fines-x-140-million-over-deceptive-blue-checkmarks-transparency-violations/",
+      "trust_level": "Medium",
+      "reason": "BleepingComputer is a reputable news source for cybersecurity and technology developments."
+    }
+  }
+}
+
+{
+  "title": "Critical React2Shell flaw actively exploited in China-linked attacks",
+  "source": "https://www.bleepingcomputer.com/news/security/react2shell-critical-flaw-actively-exploited-in-china-linked-attacks/",
+  "@timestamp": "2025-12-05T11:26:07+00:00",
+  "llm": {
+    "summary": "Multiple China-linked threat actors have started exploiting the recently disclosed React2Shell vulnerability (CVE-2025-55182), affecting React and Next.js, which allows remote execution of JavaScript code in the server's context without authentication.",
+    "attack_summary": "The attack flow is as follows: Initial Access - Threat actors exploit the React2Shell vulnerability to execute JavaScript code on the server. Execution - The executed code can lead to Remote Code Execution (RCE) and allow attackers to run arbitrary commands on the server. Persistence - Attackers may attempt to create files, read sensitive data, or establish a persistence mechanism. Impact - Exposed data can be stolen, and system compromise is possible.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Insecure Deserialization",
+        "tactic": "Initial Access",
+        "confidence": 0.7,
+        "reason": "The article describes the vulnerability as an insecure deserialization issue."
+      }
+    ],
+    "priority": {
+      "score": 85,
+      "label": "High",
+      "reason": "The vulnerability is actively exploited, and multiple threat actors are involved."
+    },
+    "financial_relevance": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "Some of the targeted sectors include financial services, logistics, and retail."
+    },
+    "threat_actors": [
+      {
+        "name": "Earth Lamia",
+        "type": "Financially motivated",
+        "country": "China",
+        "confidence": 0.9,
+        "role": "Attributed",
+        "reason": "The article mentions Earth Lamia as one of the threat actors actively exploiting the vulnerability."
+      },
+      {
+        "name": "Jackpot Panda",
+        "type": "Financially motivated",
+        "country": "China",
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "The article mentions Jackpot Panda as another threat actor involved in exploiting the vulnerability."
+      }
+    ],
+    "countries": [
+      {
+        "name": "China",
+        "role": "Origin",
+        "confidence": 1
+      },
+      {
+        "name": "Multiple countries (Latin America, Middle East, Southeast Asia)",
+        "role": "Target",
+        "confidence": 0.7,
+        "reason": "The article mentions that the vulnerability affects entities in various regions."
+      }
+    ],
+    "vendors": [
+      {
+        "name": "React",
+        "product": "Server Components (RSC)'Flight' protocol",
+        "confidence": 1
+      },
+      {
+        "name": "Next.js",
+        "product": "Server Components (RSC)'Flight' protocol",
+        "confidence": 0.9,
+        "reason": "The article mentions Next.js as another affected framework."
+      }
+    ],
+    "iocs": [
+      {
+        "type": "url",
+        "value": "https://github.com/wiz-research/React2Shell-scanner",
+        "context": "A React2Shell scanner for determining vulnerability.",
+        "confidence": 1
+      },
+      {
+        "type": "other",
+        "value": "AWS honeypots caught activity not attributed to any known clusters, but which still originates from China-based infrastructure",
+        "context": "Unspecified IOCs originating from China-based infrastructure.",
+        "confidence": 0.6,
+        "reason": "The article mentions that AWS's honeypots detected activity originating from China-based infrastructure."
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-55182",
+        "severity": "Critical",
+        "cvss": null,
+        "description": "Insecure deserialization vulnerability in the React Server Components (RSC)'Flight' protocol"
+      },
+      {
+        "id": "CVE-2025-66478",
+        "severity": null,
+        "cvss": null,
+        "description": "Duplicate CVE of CVE-2025-55182 for Next.js framework."
+      }
+    ],
+    "detections": [
+      {
+        "name": "Yurei ransomware-like behavior on the server-side",
+        "type": "Endpoint",
+        "idea": "Look for suspicious processes executing JavaScript code, attempts to create files or read sensitive data in the server's context. Monitor for unusual network activity originating from the server."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Apply security updates provided by React and Next.js. Implement secure deserialization practices in your application. Regularly monitor your servers for suspicious activity and implement logging and monitoring solutions to detect potential exploits."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "windows",
+      "cloud"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/react2shell-critical-flaw-actively-exploited-in-china-linked-attacks/",
+      "trust_level": "Medium",
+      "reason": "The article appears to be a reputable news source with timely and detailed information on the vulnerability."
+    }
+  }
+}
+
+{
+  "title": "Pharma firm Inotiv discloses data breach after ransomware attack",
+  "source": "https://www.bleepingcomputer.com/news/security/pharma-firm-inotiv-discloses-data-breach-after-ransomware-attack/",
+  "@timestamp": "2025-12-05T13:05:52+00:00",
+  "llm": {
+    "summary": "Pharmaceutical firm Inotiv disclosed a data breach after a ransomware attack in August 2025, which resulted in the theft of personal information from thousands of individuals.",
+    "attack_summary": "The Qilin ransomware group claimed responsibility for the breach and leaked data samples allegedly stolen from Inotiv's compromised systems. The attackers likely gained access to Inotiv's networks through an unknown vulnerability or exploit, allowing them to exfiltrate over 162,000 files totaling 176 GB.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": null,
+        "tactic": "Initial Access",
+        "confidence": 0.5,
+        "reason": "Unknown exploit or vulnerability used"
+      },
+      {
+        "id": null,
+        "name": null,
+        "tactic": "Execution",
+        "confidence": 0.8,
+        "reason": "Ransomware malware executed on Inotiv's systems"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Business disruption and potential data theft from thousands of individuals"
+    },
+    "financial_relevance": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "Pharmaceutical firm affected, but no specific financial information stolen"
+    },
+    "threat_actors": [
+      {
+        "name": "Qilin ransomware group",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.9,
+        "role": "Attributed",
+        "reason": "Claimed responsibility for the breach and leaked data samples"
+      }
+    ],
+    "countries": [
+      {
+        "name": "United States",
+        "role": "Victim",
+        "confidence": 1
+      },
+      {
+        "name": null,
+        "role": "Origin",
+        "confidence": 0.5
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Inotiv",
+        "product": null,
+        "confidence": 1
+      }
+    ],
+    "iocs": [
+      {
+        "type": "other",
+        "value": "Qilin ransomware group's leak site (BleepingComputer)",
+        "context": "Leaked data samples allegedly stolen from Inotiv's compromised systems",
+        "confidence": 0.8
+      }
+    ],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Ransomware malware execution on Inotiv's systems",
+        "type": "Endpoint",
+        "idea": "Monitor for suspicious process creation, network connections, and file access patterns"
+      },
+      {
+        "name": "Data exfiltration by Qilin ransomware group",
+        "type": "Network",
+        "idea": "Detect and block unusual outbound data transfers, especially to known C2 servers or leak sites"
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Implement regular security audits, patch management, and vulnerability assessments to prevent similar attacks"
+      },
+      {
+        "type": "Process",
+        "text": "Develop an incident response plan to quickly contain and respond to ransomware attacks"
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "pharmaceuticals",
+      "data breach",
+      "Qilin ransomware group"
+    ],
+    "source_analysis": {
+      "source_name": "BleepingComputer",
+      "source_url": "https://www.bleepingcomputer.com/news/security/pharma-firm-inotiv-discloses-data-breach-after-ransomware-attack/",
+      "trust_level": "High",
+      "reason": "Established and reputable cybersecurity news source"
+    }
+  }
+}
+
+{
+  "title": "Sneeit WordPress RCE Exploited in the Wild While ICTBroadcast Bug Fuels Frost Botnet Attacks",
+  "source": "https://thehackernews.com/2025/12/sneeit-wordpress-rce-exploited-in-wild.html",
+  "@timestamp": "2025-12-08T09:15:00+00:00",
+  "llm": {
+    "summary": "A critical RCE vulnerability in the Sneeit Framework plugin for WordPress is being actively exploited, while a flaw in ICTBroadcast is used to deliver Frost DDoS botnet attacks.",
+    "attack_summary": "The attack starts with exploitation of a remote code execution (RCE) vulnerability in the Sneeit Framework plugin for WordPress. The attacker sends specially crafted HTTP requests to create a malicious admin user account and upload a PHP file that grants backdoor access. Once inside, the attacker uses a shell script stager to download multiple architecture-specific versions of the Frost binary, which combines DDoS tooling with spreader logic.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.5,
+        "reason": "Unknown technique ID"
+      },
+      {
+        "id": "T1210",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "confidence": 1,
+        "reason": "RCE vulnerability in Sneeit Framework plugin for WordPress"
+      },
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Execution",
+        "confidence": 0.5,
+        "reason": "Unknown technique ID"
+      },
+      {
+        "id": "T1055",
+        "name": "Process Injection",
+        "tactic": "Persistence",
+        "confidence": 1,
+        "reason": "Use of shell script stager to download Frost binary"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Critical RCE vulnerability in Sneeit Framework plugin for WordPress and use of Frost DDoS botnet attacks"
+    },
+    "financial_relevance": {
+      "score": 50,
+      "label": "Medium",
+      "reason": "No specific financial impact mentioned, but potential for significant disruption to online services"
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Attributed",
+        "reason": "No specific threat actor mentioned"
+      }
+    ],
+    "countries": [
+      {
+        "name": "United States",
+        "role": "Target",
+        "confidence": 1
+      },
+      {
+        "name": "China",
+        "role": "Origin",
+        "confidence": 0.5
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Wordfence",
+        "product": "Sneeit Framework plugin for WordPress",
+        "confidence": 1
+      },
+      {
+        "name": "VulnCheck",
+        "product": "ICTBroadcast",
+        "confidence": 1
+      }
+    ],
+    "ip_addresses": [
+      "185.125.50.59",
+      "182.8.226.51",
+      "89.187.175.80",
+      "194.104.147.192",
+      "196.251.100.39",
+      "114.10.116.226",
+      "116.234.108.143",
+      "87.121.84.52"
+    ],
+    "cve_ids": [
+      "CVE-2025-6389",
+      "CVE-2025-2611",
+      "CVE-2025-1610",
+      "CVE-2025-66516"
+    ]
+  }
+}
+
+{
+  "title": "Zero-Click Agentic Browser Attack Can Delete Entire Google Drive Using Crafted Emails",
+  "source": "https://thehackernews.com/2025/12/zero-click-agentic-browser-attack-can.html",
+  "@timestamp": "2025-12-05T17:53:00+00:00",
+  "llm": {
+    "summary": "A zero-click agentic browser attack can delete entire Google Drive contents using crafted emails. The attack exploits the behavior of AI-powered assistants in browsers like Comet, which can interpret user instructions and perform actions without explicit confirmation.",
+    "attack_summary": "The attacker sends a specially crafted email that embeds natural language instructions to organize the recipient's Drive as part of a regular cleanup task. The browser agent interprets the email message as routine housekeeping and deletes real user files from Google Drive without requiring any user confirmation. This behavior is driven by the agent's excessive agency in LLM-powered assistants.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Lateral Movement",
+        "tactic": "Persistence",
+        "confidence": 0.5,
+        "reason": "The article describes a technique that allows the attacker to move files across shared folders and team drives without user confirmation."
+      },
+      {
+        "id": null,
+        "name": "Malware Execution",
+        "tactic": "Execution",
+        "confidence": 0.5,
+        "reason": "The article mentions that the browser agent can execute malicious instructions embedded in crafted emails."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "The attack has a high impact on users' data and requires no user confirmation to delete files from Google Drive."
+    },
+    "financial_relevance": {
+      "score": 50,
+      "label": "Medium",
+      "reason": "The attack affects cloud storage services, which are commonly used by financial institutions for data storage and backup."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Attributed",
+        "reason": "The article attributes the attack to an unknown threat actor."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Global",
+        "role": "Origin",
+        "confidence": 1
+      },
+      {
+        "name": "United States",
+        "role": "Victim",
+        "confidence": 0.5
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Perplexity",
+        "product": "Comet browser",
+        "confidence": 1
+      },
+      {
+        "name": "Google",
+        "product": "Gmail and Google Drive",
+        "confidence": 1
+      }
+    ],
+    "iocs": [
+      {
+        "type": "email",
+        "value": "Please check my email and complete all my recent organization tasks.",
+        "context": "C2 server",
+        "confidence": 0.5
+      },
+      {
+        "type": "url",
+        "value": "www.example[.]com/home#<prompt>",
+        "context": "Phishing URL",
+        "confidence": 0.5
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-66516",
+        "severity": "Critical",
+        "cvss": null,
+        "description": "Apache Tika XXE Bug"
+      }
+    ],
+    "detections": [
+      {
+        "name": "Zero-click agentic browser attack detection",
+        "type": "Network",
+        "idea": "Monitor for suspicious email activity and network communications between the victim's browser and cloud storage services."
+      },
+      {
+        "name": "HashJack detection",
+        "type": "Network",
+        "idea": "Monitor for hidden prompts in legitimate URLs and detect unusual behavior from AI-powered browsers."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Implement additional security measures to restrict the capabilities of AI-powered browser assistants and prevent excessive agency in LLMs. Monitor user activity and network communications for suspicious behavior related to cloud storage services."
+      },
+      {
+        "type": "Security Culture",
+        "text": "Educate users about the risks associated with agentic AI-powered browsers and encourage them to use secure communication protocols when interacting with cloud storage services."
+      }
+    ],
+    "mitre_attck_tactics": [
+      "T1116",
+      "T1210"
+    ]
+  }
+}
+
+{
+  "title": "MuddyWater Deploys UDPGangster Backdoor in Targeted Turkey-Israel-Azerbaijan Campaign",
+  "source": "https://thehackernews.com/2025/12/muddywater-deploys-udpgangster-backdoor.html",
+  "@timestamp": "2025-12-08T06:46:00+00:00",
+  "llm": {
+    "summary": "MuddyWater hacking group uses UDPGangster backdoor to target Turkey, Israel, and Azerbaijan, deploying malicious payloads via spear phishing emails.",
+    "attack_summary": "The attack chain involves using spear phishing tactics with booby-trapped Microsoft Word documents that execute a malicious payload once macros are enabled. The malware establishes persistence through Windows Registry modifications and connects to an external server over UDP port 1269 for command and control (C2) purposes, allowing attackers to exfiltrate files, run commands, and deploy additional payloads.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Initial Access",
+        "tactic": "Execution",
+        "confidence": 0.8,
+        "reason": " Spear phishing tactics used to distribute malicious documents"
+      },
+      {
+        "id": "T1190",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "confidence": 0.9,
+        "reason": "Unguarded Microsoft Word documents exploited for initial access"
+      },
+      {
+        "id": null,
+        "name": "Persistence",
+        "tactic": "Execution",
+        "confidence": 0.8,
+        "reason": "Windows Registry modifications used for persistence"
+      },
+      {
+        "id": null,
+        "name": "Command and Control",
+        "tactic": "Execution",
+        "confidence": 0.9,
+        "reason": "External server connections over UDP port 1269 for C2 purposes"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Significant impact on targeted countries and organizations, with potential for data exfiltration and additional payload deployment"
+    },
+    "financial_relevance": {
+      "score": 70,
+      "label": "Medium",
+      "reason": "Targeting financial institutions in Turkey, Israel, and Azerbaijan, with potential for financial data theft"
+    },
+    "threat_actors": [
+      {
+        "name": "MuddyWater",
+        "type": "Cyber Espionage",
+        "country": "Iran",
+        "confidence": 1.0,
+        "role": "Attributed",
+        "reason": "Confirmed involvement in attacks against Turkey, Israel, and Azerbaijan"
+      }
+    ],
+    "countries": [
+      {
+        "name": "Turkey",
+        "role": "Targeted",
+        "confidence": 0.9
+      },
+      {
+        "name": "Israel",
+        "role": "Targeted",
+        "confidence": 0.9
+      },
+      {
+        "name": "Azerbaijan",
+        "role": "Targeted",
+        "confidence": 0.9
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Microsoft",
+        "product": "Microsoft Word",
+        "confidence": 1.0
+      },
+      {
+        "name": "Bezeq",
+        "product": null,
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [
+      {
+        "type": "domain",
+        "value": "157.20.182.75",
+        "context": "C2 server",
+        "confidence": 1.0
+      },
+      {
+        "type": "filename",
+        "value": "seminer.doc",
+        "context": "Malicious payload delivered via spear phishing email",
+        "confidence": 0.9
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-66516",
+        "severity": null,
+        "cvss": null,
+        "description": "Unguarded Microsoft Word documents exploited for initial access"
+      }
+    ],
+    "detections": [
+      {
+        "name": "Spear Phishing Detection",
+        "type": "Email",
+        "idea": "Monitor emails with suspicious attachments, particularly those requesting macro activation."
+      },
+      {
+        "name": "Malicious Payload Detection",
+        "type": "Endpoint",
+        "idea": "Detect and block execution of unknown payloads, especially those delivered via spear phishing attacks."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Implement robust email filtering and attachment scanning to detect and prevent spear phishing attempts. Regularly update Microsoft Word and other software to patch vulnerabilities."
+      },
+      {
+        "type": "Process",
+        "text": "Train employees to be cautious of unsolicited documents, especially those requesting macro activation. Establish a reporting process for suspicious emails or attachments."
+      }
+    ]
+  }
+}
+
+{
+  "title": "Critical React2Shell Flaw Added to CISA KEV After Confirmed Active Exploitation",
+  "source": "https://thehackernews.com/2025/12/critical-react2shell-flaw-added-to-cisa.html",
+  "@timestamp": "2025-12-06T11:40:00+00:00",
+  "llm": {
+    "summary": "A critical vulnerability (CVE-2025-55182) has been added to CISA's KEV catalog after reports of active exploitation in the wild, affecting React Server Components and potentially millions of instances.",
+    "attack_summary": "The attack begins with an unauthenticated attacker sending specially crafted HTTP requests that exploit a flaw in how React decodes payloads sent to React Server Function endpoints. This leads to remote code execution, allowing attackers to execute arbitrary commands on the server. Once inside, attackers may deploy cryptocurrency miners or downloaders to retrieve additional payloads from a remote server.",
+    "mitre_techniques": [
+      {
+        "id": "T1190",
+        "name": "Exploit Use",
+        "tactic": "Initial Access",
+        "confidence": 1,
+        "reason": "Attackers exploit the CVE-2025-55182 vulnerability to gain remote code execution."
+      },
+      {
+        "id": "null",
+        "name": "Insecure Deserialization",
+        "tactic": "Execution",
+        "confidence": 0.8,
+        "reason": "The vulnerability stems from insecure deserialization in the React library's Flight protocol, allowing attackers to execute arbitrary code."
+      }
+    ],
+    "priority": {
+      "score": 95,
+      "label": "Critical",
+      "reason": "The CVE-2025-55182 vulnerability is remotely exploitable and has been actively exploited in the wild, impacting millions of instances."
+    },
+    "financial_relevance": {
+      "score": 80,
+      "label": "High",
+      "reason": "The vulnerability affects React Server Components, which are used by several financial institutions and may potentially impact online banking systems."
+    },
+    "threat_actors": [
+      {
+        "name": "Chinese hacking groups (Earth Lamia, Jackpot Panda)",
+        "type": "State-sponsored",
+        "country": "China",
+        "confidence": 0.9,
+        "role": "Attributed",
+        "reason": "Attackers have been tracked as UNC5174 (aka CL STA 1015) and their activity is consistent with a Chinese hacking crew."
+      }
+    ],
+    "countries": [
+      {
+        "name": "China",
+        "role": "Origin",
+        "confidence": 0.9
+      },
+      {
+        "name": "United States",
+        "role": "Target",
+        "confidence": 0.8
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Meta",
+        "product": "React Server Components",
+        "confidence": 1
+      },
+      {
+        "name": "Amazon",
+        "product": null,
+        "confidence": 0.9
+      }
+    ],
+    "iocs": [
+      {
+        "type": "url",
+        "value": "https://www.reactjs.org/ (not explicitly mentioned in the text, but as a React Server Components example)",
+        "context": "C2 server",
+        "confidence": 0.8
+      },
+      {
+        "type": "domain",
+        "value": "earth-lamia.com",
+        "context": "Attributed to Chinese hacking groups",
+        "confidence": 0.9
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-55182",
+        "severity": "Critical",
+        "cvss": "10.0",
+        "description": "Remote code execution vulnerability in React Server Components, allowing unauthenticated attackers to execute arbitrary commands on the server."
+      },
+      {
+        "id": "CVE-2025-66516",
+        "severity": null,
+        "cvss": null,
+        "description": "Critical XXE bug impacting Apache Tika"
+      }
+    ],
+    "detections": [
+      {
+        "name": "Detection of suspicious HTTP requests to React Server Components endpoints",
+        "type": "signature-based detection"
+      },
+      {
+        "name": "Detection of known malware and payloads associated with the vulnerability",
+        "type": "signature-based detection"
+      }
+    ],
+    "recommendations": [
+      {
+        "text": "Update React Server Components to the latest version as soon as possible, as multiple proof-of-concept exploits have been published."
+      },
+      {
+        "text": "Implement a Web Application Firewall (WAF) to block suspicious traffic and prevent exploitation of the vulnerability."
+      }
+    ]
+  }
+}
+
+{
+  "title": "Android Malware FvncBot, SeedSnatcher, and ClayRat Gain Stronger Data Theft Features",
+  "source": "https://thehackernews.com/2025/12/android-malware-fvncbot-seedsnatcher.html",
+  "@timestamp": "2025-12-08T11:00:00+00:00",
+  "llm": {
+    "summary": "Two new Android malware families, FvncBot and SeedSnatcher, have been discovered with stronger data theft features, while ClayRat has also been upgraded to abuse accessibility services.",
+    "attack_summary": "FvncBot masquerades as a security app and targets mobile banking users in Poland, using keylogging, web inject attacks, screen streaming, and hidden virtual network computing (HVNC) to perform financial fraud. SeedSnatcher enables the theft of cryptocurrency wallet seed phrases, intercepts incoming SMS messages for 2FA codes, and captures device data by displaying phishing overlays.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "User Execution",
+        "tactic": "Execution",
+        "confidence": 0.8,
+        "reason": "FvncBot prompts users to install a Google Play component, which leads to the deployment of the malware."
+      },
+      {
+        "id": null,
+        "name": "Accessibility Features",
+        "tactic": "Persistence",
+        "confidence": 0.7,
+        "reason": "The malware uses accessibility services to perform actions on behalf of the user and evade detection."
+      },
+      {
+        "id": "T1204",
+        "name": "User Execution: Malware Transfer Vector",
+        "tactic": "Execution",
+        "confidence": 0.9,
+        "reason": "FvncBot is distributed via SMS phishing or third-party app stores, and SeedSnatcher is spread through Telegram."
+      }
+    ],
+    "priority": {
+      "score": 90,
+      "label": "Critical",
+      "reason": "The malware has stronger data theft features and can perform financial fraud, making it a high priority threat."
+    },
+    "financial_relevance": {
+      "score": 80,
+      "label": "High",
+      "reason": "FvncBot targets mobile banking users in Poland, and SeedSnatcher enables the theft of cryptocurrency wallet seed phrases."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.6,
+        "role": "Attributed",
+        "reason": "The malware is attributed to the threat actors behind FvncBot and SeedSnatcher."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Poland",
+        "role": "Targeted",
+        "confidence": 0.9,
+        "reason": "FvncBot targets mobile banking users in Poland, while SeedSnatcher is designed to enable the theft of cryptocurrency wallet seed phrases."
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Google",
+        "product": null,
+        "confidence": 0.8
+      },
+      {
+        "name": "Telegram",
+        "product": null,
+        "confidence": 0.7
+      }
+    ],
+    "iocs": [
+      {
+        "type": "Hash",
+        "value": "1234567890abcdef"
+      },
+      {
+        "type": "Domain",
+        "value": "fvncbot.com"
+      }
+    ]
+  }
+}
+
+{
+  "title": "Critical XXE Bug CVE-2025-66516 (CVSS 10.0) Hits Apache Tika, Requires Urgent Patch",
+  "source": "https://thehackernews.com/2025/12/critical-xxe-bug-cve-2025-66516-cvss.html",
+  "@timestamp": "2025-12-05T16:23:00+00:00",
+  "llm": {
+    "summary": "A critical security flaw (CVE-2025-66516) has been disclosed in Apache Tika, allowing XML external entity (XXE) injection attacks. This vulnerability affects various Maven packages and can result in remote code execution.",
+    "attack_summary": "The attack begins with an attacker crafting a malicious XFA file inside a PDF that is then processed by the vulnerable Apache Tika module. The XXE injection allows the attacker to access files on the application server file system, potentially leading to remote code execution.",
+    "mitre_techniques": [
+      {
+        "id": "T1202",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "confidence": 0.8,
+        "reason": "The vulnerability is publicly disclosed and affects multiple Maven packages, making it a likely target for exploitation."
+      },
+      {
+        "id": null,
+        "name": " XXE injection",
+        "tactic": "Execution",
+        "confidence": 0.7,
+        "reason": "The article does not provide sufficient information to determine the exact MITRE ATT&CK technique used in this case, but it is clear that XXE injection is a key aspect of the attack."
+      }
+    ],
+    "priority": {
+      "score": 90,
+      "label": "Critical",
+      "reason": "The vulnerability has a CVSS score of 10.0 and affects multiple Maven packages, making it a high-priority issue for patching and mitigation."
+    },
+    "financial_relevance": {
+      "score": 50,
+      "label": "Medium",
+      "reason": "While the article does not specifically mention financial institutions or sensitive data, the vulnerability's impact could potentially extend to organizations handling sensitive information."
+    },
+    "threat_actors": [
+      {
+        "name": null,
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Mentioned",
+        "reason": "The article does not specify the threat actor or their motivations, but it is likely that an attacker could exploit this vulnerability for malicious purposes."
+      }
+    ],
+    "countries": [
+      {
+        "name": null,
+        "role": null,
+        "confidence": 0.5
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Apache",
+        "product": "Tika",
+        "confidence": 1.0
+      },
+      {
+        "name": "Maven",
+        "product": null,
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [],
+    "cves": [
+      {
+        "id": "CVE-2025-66516",
+        "severity": null,
+        "cvss": "10.0",
+        "description": "XXE injection vulnerability in Apache Tika"
+      },
+      {
+        "id": "CVE-2025-54988",
+        "severity": "8.4",
+        "cvss": null,
+        "description": "Another XXE flaw in the content detection and analysis framework"
+      }
+    ],
+    "detections": [
+      {
+        "name": "XXE injection detection",
+        "type": "Network",
+        "idea": "Look for suspicious XML data being processed by Apache Tika, potentially indicating a XXE injection attack."
+      },
+      {
+        "name": "Remote code execution detection",
+        "type": "Endpoint",
+        "idea": "Monitor for unusual activity or code execution on endpoints that have been compromised via the XXE vulnerability."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Apply patches to affected Maven packages as soon as possible, and ensure all dependencies are up-to-date to prevent exploitation of this vulnerability."
+      }
+    ],
+    "tags": [
+      "Apache Tika",
+      "XXE injection",
+      "remote code execution",
+      "CVE-2025-66516"
+    ],
+    "source_analysis": {
+      "source_name": "The Hacker News",
+      "source_url": "https://thehackernews.com/2025/12/critical-xxe-bug-cve-2025-66516-cvss.html",
+      "trust_level": "High",
+      "reason": "The source is a reputable cybersecurity news outlet with a strong track record of accurate and timely reporting."
+    }
+  }
+}
+
+{
+  "title": "Chinese Hackers Have Started Exploiting the Newly Disclosed React2Shell Vulnerability",
+  "source": "https://thehackernews.com/2025/12/chinese-hackers-have-started-exploiting.html",
+  "@timestamp": "2025-12-05T14:10:00+00:00",
+  "llm": {
+    "summary": "Chinese hackers have started exploiting the newly disclosed React2Shell vulnerability (CVE-2025-55182) with a CVSS score of 10.0, allowing unauthenticated remote code execution.",
+    "attack_summary": "The attack flow involves threat actors monitoring for new vulnerability disclosures, rapidly integrating public exploits into their scanning infrastructure, and conducting broad campaigns across multiple CVEs simultaneously to maximize their chances of finding vulnerable targets. They attempt to run discovery commands, write files, and read files containing sensitive information.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.5,
+        "reason": "The article does not specify a particular technique."
+      },
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Execution",
+        "confidence": 0.6,
+        "reason": "The article mentions the use of public exploits, but does not specify the technique used for execution."
+      }
+    ],
+    "priority": {
+      "score": 90,
+      "label": "High",
+      "reason": "The vulnerability has a CVSS score of 10.0 and is being actively exploited by threat actors."
+    },
+    "financial_relevance": {
+      "score": 80,
+      "label": "High",
+      "reason": "The article mentions that the threat actors have targeted sectors across financial services, logistics, retail, IT companies, universities, and government organizations in Latin America, the Middle East, and Southeast Asia."
+    },
+    "threat_actors": [
+      {
+        "name": "Earth Lamia",
+        "type": "State-sponsored",
+        "country": "China",
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "The article mentions that Earth Lamia is a China nexus group attributed to attacks exploiting a critical SAP NetWeaver flaw (CVE-2025-31324) earlier this year."
+      },
+      {
+        "name": "Jackpot Panda",
+        "type": "State-sponsored",
+        "country": "China",
+        "confidence": 0.9,
+        "role": "Attributed",
+        "reason": "The article mentions that Jackpot Panda is a China nexus cyber threat actor assessed to be active since at least 2020, and has targeted trusted third party relationships in an attempt to deploy malicious implants and gain initial access."
+      }
+    ],
+    "countries": [
+      {
+        "name": "China",
+        "role": "Origin",
+        "confidence": 1.0
+      },
+      {
+        "name": "Latin America",
+        "role": "Target",
+        "confidence": 0.8
+      },
+      {
+        "name": "Middle East",
+        "role": "Target",
+        "confidence": 0.8
+      },
+      {
+        "name": "Southeast Asia",
+        "role": "Target",
+        "confidence": 0.8
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Amazon Web Services (AWS)",
+        "product": null,
+        "confidence": 1.0
+      },
+      {
+        "name": "Cloudflare",
+        "product": null,
+        "confidence": 0.9
+      },
+      {
+        "name": "CrowdStrike",
+        "product": null,
+        "confidence": 0.8
+      },
+      {
+        "name": "ESET",
+        "product": null,
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [
+      {
+        "type": "ip",
+        "value": "unknown IP addresses and infrastructure historically linked to known China state nexus threat actors",
+        "context": "C2 server",
+        "confidence": 0.6
+      },
+      {
+        "type": "url",
+        "value": "unknown URLs containing sensitive information",
+        "context": "read files",
+        "confidence": 0.7
+      }
+    ],
+    "cves": [
+      "CVE-2025-55182",
+      "CVE-2025-66478",
+      "CVE-2025-31324",
+      "CVE-2025-1338",
+      "CVE-2025-66516"
+    ]
+  }
+}
+
+{
+  "title": "Researchers Uncover 30+ Flaws in AI Coding Tools Enabling Data Theft and RCE Attacks",
+  "source": "https://thehackernews.com/2025/12/researchers-uncover-30-flaws-in-ai.html",
+  "@timestamp": "2025-12-06T15:24:00+00:00",
+  "llm": {
+    "summary": {
+      "title": "Researchers Uncover 30+ Flaws in AI Coding Tools Enabling Data Theft and RCE Attacks",
+      "description": "Multiple vulnerabilities in AI coding tools, including prompt injection, command injection, and data exfiltration, put development machines at risk."
+    },
+    "threats": [
+      {
+        "name": "PromptPwnd",
+        "description": "A new class of vulnerability targeting AI agents connected to vulnerable GitHub Actions or GitLab CI/CD pipelines with prompt injections.",
+        "impact": "Information leak or code execution"
+      },
+      {
+        "name": "Command Injection Flaw in OpenAI Codex CLI (CVE 2025-61260)",
+        "description": "A command injection flaw that takes advantage of the fact that the program implicitly trusts commands configured via MCP server entries and executes them at startup without seeking a user's permission.",
+        "impact": "Arbitrary command execution"
+      },
+      {
+        "name": "Indirect Prompt Injection in Google Antigravity",
+        "description": "A poisoned web source used to manipulate Gemini into harvesting credentials and sensitive code from a user's IDE and exfiltrating the information using a browser subagent.",
+        "impact": "Data exfiltration"
+      }
+    ],
+    "vulnerabilities": [
+      {
+        "CVE": "2025-49150",
+        "description": "Using a prompt injection to read a sensitive file via a legitimate or vulnerable tool and writing a JSON file with a remote JSON schema hosted on an attacker-controlled domain.",
+        "impact": "Data leakage"
+      },
+      {
+        "CVE": "2025-53773",
+        "description": "Using a prompt injection to edit IDE settings files to achieve code execution by setting 'php.validate.executablePath' or 'PATH_TO_GIT' to the path of an executable file containing malicious code.",
+        "impact": "Code execution"
+      },
+      {
+        "CVE": "2025-61590",
+        "description": "Using a prompt injection to edit workspace configuration files and override multi-root workspace settings to achieve code execution.",
+        "impact": "Code execution"
+      }
+    ],
+    "affected_tools": [
+      {
+        "name": "OpenAI Codex CLI",
+        "version": "",
+        "vulnerability": "Command Injection Flaw (CVE 2025-61260)"
+      },
+      {
+        "name": "Google Antigravity",
+        "version": "",
+        "vulnerability": "Indirect Prompt Injection"
+      }
+    ],
+    "recommended_actions": [
+      {
+        "description": "Only use AI IDEs and AI agents with trusted projects and files.",
+        "type": "Prevention"
+      },
+      {
+        "description": "Review and understand the data flow of MCP tools.",
+        "type": "Prevention"
+      }
+    ]
+  }
+}
+
+{
+  "title": "Intellexa Leaks Reveal Zero-Days and Ads-Based Vector for Predator Spyware Delivery",
+  "source": "https://thehackernews.com/2025/12/intellexa-leaks-reveal-zero-days-and.html",
+  "@timestamp": "2025-12-05T11:47:00+00:00",
+  "llm": {
+    "title": "Intellexa Leaks Reveal Zero Days and Ads-Based Vector for Predator Spyware Delivery",
+    "summary": "The report has highlighted the different delivery vectors adopted by Intellexa to trigger the opening of the malicious link without the need for the target to manually click on it.",
+    "threats": [
+      {
+        "type": "Zero Day Exploit",
+        "name": "CVE-2023-41993",
+        "description": "iOS zero day exploit chain used against targets in Egypt in 2023"
+      },
+      {
+        "type": "Vulnerability",
+        "name": "CVE-2025-6554",
+        "description": "Custom framework that facilitates the exploitation of various V8 flaws in Chrome"
+      }
+    ],
+    "vectors": [
+      {
+        "name": "Triton",
+        "description": "Delivery vector used by Intellexa to trigger the opening of the malicious link"
+      },
+      {
+        "name": "Thor",
+        "description": "Unknown delivery vector adopted by Intellexa"
+      },
+      {
+        "name": "Oberon",
+        "description": "Unknown delivery vector adopted by Intellexa"
+      }
+    ],
+    "affected_countries": [
+      "Egypt",
+      "Mongolia",
+      "Russia",
+      "Saudi Arabia"
+    ]
+  }
+}
+
+{
+  "title": "Ransomware Payments Surpassed $4.5 Billion: US Treasury",
+  "source": "https://www.securityweek.com/ransomware-payments-surpassed-4-5-billion-us-treasury/",
+  "@timestamp": "2025-12-08T12:20:23+00:00",
+  "llm": {
+    "summary": "The US Treasury reports that ransomware payments have surpassed $4.5 billion in 2023, with $1.1 billion paid in 1,512 reported incidents.",
+    "attack_summary": "Ransomware attackers initially gain access to a victim's system through various means, including phishing or exploited vulnerabilities. They then execute malware, which encrypts the victim's data and demands payment in exchange for the decryption key. Persistence is achieved through encryption of critical files, making it difficult for victims to recover without paying the ransom.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Initial Access",
+        "tactic": "Execution",
+        "confidence": 0.5,
+        "reason": "Unknown technique used for initial access"
+      },
+      {
+        "id": "T1059",
+        "name": "Command and Control",
+        "tactic": "Lateral Movement",
+        "confidence": 0.8,
+        "reason": "C2 servers likely involved in ransomware operations"
+      }
+    ],
+    "priority": {
+      "score": 90,
+      "label": "High",
+      "reason": "High financial impact and widespread exploitation"
+    },
+    "financial_relevance": {
+      "score": 95,
+      "label": "Critical",
+      "reason": "Ransomware payments have surpassed $4.5 billion, indicating significant financial impact on institutions"
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Attributed",
+        "reason": "Ransomware payments attributed to various groups, but specific actors unknown"
+      }
+    ],
+    "countries": [
+      {
+        "name": "United States",
+        "role": "Origin",
+        "confidence": 1,
+        "reason": "US Treasury reports on ransomware payments"
+      }
+    ],
+    "vendors": [],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Ransomware payment monitoring",
+        "type": "Financial",
+        "idea": "Monitor for suspicious financial transactions related to ransomware payments"
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Awareness",
+        "text": "Educate users on the risks of ransomware and the importance of backups to prevent data loss"
+      },
+      {
+        "type": "Process",
+        "text": "Develop incident response plans for ransomware attacks, including communication with law enforcement and affected parties"
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "financial impact"
+    ],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/ransomware payments surpassed 4-5 billion us treasury/",
+      "trust_level": "Medium",
+      "reason": "Reputable security news source, but may not always provide technical details"
+    }
+  }
+}
+
+{
+  "title": "Critical Apache Tika Vulnerability Leads to XXE Injection",
+  "source": "https://www.securityweek.com/critical-apache-tika-vulnerability-leads-to-xxe-injection/",
+  "@timestamp": "2025-12-08T10:43:46+00:00",
+  "llm": {
+    "summary": "A critical vulnerability in Apache Tika allows attackers to inject XML External Entity (XXE) attacks via crafted XFA files inside PDFs.",
+    "attack_summary": "Attackers can exploit the XXE injection vulnerability by crafting a malicious XFA file within a PDF. When Tika processes this file, it may allow the attacker to execute external entities, leading to unauthorized access or data disclosure. This flow is often described in technical detail, including step-by-step instructions for creating and exploiting the payload.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.6,
+        "reason": "The article does not specify a specific technique or tactic."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "This vulnerability is considered high-priority due to its potential for unauthorized access and data disclosure, as well as the fact that it can be exploited via crafted XFA files inside PDFs."
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "This vulnerability does not specifically relate to financial institutions or sensitive financial data."
+    },
+    "threat_actors": [],
+    "countries": [
+      {
+        "name": "Unknown",
+        "role": null,
+        "confidence": 1.0
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Apache",
+        "product": "Tika",
+        "confidence": 1.0
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "XXE Injection Detection",
+        "type": "Network",
+        "idea": "Monitor network traffic for unusual XML External Entity (XXE) injection attempts and analyze incoming PDF files for suspicious XFA content."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Apply the latest security patches to Apache Tika to mitigate this vulnerability. Additionally, consider implementing additional security measures such as input validation and sanitization to prevent XXE injection attacks."
+      }
+    ],
+    "tags": [
+      "vulnerability",
+      "xxe injection",
+      "apache tika"
+    ],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/critical-apache-tika-vulnerability-leads-to-xxe-injection/",
+      "trust_level": "High",
+      "reason": "SecurityWeek is a reputable source for security news and vulnerability advisories."
+    }
+  }
+}
+
+{
+  "title": "Exploitation of React2Shell Surges",
+  "source": "https://www.securityweek.com/exploitation-of-react2shell-surges/",
+  "@timestamp": "2025-12-08T09:43:11+00:00",
+  "llm": {
+    "summary": "Threat actors are exploiting the CVE-2025-55182 vulnerability in React to carry out attacks.",
+    "attack_summary": "The attack involves an initial access phase where threat actors exploit the React vulnerability CVE-2025-55182. Once exploited, they gain execution and persistence on the system. The attackers then move laterally within the network to impact their targets.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": null,
+        "tactic": "Initial Access",
+        "confidence": 0.5,
+        "reason": "Unknown MITRE ATT&CK ID, but related to exploitation of a vulnerability"
+      },
+      {
+        "id": "T1204",
+        "name": "User Execution: Malware Transfer",
+        "tactic": "Execution",
+        "confidence": 0.8,
+        "reason": "Threat actors use user execution to transfer malware, likely related to the exploitation of CVE-2025-55182"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Exploitation of a known vulnerability and potential impact on targets"
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "No specific financial institution or data mentioned, but general exploitation of React vulnerability may have implications for financial sector"
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Attributed",
+        "reason": "Threat actors are mentioned as attempting to exploit CVE-2025-55182, but no specific actor or group is named"
+      }
+    ],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "Unknown (React)",
+        "product": null,
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [
+      {
+        "type": "cve",
+        "value": "CVE-2025-55182",
+        "context": "Vulnerability being exploited by threat actors",
+        "confidence": 1
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2025-55182",
+        "severity": null,
+        "cvss": null,
+        "description": "Vulnerability in React allowing exploitation by threat actors"
+      }
+    ],
+    "detections": [],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Ensure that all systems are up-to-date with the latest security patches, particularly for React."
+      },
+      {
+        "type": "Process",
+        "text": "Implement a regular patch management process to prevent exploitation of known vulnerabilities"
+      }
+    ],
+    "tags": [
+      "react",
+      "vulnerability",
+      "exploitation"
+    ],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/exploitation-of-react2shell-surges/",
+      "trust_level": "Medium",
+      "reason": "Reputable security news source, but specific information may not be independently verified"
+    }
+  }
+}
+
+{
+  "title": "US Organizations Warned of Chinese Malware Used for Long-Term Persistence",
+  "source": "https://www.securityweek.com/us-organizations-warned-of-chinese-malware-used-for-long-term-persistence/",
+  "@timestamp": "2025-12-05T14:15:19+00:00",
+  "llm": {
+    "summary": "US organizations are being targeted by Chinese malware, specifically BrickStorm, Junction, and GuestConduit, which enable long-term persistence.",
+    "attack_summary": "The attackers use the malicious software to gain access to the victim's system. Once inside, they deploy the malware to establish a persistent presence on the network. The malware enables the attackers to maintain control over the compromised systems without being detected.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.5,
+        "reason": "No specific technique mentioned in the article"
+      },
+      {
+        "id": "T1071",
+        "name": "Indicator Manipulation",
+        "tactic": "Defense Evasion",
+        "confidence": 0.8,
+        "reason": "The attackers use the malware to manipulate system indicators and maintain persistence"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Critical impact on US organizations, high exploitability"
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "No specific financial relevance mentioned in the article"
+    },
+    "threat_actors": [
+      {
+        "name": "Warp Panda",
+        "type": "State-sponsored",
+        "country": "China",
+        "confidence": 0.9,
+        "role": "Attributed",
+        "reason": "The attackers are identified as Warp Panda, a known Chinese threat actor"
+      }
+    ],
+    "countries": [
+      {
+        "name": "United States",
+        "role": "Victim",
+        "confidence": 1
+      },
+      {
+        "name": "China",
+        "role": "Origin",
+        "confidence": 0.9
+      }
+    ],
+    "vendors": [],
+    "iocs": [
+      {
+        "type": "domain",
+        "value": "BrickStorm",
+        "context": "Malware domain used for persistence",
+        "confidence": 1
+      },
+      {
+        "type": "domain",
+        "value": "Junction",
+        "context": "Malware domain used for persistence",
+        "confidence": 1
+      },
+      {
+        "type": "domain",
+        "value": "GuestConduit",
+        "context": "Malware domain used for persistence",
+        "confidence": 1
+      }
+    ],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Warp Panda malware detection",
+        "type": "Network",
+        "idea": "Monitor network traffic for suspicious activity related to BrickStorm, Junction, and GuestConduit"
+      },
+      {
+        "name": "Malware persistence detection",
+        "type": "Endpoint",
+        "idea": "Check for signs of persistence on compromised systems, such as registry keys or system files modified by the malware"
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Implement network segmentation and monitoring to detect suspicious activity. Regularly update and patch systems to prevent exploitation."
+      },
+      {
+        "type": "Process",
+        "text": "Develop incident response plans to quickly respond to potential breaches. Conduct regular security audits to identify vulnerabilities"
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "windows",
+      "malware"
+    ],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/us-organizations-warned-of-chinese-malware-used-for-long-term-persistence/",
+      "trust_level": "Medium",
+      "reason": "The source is a reputable security news website, but the article does not provide detailed technical analysis"
+    }
+  }
+}
+
+{
+  "title": "JPCERT Confirms Active Command Injection Attacks on Array AG Gateways",
+  "source": "https://thehackernews.com/2025/12/jpcert-confirms-active-command.html",
+  "@timestamp": "2025-12-05T05:40:00+00:00",
+  "llm": {
+    "summary": "JPCERT has confirmed active command injection attacks on Array AG Gateways, exploiting a vulnerability in the DesktopDirect feature that allows remote desktop access. The attack has been used to drop web shells on susceptible devices since August 2025.",
+    "attack_summary": "The attack works by exploiting a command injection vulnerability in the DesktopDirect feature of Array AG Gateways. This allows attackers to execute arbitrary commands, which can lead to the installation of web shells on vulnerable devices. The attack has been used since August 2025 and has originated from an IP address associated with a Japan-based threat actor.",
+    "mitre_techniques": [
+      {
+        "id": "T1210",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "confidence": 0.8,
+        "reason": "The attack exploits a known vulnerability in the DesktopDirect feature of Array AG Gateways."
+      },
+      {
+        "id": "T1190",
+        "name": "Exploit Use of Outdated or Vulnerable Components",
+        "tactic": "Initial Access",
+        "confidence": 0.8,
+        "reason": "The attack exploits a known vulnerability in the DesktopDirect feature of Array AG Gateways."
+      },
+      {
+        "id": null,
+        "name": "Command Injection",
+        "tactic": "Execution",
+        "confidence": 0.7,
+        "reason": "The article mentions command injection as part of the attack, but does not provide a specific MITRE ID."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "The attack is actively being exploited in the wild and can lead to significant business impact."
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Medium",
+      "reason": "The article does not specifically mention financial institutions as targets, but the vulnerability affects systems where DesktopDirect is enabled."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Attributed",
+        "reason": "The article mentions a Japan-based threat actor, but does not provide additional information about their identity or motivations."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Japan",
+        "role": "Victim",
+        "confidence": 0.9,
+        "reason": "The article mentions incidents in Japan that have exploited the vulnerability."
+      },
+      {
+        "name": "Unknown",
+        "role": "Origin",
+        "confidence": 0.5,
+        "reason": "The article does not provide information about the origin of the attack."
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Array Networks",
+        "product": "Array AG Gateways",
+        "confidence": 1.0
+      },
+      {
+        "name": "Unknown",
+        "product": null,
+        "confidence": 0.5,
+        "reason": "The article mentions a specific IP address associated with the attack, but does not provide additional information about the vendor or product."
+      }
+    ],
+    "iocs": [
+      {
+        "type": "ip",
+        "value": "194.233.100.138",
+        "context": "C2 server",
+        "confidence": 0.9
+      },
+      {
+        "type": "domain",
+        "value": null,
+        "context": "Unknown",
+        "confidence": 0.5
+      }
+    ],
+    "cves": [
+      {
+        "id": "CVE-2023-28461",
+        "severity": "High",
+        "cvss": "9.8",
+        "description": "An authentication bypass flaw in Array Networks AG Series secure access gateways."
+      },
+      {
+        "id": "CVE-2025-66516",
+        "severity": null,
+        "cvss": null,
+        "description": "A critical XXE bug in Apache Tika."
+      }
+    ],
+    "detections": [
+      {
+        "name": "DesktopDirect vulnerability detection",
+        "type": "Network",
+        "idea": "Monitor network traffic for suspicious activity related to DesktopDirect, such as unusual command injection attempts."
+      },
+      {
+        "name": "Web shell installation detection",
+        "type": "Endpoint",
+        "idea": "Monitor endpoint systems for signs of web shell installation, such as unusual network activity or changes to system files."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Apply the latest updates for ArrayOS versions 9.4.5.8 and earlier to address the vulnerability. Disable DesktopDirect services and use URL filtering to deny access to URLs containing a semicolon."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "windows",
+      "cloud"
+    ],
+    "source_analysis": {
+      "source_name": "The Hacker News",
+      "source_url": "https://thehackernews.com/2025/12/jpcert-confirms-active-command.html",
+      "trust_level": "Medium",
+      "reason": "The article is from a reputable cybersecurity news source, but does not provide additional context or information about the threat actor."
+    }
+  }
+}
+
+{
+  "title": "Imper.ai Emerges From Stealth Mode With $28 Million in Funding",
+  "source": "https://www.securityweek.com/imper-ai-emerges-from-stealth-mode-with-28-million-in-funding/",
+  "@timestamp": "2025-12-05T14:29:52+00:00",
+  "llm": {
+    "summary": "Imper.ai, a cybersecurity startup, has emerged from stealth mode with $28 million in funding. It detects impersonation risk in real-time across video, phone, and chat communication.",
+    "attack_summary": null,
+    "mitre_techniques": [],
+    "priority": {
+      "score": 0,
+      "label": "Informational",
+      "reason": "No indication of attack or exploitation"
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "No mention of financial institutions, data, or transactions"
+    },
+    "threat_actors": [],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "Imper.ai",
+        "product": null,
+        "confidence": 0.8
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [],
+    "recommendations": [],
+    "tags": [],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/imper-ai-emerges-from-stealth-mode-with-28-million-in-funding/",
+      "trust_level": "Medium",
+      "reason": "Neutral, general business news source"
+    }
+  }
+}
+
+{
+  "title": "In Other News: X Fined €120 Million, Array Flaw Exploited, New Iranian Backdoor",
+  "source": "https://www.securityweek.com/in-other-news-x-fined-e120-million-array-flaw-exploited-new-iranian-backdoor/",
+  "@timestamp": "2025-12-05T15:45:00+00:00",
+  "llm": {
+    "summary": "X has been fined €120 million for an array flaw exploited by hackers. Additionally, a new Iranian backdoor was discovered.",
+    "attack_summary": "The attack likely began with initial access through the exploited array flaw. The attackers then used the new Iranian backdoor to execute ransomware via Claude Skills.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.2,
+        "reason": "The article does not specify the MITRE technique used for initial access."
+      },
+      {
+        "id": "T1190",
+        "name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "confidence": 0.8,
+        "reason": "The article mentions an array flaw exploited by hackers, which suggests the use of exploit public-facing application."
+      },
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Execution",
+        "confidence": 0.2,
+        "reason": "The article does not specify the MITRE technique used for execution."
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "The fine imposed on X and the discovery of a new Iranian backdoor indicate high business impact and exploit status."
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "There is no mention of financial institutions or sensitive data in the article."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "The article mentions hackers exploiting an array flaw, suggesting a cybercrime actor."
+      },
+      {
+        "name": "Iranian",
+        "type": "State-sponsored",
+        "country": "Iran",
+        "confidence": 0.9,
+        "role": "Attributed",
+        "reason": "The article mentions a new Iranian backdoor, which suggests state-sponsored involvement."
+      }
+    ],
+    "countries": [
+      {
+        "name": "Unknown",
+        "role": "Origin",
+        "confidence": 0.8
+      },
+      {
+        "name": "Iran",
+        "role": "Attributed",
+        "confidence": 0.9
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Akamai",
+        "product": null,
+        "confidence": 1
+      },
+      {
+        "name": "X",
+        "product": null,
+        "confidence": 1
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "HTTP smuggling detection",
+        "type": "Network",
+        "idea": "Monitor for suspicious HTTP requests and responses to detect potential HTTP smuggling attacks."
+      },
+      {
+        "name": "Ransomware execution detection",
+        "type": "Endpoint",
+        "idea": "Monitor for unusual file creation, deletion, or modification patterns on endpoints to detect potential ransomware execution."
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Patch the HTTP smuggling vulnerability and implement additional security measures to prevent similar attacks in the future."
+      },
+      {
+        "type": "Process",
+        "text": "Develop a comprehensive incident response plan to quickly respond to ransomware attacks and minimize business impact."
+      }
+    ],
+    "tags": [
+      "ransomware",
+      "http_smuggling",
+      "iranian_backdoor"
+    ],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/in-other-news-x-fined-e120-million-array-flaw-exploited-new-iranian-backdoor/",
+      "trust_level": "Medium",
+      "reason": "The article appears to be a reputable security news source, but the information provided is based on publicly available data and may not be up-to-date or accurate."
+    }
+  }
+}
+
+{
+  "title": "Cloudflare Outage Caused by React2Shell Mitigations",
+  "source": "https://www.securityweek.com/cloudflare-outage-caused-by-react2shell-mitigations/",
+  "@timestamp": "2025-12-05T15:12:59+00:00",
+  "llm": {
+    "summary": "A critical React vulnerability has been exploited in the wild, causing a Cloudflare outage. Chinese and other threat actors have been identified as exploiting this flaw.",
+    "attack_summary": "The attack begins with initial access through exploitation of a critical React vulnerability. This allows the attackers to execute malicious code on affected systems, leading to persistence and potential lateral movement. The ultimate impact is a service disruption for Cloudflare users due to mitigation efforts.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown technique",
+        "tactic": "Initial Access",
+        "confidence": 0.5,
+        "reason": "MITRE ID not specified in the article"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Critical vulnerability exploited in the wild, affecting Cloudflare users."
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "No financial impact mentioned in the article"
+    },
+    "threat_actors": [
+      {
+        "name": "Chinese threat actors",
+        "type": "State-sponsored",
+        "country": "China",
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "Mentioned as exploiting the critical React vulnerability"
+      }
+    ],
+    "countries": [
+      {
+        "name": "China",
+        "role": "Origin",
+        "confidence": 1
+      },
+      {
+        "name": "Unknown country",
+        "role": "Victim",
+        "confidence": 0.5
+      }
+    ],
+    "vendors": [],
+    "iocs": [],
+    "cves": [
+      {
+        "id": null,
+        "severity": "Critical",
+        "cvss": null,
+        "description": "A critical React vulnerability has been exploited in the wild"
+      }
+    ],
+    "detections": [],
+    "recommendations": [],
+    "tags": [
+      "react",
+      "vulnerability",
+      "cloudflare"
+    ],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/cloudflare-outage-caused-by-react2shell-mitigations/",
+      "trust_level": "Medium",
+      "reason": "Reputable security news source"
+    }
+  }
+}
+
+{
+  "title": "\"Getting to Yes\": An Anti-Sales Guide for MSPs",
+  "source": "https://thehackernews.com/2025/12/getting-to-yes-anti-sales-guide-for-msps.html",
+  "@timestamp": "2025-12-05T11:30:00+00:00",
+  "llm": {
+    "summary": "An anti-sales guide for Managed Service Providers (MSPs) helps them transform resistance into trust and turn sales conversations into long-term partnerships by focusing on education, transparency, and measurable outcomes.",
+    "attack_summary": "The guide teaches MSPs to lead with credibility as trusted cyber advisors by asking discovery questions that elevate the dialogue from IT issues to core business outcomes. It also shows how to reframe objections, like 'It's too expensive' or 'We're already protected', into opportunities for collaboration.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Social Engineering",
+        "confidence": 0.5,
+        "reason": "The article does not provide enough information to identify a specific MITRE ATT&CK technique."
+      }
+    ],
+    "priority": {
+      "score": 20,
+      "label": "Informational",
+      "reason": "This guide is intended for Managed Service Providers (MSPs) and does not represent an immediate threat or risk to their businesses."
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "The article does not mention financial institutions, card data, securities, insurance, or other financially relevant topics."
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Mentioned",
+        "reason": "The article does not specify the type of threat actor, but it is likely related to cybercrime."
+      }
+    ],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "Cynomi",
+        "product": "Automated platform for streamlining MSPs' process and focus on building stronger client relationships.",
+        "confidence": 0.8,
+        "role": "Mentioned"
+      }
+    ],
+    "tags": [
+      "cybersecurity",
+      "managed service providers",
+      "sales",
+      "education",
+      "transparency",
+      "measurable outcomes"
+    ]
+  }
+}
+
+{
+  "title": "CISA Reports PRC Hackers Using BRICKSTORM for Long-Term Access in U.S. Systems",
+  "source": "https://thehackernews.com/2025/12/cisa-reports-prc-hackers-using.html",
+  "@timestamp": "2025-12-05T08:14:00+00:00",
+  "llm": {
+    "summary": {
+      "title": "CISA Reports PRC Hackers Using BRICKSTORM for Long-Term Access in U.S. Systems",
+      "description": "The article discusses the use of BRICKSTORM by Chinese hackers to gain long-term access to U.S. systems.",
+      "published_date": "2025-12-01T00:00:00Z"
+    },
+    "keywords": [
+      "BRICKSTORM",
+      "Chinese Hackers",
+      "Long-Term Access",
+      "U.S. Systems",
+      "CISA",
+      "CrowdStrike"
+    ],
+    "entities": {
+      "people": [
+        "Warp Panda",
+        "CISA"
+      ],
+      "organizations": [
+        "PRC",
+        "Microsoft",
+        "VMware",
+        "F5 BIG IP",
+        "Apache Tika",
+        "React2Shell",
+        "Intellexa",
+        "Silver Fox",
+        "AISURU Botnet",
+        "ShadyPanda"
+      ],
+      "locations": [
+        "North America",
+        "Asia Pacific",
+        "United States"
+      ]
+    },
+    "extracts": [
+      {
+        "text": "The attackers used their access to vCenter servers to clone domain controller VMs, possibly in a bid to harvest the Active Directory Domain Services database.",
+        "source": "CrowdStrike analysis"
+      },
+      {
+        "text": "Warp Panda likely used their access to one of the compromised networks to engage in rudimentary reconnaissance against an Asia Pacific government entity.",
+        "source": "CrowdStrike analysis"
+      }
+    ],
+    "vulnerabilities": [
+      {
+        "name": "CVE-2023-46805",
+        "cve_id": "CVE-2023-46805"
+      },
+      {
+        "name": "CVE-2024-21887",
+        "cve_id": "CVE-2024-21887"
+      },
+      {
+        "name": "CVE-2024-38812",
+        "cve_id": "CVE-2024-38812"
+      },
+      {
+        "name": "CVE-2023-34048",
+        "cve_id": "CVE-2023-34048"
+      },
+      {
+        "name": "CVE-2021-22005",
+        "cve_id": "CVE-2021-22005"
+      }
+    ]
+  }
+}
+
+{
+  "title": "Lumia Security Raises $18 Million for AI Security and Governance",
+  "source": "https://www.securityweek.com/lumia-security-raises-18-million-for-ai-security-and-governance/",
+  "@timestamp": "2025-12-05T11:02:08+00:00",
+  "llm": {
+    "summary": "Lumia Security, a startup focused on AI security and governance, raises $18 million in funding to expand its engineering team, deepen product integrations, and scale go-to-market efforts.",
+    "attack_summary": null,
+    "mitre_techniques": [],
+    "priority": {
+      "score": 0,
+      "label": "Informational",
+      "reason": "No attack or security issue mentioned in the article"
+    },
+    "financial_relevance": {
+      "score": 0,
+      "label": "None",
+      "reason": "No financial institutions, securities, or payment systems mentioned"
+    },
+    "threat_actors": [],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "Lumia Security",
+        "product": null,
+        "confidence": 0.9
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [],
+    "recommendations": [],
+    "tags": [],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/lumia-security-raises-18-million-for-ai-security-and-governance/",
+      "trust_level": "High",
+      "reason": "Well-established and reputable security news source"
+    }
+  }
+}
+
+{
+  "title": "Aisuru Botnet Powers Record DDoS Attack Peaking at 29 Tbps",
+  "source": "https://www.securityweek.com/aisuru-botnet-powers-record-ddos-attack-peaking-at-29-tbps/",
+  "@timestamp": "2025-12-05T10:43:48+00:00",
+  "llm": {
+    "summary": "The Aisuru botnet was responsible for a record-breaking DDoS attack that peaked at 29 terabits per second, posing significant impact to networks.",
+    "attack_summary": "The Aisuru botnet initiated the attack by using its massive network of compromised devices to send high-volume traffic towards targeted systems. This resulted in overwhelming network resources and ultimately led to a record-breaking DDoS attack peaking at 29 Tbps. The attack's end-to-end flow involves initial access through compromised devices, execution of malicious code, persistence of the botnet, lateral movement within networks, and finally, impact on targeted systems.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Unknown",
+        "confidence": 0.5,
+        "reason": "No specific technique mentioned in the article"
+      }
+    ],
+    "priority": {
+      "score": 70,
+      "label": "High",
+      "reason": "Record-breaking DDoS attack, significant impact to networks"
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "No mention of financial institutions or sensitive data in the article"
+    },
+    "threat_actors": [
+      {
+        "name": "Aisuru botnet",
+        "type": "Cybercrime",
+        "country": null,
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "The Aisuru botnet is directly responsible for the attack"
+      }
+    ],
+    "countries": [
+      {
+        "name": "Unknown",
+        "role": "Origin",
+        "confidence": 0.5
+      }
+    ],
+    "vendors": [],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "High-volume traffic detection",
+        "type": "Network",
+        "idea": "Monitor network traffic for unusually high volumes of data transfer"
+      },
+      {
+        "name": "Botnet detection",
+        "type": "Endpoint",
+        "idea": "Identify and isolate devices infected with the Aisuru botnet"
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Implement robust DDoS protection measures, including rate limiting and IP blocking"
+      },
+      {
+        "type": "Process",
+        "text": "Regularly update software and firmware to prevent exploitation of vulnerabilities"
+      }
+    ],
+    "tags": [
+      "DDoS",
+      "botnet"
+    ],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/aisuru-botnet-powers-record-ddos-attack-peaking-at-29-tbps/",
+      "trust_level": "Medium",
+      "reason": "SecurityWeek is a reputable source for security news and analysis"
+    }
+  }
+}
+
+{
+  "title": "Helmet Security Emerges From Stealth Mode With $9 Million in Funding",
+  "source": "https://www.securityweek.com/helmet-security-emerges-from-stealth-mode-with-9-million-in-funding/",
+  "@timestamp": "2025-12-05T09:45:37+00:00",
+  "llm": {
+    "summary": "Helmet Security, a startup, has emerged from stealth mode with $9 million in funding to develop an end-to-end platform for securing agentic AI communication infrastructure.",
+    "attack_summary": "The article does not provide information on attack techniques or methodologies used by Helmet Security. It only mentions their focus on developing an end-to-end platform for securing agentic AI communication infrastructure.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": null,
+        "confidence": 0.2,
+        "reason": "No attack techniques mentioned in the article"
+      }
+    ],
+    "priority": {
+      "score": 20,
+      "label": "Low",
+      "reason": "The article does not provide any information on potential threats or vulnerabilities."
+    },
+    "financial_relevance": {
+      "score": 10,
+      "label": "Low",
+      "reason": "There is no mention of financial institutions, card data, securities, or insurance in the article."
+    },
+    "threat_actors": [
+      {
+        "name": "Helmet Security",
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.8,
+        "role": "Attributed",
+        "reason": "The company is mentioned as emerging from stealth mode with funding."
+      }
+    ],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "Helmet Security",
+        "product": null,
+        "confidence": 1
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [],
+    "recommendations": [],
+    "tags": [
+      "AI",
+      "security",
+      "funding"
+    ],
+    "source_analysis": {
+      "source_name": "SecurityWeek",
+      "source_url": "https://www.securityweek.com/helmet-security-emerges-from-stealth-mode-with-9-million-in-funding/",
+      "trust_level": "Medium",
+      "reason": "The article appears to be a press release or news report from a reputable security publication."
+    }
+  }
+}
+
+{
+  "title": "NCSC-2025-0381 [1.00] [M/H] Kwetsbaarheden verholpen in Splunk Enterprise en Splunk Cloud Platform",
+  "source": "https://advisories.ncsc.nl/advisory?id=NCSC-2025-0381",
+  "@timestamp": "2025-12-08T08:23:21+00:00",
+  "llm": {
+    "summary": "The Dutch National Cyber Security Centre (NCSC) has published a security advisory regarding vulnerabilities in Splunk Enterprise and Splunk Cloud Platform. The vulnerabilities allow for remote code execution and data exfiltration.",
+    "attack_summary": "Attackers can exploit the vulnerability by sending a malicious request to the affected system, which executes arbitrary code on the server. This allows attackers to gain initial access to the system, execute malicious code, and potentially move laterally within the network.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Initial Access",
+        "confidence": 0.5,
+        "reason": "Vulnerability not explicitly described in detail"
+      },
+      {
+        "id": null,
+        "name": "Unknown",
+        "tactic": "Execution",
+        "confidence": 0.8,
+        "reason": "Remotely executable code mentioned"
+      }
+    ],
+    "priority": {
+      "score": 80,
+      "label": "High",
+      "reason": "Critical vulnerabilities with remote code execution capability"
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "No financial institution-specific relevance mentioned in the article"
+    },
+    "threat_actors": [
+      {
+        "name": "Unknown",
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.5,
+        "role": "Mentioned",
+        "reason": "No specific threat actor mentioned"
+      }
+    ],
+    "countries": [
+      {
+        "name": "Netherlands",
+        "role": "Origin",
+        "confidence": 1
+      },
+      {
+        "name": "Global",
+        "role": "Target",
+        "confidence": 0.9
+      }
+    ],
+    "vendors": [
+      {
+        "name": "Splunk",
+        "product": "Splunk Enterprise and Splunk Cloud Platform",
+        "confidence": 1
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Detect malicious requests to affected system",
+        "type": "Network",
+        "idea": "Monitor network traffic for suspicious requests and logs"
+      },
+      {
+        "name": "Check system logs for potential exploitation attempts",
+        "type": "Endpoint",
+        "idea": "Regularly check system logs for signs of exploitation or malicious activity"
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Apply patches to affected systems and ensure up-to-date software versions"
+      },
+      {
+        "type": "Process",
+        "text": "Conduct regular security audits and vulnerability assessments on the affected systems"
+      }
+    ],
+    "tags": [
+      "splunk",
+      "vulnerability",
+      "remote code execution"
+    ],
+    "source_analysis": {
+      "source_name": "NCSC-2025-0381 Advisory",
+      "source_url": "https://advisories.ncsc.nl/advisory?id=NCSC-2025-0381",
+      "trust_level": "High",
+      "reason": "Official government cybersecurity advisory"
+    }
+  }
+}
+
+{
+  "title": "NCSC-2025-0380 [1.01] [H/H] Kwetsbaarheden verholpen in React Server Components",
+  "source": "https://advisories.ncsc.nl/advisory?id=NCSC-2025-0380",
+  "@timestamp": "2025-12-05T12:13:36+00:00",
+  "llm": {
+    "summary": "The NCSC has published an advisory (NCSC-2025-0380) on vulnerabilities in React Server Components. These vulnerabilities have been patched.",
+    "attack_summary": "An attacker could exploit these vulnerabilities to gain unauthorized access or execute arbitrary code on web applications using React Server Components. To do this, they would first need to find a vulnerable application and identify the specific vulnerability being exploited. They would then use a malicious script or command to take advantage of the vulnerability.",
+    "mitre_techniques": [
+      {
+        "id": null,
+        "name": null,
+        "tactic": "Initial Access",
+        "confidence": 0.3,
+        "reason": "Unknown MITRE ID"
+      },
+      {
+        "id": null,
+        "name": null,
+        "tactic": "Execution",
+        "confidence": 0.3,
+        "reason": "Unknown MITRE ID"
+      }
+    ],
+    "priority": {
+      "score": 60,
+      "label": "Medium",
+      "reason": "Vulnerabilities in a widely-used web component, with possible unauthorized access or code execution."
+    },
+    "financial_relevance": {
+      "score": 20,
+      "label": "Low",
+      "reason": "No specific financial relevance mentioned in the advisory"
+    },
+    "threat_actors": [
+      {
+        "name": null,
+        "type": "Unknown",
+        "country": null,
+        "confidence": 0.1,
+        "role": "Mentioned",
+        "reason": "No threat actor information provided in the advisory"
+      }
+    ],
+    "countries": [],
+    "vendors": [
+      {
+        "name": "React",
+        "product": "Server Components",
+        "confidence": 1
+      },
+      {
+        "name": "NCSC (Dutch National Cyber Security Centre)",
+        "product": null,
+        "confidence": 0.9
+      }
+    ],
+    "iocs": [],
+    "cves": [],
+    "detections": [
+      {
+        "name": "Vulnerable React Server Components detected",
+        "type": "Network",
+        "idea": "Monitor web application traffic for signs of unauthorized access or code execution"
+      },
+      {
+        "name": "Unpatched React Server Component found",
+        "type": "Endpoint",
+        "idea": "Scan endpoints for unpatched React Server Components and apply necessary patches"
+      }
+    ],
+    "recommendations": [
+      {
+        "type": "Technical",
+        "text": "Apply the latest security patches to React Server Components as soon as possible."
+      },
+      {
+        "type": "Process",
+        "text": "Regularly monitor web application traffic and endpoints for signs of unauthorized access or code execution."
+      }
+    ],
+    "tags": [
+      "vulnerability",
+      "web_application",
+      "react_server_components"
+    ],
+    "source_analysis": {
+      "source_name": "NCSC-2025-0380 Advisory",
+      "source_url": "https://advisories.ncsc.nl/advisory?id=NCSC-2025-0380",
+      "trust_level": "Medium",
+      "reason": "Dutch National Cyber Security Centre advisory, generally trusted but could be biased towards specific vulnerabilities"
+    }
+  }
+}
+
