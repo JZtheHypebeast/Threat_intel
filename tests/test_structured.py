@@ -2,16 +2,16 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from collector import structured
+from collector import CVE
 from collector.config import CONFIG
 
 
 class TestStructuredHelpers(unittest.TestCase):
 
     def test_build_vendor_pattern_and_match(self):
-        pat = structured.build_vendor_pattern("Palo Alto Networks")
+        pat = CVE.build_vendor_pattern("Palo Alto Networks")
         self.assertIsNotNone(pat.search("Palo Alto Networks product"))
-        pat2 = structured.build_vendor_pattern("Forti")
+        pat2 = CVE.build_vendor_pattern("Forti")
         self.assertIsNotNone(pat2.search("FortiGate"))
 
     def test_extract_cvss_and_description(self):
@@ -26,19 +26,19 @@ class TestStructuredHelpers(unittest.TestCase):
             "lastModified": "2025-11-05T11:00:00Z",
             "id": "CVE-2025-0001",
         }
-        score, severity = structured.extract_cvss(cve)
-        desc = structured.extract_description(cve)
+        score, severity = CVE.extract_cvss(cve)
+        desc = CVE.extract_description(cve)
         self.assertEqual(score, 9.8)
         self.assertEqual(severity, "CRITICAL")
         self.assertIn("Test vulnerability", desc)
 
-    @patch("collector.structured.fetch_json")
+    @patch("collector.CVE.fetch_json")
     def test_fetch_kev_sources(self, mock_fetch):
         mock_fetch.side_effect = [
             {"vulnerabilities": [{"cveID": "CVE-2025-0001"}]},
             {"vulnerabilities": [{"cve_id": "CVE-2025-0002"}]},
         ]
-        kev = structured.fetch_kev_sources()
+        kev = CVE.fetch_kev_sources()
         self.assertIn("CVE-2025-0001", kev)
         self.assertIn("CVE-2025-0002", kev)
 
@@ -54,7 +54,7 @@ class TestStructuredHelpers(unittest.TestCase):
             "published": "2025-11-04T12:00:00Z",
             "lastModified": "2025-11-04T13:00:00Z",
         }
-        entry = structured.normalize_cve(
+        entry = CVE.normalize_cve(
             cve, "Microsoft", set(), from_article=False, source="http://example"
         )
         self.assertEqual(entry["vendor"]["name"], "Microsoft")

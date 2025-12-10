@@ -1,14 +1,14 @@
 import unittest
 from unittest.mock import patch
 
-from collector import unstructured
+from collector import pdf
 
 
 class TestPDFPipeline(unittest.TestCase):
 
-    @patch("collector.unstructured_pdf.write_jsonl")
-    @patch("collector.unstructured_pdf.generate_unstructured_markdown")
-    @patch("collector.unstructured_pdf.extract_text_from_file")
+    @patch("collector.pdf.write_jsonl")
+    @patch("collector.pdf.generate_unstructured_markdown")
+    @patch("collector.pdf.extract_text_from_file")
     def test_run_unstructured_pdf_analysis_with_mocked_files(
         self, mock_extract, mock_md, mock_write
     ):
@@ -24,7 +24,7 @@ class TestPDFPipeline(unittest.TestCase):
                 "/tmp/report2.pdf",
             ),
         ]
-        res = unstructured.run_unstructured_pdf_analysis("/tmp", hours=24)
+        res = pdf.run_pdf_analysis("/tmp", hours=24)
         self.assertEqual(res.get("records"), 2)
         mock_write.assert_called()
         mock_md.assert_called()

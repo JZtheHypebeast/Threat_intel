@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 
-from collector import structured
+from collector import CVE
 
 
 class TestStructuredMarkdown(unittest.TestCase):
@@ -25,7 +25,7 @@ class TestStructuredMarkdown(unittest.TestCase):
         modified = []
         tmpdir = tempfile.mkdtemp()
         try:
-            path = structured.generate_markdown(
+            path = CVE.generate_markdown(
                 critical, interesting, modified, hours=24, output_dir=tmpdir
             )
             self.assertTrue(os.path.exists(path))

@@ -27,14 +27,14 @@ A quick view of the repository layout and important files/folders:
   - `collector/__init__.py`
   - `collector/main.py` — CLI entrypoint and interactive menu.
   - `collector/config.py` — runtime `CONFIG` mapping (all env-vars are defined here).
-  - `collector/unstructured.py`, `collector/unstructured_core.py` — unstructured RSS/article pipeline.
-  - `collector/unstructured_pdf.py` — PDF extraction helper.
-  - `collector/structured.py` — structured CVE/KEV collection.
+- `collector/fetch.py` — fetches RSS articles and writes rawtext bundles (no enrichment).
+  - `collector/pdf.py` — PDF extraction helper.
+  - `collector/CVE.py` — structured CVE/KEV collection.
   - `collector/delivery.py` — SIEM/delivery hooks.
-  - `collector/enablers.py`, `collector/llm_rawtext.py`, `collector/progress.py` and other helpers.
+  - `collector/enablers.py`, `collector/LLM.py`, `collector/progress.py` and other helpers.
   - `collector/logs/` and `collector/results/` — runtime output folders.
-- `data/` — static data artifacts used by the collector (MITRE mappings, patterns, mitigations, templates).
-- `scripts/` — helper and maintenance scripts (examples: `build_mitre_map.py`, `build_mitre_mitigations.py`, `sanitize_results.py`, `minify_py.py`, `strip_mitre_from_results.py`).
+- `data/` — static data artifacts used by the collector (PDF samples).
+- `scripts/` — helper and maintenance scripts (examples: `sanitize_results.py`, `minify_py.py`).
 - `tests/` — pytest unit tests covering extraction, normalization, and writer behavior.
 
 This layout is intentionally simple: application code lives under `collector/`,
@@ -71,30 +71,26 @@ python3 -m collector.main --llm
 
 Notes:
 - Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/`.
-  Categories: `structured/`, `unstructured/`, and `llm/`.
-- Unstructured pipeline writes full article bodies to `collector/results/llm/<date>/<time>/rawtext-<date>.json`
+  Categories: `structured/`, `unstructured/`, `pdf/`, `llm/`, and `llmrawtext/`.
+- Fetch pipeline writes full article bodies to `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json`
   so the LLM pipeline can consume them; NDJSON excludes raw bodies.
 - LLM summarization uses a local Ollama instance (`OLLAMA_HOST`, `OLLAMA_MODEL`
   or `LLM_MODEL`, `LLM_ENABLED=true`), default model `llama3.1`, and a 300s
   request timeout. If Ollama is not reachable the run logs the failure and moves on.
 - The LLM pipeline automatically selects the most recent `rawtext-<date>.json`
-  under `collector/results/llm/` and skips any `--hours` prompt.
+  under `collector/results/llmrawtext/` and skips any `--hours` prompt.
 
 ## What the collector does (high level)
 
 - Poll RSS feeds and fetch article HTML/text (parallelized with a thread pool).
 - Sanitize and normalize article text (boilerplate removal, dehyphenation).
-- Extract IOCs (IPs, domains, URLs, hashes, emails) via regex patterns.
-- Match keywords and phrase maps to infer MITRE ATT&CK techniques and produce
-  `threat.technique` and `threat.technique_mitigations` entries.
-- Compute relevance and MITRE-based priority scores.
-- Produce a sanitized NDJSON file, a `rawtext` JSON file with full bodies, and
-  a Markdown report aggregation for human review.
+- Write rawtext JSON bundles for downstream LLM processing (no in-app enrichment).
+- PDF pipeline: extract text from PDFs, perform light summarization/scoring, and emit NDJSON/Markdown.
 
 ## CLI flags (common)
 
 - `--structured` — run structured CVE/KEV collection.
-- `--unstructured` — run unstructured RSS/article pipeline.
+- `--unstructured` — run RSS/article fetch to build rawtext (no enrichment).
 - `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path.
 - `--llm` — run LLM rawtext translation pipeline (uses latest rawtext bundle; no hours prompt).
 - `--tests` — run unit tests using the active Python interpreter.
@@ -111,12 +107,12 @@ Important note about the interactive menu and `--tests`:
 
 ## Outputs and file conventions
 
-- `collector/results/unstructured/<date>/<time>/UnstructuredRSSIntel_<date>.ndjson` —
-  sanitized NDJSON output for RSS runs (action-focused fields; no raw text).
-- `collector/results/unstructured/<date>/<time>/UnstructuredRSSReport_<date>.md` —
-  human-readable Markdown for unstructured runs.
-- `collector/results/llm/<date>/<time>/rawtext-<date>.json` — raw article bodies
-  produced by the unstructured pipeline for LLM consumption.
+- `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json` — raw article bodies
+  produced by the fetch pipeline for LLM consumption.
+- `collector/results/pdf/<date>/<time>/UnstructuredPDFIntel_<date>.ndjson` —
+  PDF extraction/enrichment output.
+- `collector/results/pdf/<date>/<time>/UnstructuredPDFReport_<date>.md` —
+  PDF human-readable Markdown.
 - `collector/results/llm/<date>/<time>/rawtext-LLM_<date>.ndjson` —
   LLM-enriched NDJSON (pretty-printed; no `raw_text`/`text` fields).
 - `collector/results/llm/<date>/<time>/LLM-UnstructuredReport_<date>.md` —
@@ -249,8 +245,7 @@ python3 -m pytest -q
 - Run a single test file or nodeid for faster iteration:
 
 ```bash
-python3 -m pytest tests/test_unstructured.py -q
-python3 -m pytest tests/test_unstructured.py::TestUnstructuredExtraction::test_short_nav_reject -q
+python3 -m pytest tests/test_pdf_pipeline.py -q
 ```
 
 The repository includes helper scripts under `scripts/` (see below). The
@@ -261,13 +256,11 @@ execute inside the same interpreter/venv that launched the application.
 
 - `scripts/sanitize_results.py` — sanitize NDJSON/rawtext files in a results
   directory (for example remove long `text/raw_text/excerpt` fields).
-- `scripts/build_mitre_map.py`, `scripts/build_mitre_mitigations.py` — create
-  or transform MITRE mapping artifacts under `data/`.
+- `scripts/sanitize_results.py` — sanitize NDJSON/rawtext files in a results
+  directory (for example remove long `text/raw_text/excerpt` fields).
 - `scripts/minify_py.py` — (developer) safely remove comments and collapse
   redundant blank lines across `.py` files (useful for shrinking code for
   archival; a backup is recommended before running).
-- `scripts/strip_mitre_from_results.py` — ad-hoc utility to remove legacy
-  `mitre` classifier fields from historical NDJSON outputs.
 
 Use these helper scripts for offline maintenance of mapping files or to clean
 historical outputs.

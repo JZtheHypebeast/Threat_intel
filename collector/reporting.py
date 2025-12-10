@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .config import CONFIG
-from .llm_rawtext import _call_llm
+from .LLM import _call_llm
 
 logger = logging.getLogger(__name__)
 

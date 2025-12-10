@@ -5,12 +5,19 @@ from __future__ import annotations
 # =========================
 import os
 import json
+import re
 from datetime import datetime, timezone
 
 # =========================
 # ===== Third-Party =======
 # =========================
 from pypdf import PdfReader
+try:
+    import fitz  # PyMuPDF
+    HAS_PYMUPDF = True
+except Exception:
+    fitz = None
+    HAS_PYMUPDF = False
 
 # =========================
 # ====== Local App ========
@@ -18,27 +25,7 @@ from pypdf import PdfReader
 from .config import CONFIG, logger, write_jsonl, mute_console, safe_get
 from .progress import progress_bar, animate_progress
 from . import delivery
-from .unstructured_core import (
-    extract_threat_indicators,
-    extract_iocs,
-    compute_relevance_score,
-    generate_actionable_items,
-    generate_unstructured_markdown,
-    _dehyphenate_text,
-    save_full_text,
-    _make_id,
-    extract_top_findings,
-    detect_provenance,
-    normalize_and_merge_iocs,
-    strip_provenance,
-    extract_text_pdftotext,
-)
-from .unstructured_core import (
-    summarize_unstructured_description,
-    score_actionability,
-    dedupe_records_by_title,
-    infer_missing_vendor_and_actor,
-)
+from .fetch import extract_iocs
 
 # =========================
 # ===== Module Config =====
@@ -46,11 +33,187 @@ from .unstructured_core import (
 PDF_DEFAULT_DIR = os.path.join(os.getcwd(), "data", "PDF")
 SUMMARY_SENTENCES = CONFIG.get("SUMMARY_MAX_SENTENCES", 2)
 TOP_FINDINGS_DEFAULT = 5
+SUMMARY_MAX_CHARS = CONFIG.get("SUMMARY_MAX_CHARS", 480)
+
+
+# =========================
+# ===== Helpers ===========
+# =========================
+def _dehyphenate_text(text: str) -> str:
+    if not text:
+        return ""
+    text = text.replace("-\n", "")
+    text = text.replace("\r", "\n")
+    text = "\n".join(ln.rstrip() for ln in text.splitlines())
+    return text
+
+
+def _make_id(source: str, ts: float | None = None) -> str:
+    try:
+        import hashlib
+
+        h = hashlib.sha256()
+        h.update(str(source or "").encode("utf-8"))
+        if ts:
+            h.update(str(ts).encode("utf-8"))
+        return h.hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+def save_full_text(text: str, name: str) -> str | None:
+    try:
+        date_tag = datetime.now().strftime("%Y%m%d")
+        time_tag = datetime.now().strftime("%H%M%S")
+        base_dir = CONFIG.get("OUTPUT_DIR_PDF") or "."
+        out_dir = os.path.join(base_dir, date_tag, time_tag, "fulltext")
+        os.makedirs(out_dir, exist_ok=True)
+        fname = f"{_make_id(name)}.txt" if name else f"{time_tag}.txt"
+        path = os.path.join(out_dir, fname)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text or "")
+        return path
+    except Exception:
+        return None
+
+
+def summarize_unstructured_description(text: str, max_sentences: int = 2) -> str:
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\\s+", text.strip())
+    summary = " ".join(sentences[:max_sentences]).strip()
+    if len(summary) > SUMMARY_MAX_CHARS:
+        summary = summary[: SUMMARY_MAX_CHARS - 3] + "..."
+    return summary
+
+
+def dedupe_records_by_title(records: list[dict]) -> list[dict]:
+    seen = set()
+    out = []
+    for rec in records:
+        title = (rec.get("title") or "").strip().lower()
+        if title in seen:
+            continue
+        seen.add(title)
+        out.append(rec)
+    return out
+
+
+def extract_top_findings(text: str, k: int = 5) -> list[str]:
+    if not text:
+        return []
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    bullets = [ln for ln in lines if ln[:1] in {"-", "*", "•"}]
+    return bullets[:k]
+
+
+def detect_provenance(text: str) -> list[dict]:
+    out = []
+    if not text:
+        return out
+    for m in re.finditer(r"https?://[\\w\\-./?&=%#]+", text):
+        url = m.group(0)
+        out.append({"source_url": url, "confidence": 0.7, "excerpt": url})
+    return out
+
+
+def normalize_and_merge_iocs(intel, source: str | None = None, context_text: str | None = None):
+    # For PDF path we keep this minimal; returns normalized list of dicts with type/value
+    if isinstance(intel, str):
+        return []
+    if not isinstance(intel, dict):
+        return []
+    iocs = intel.get("iocs") or []
+    normed = []
+    for i in iocs:
+        if not isinstance(i, dict):
+            continue
+        typ = (i.get("type") or i.get("ioc_type") or "").strip().lower()
+        val = (i.get("value") or i.get("indicator") or i.get("ioc") or "").strip()
+        if typ and val:
+            normed.append({"type": typ, "indicator": val, "confidence": i.get("confidence", 0.5)})
+    return normed
+
+
+def extract_threat_indicators(text: str, source: str | None = None, title: str | None = None):
+    th = {"technique": {"name": []}}
+    lower = (text or "").lower()
+    if "ransom" in lower:
+        th["technique"]["name"].append("Ransomware")
+    if "phish" in lower:
+        th["technique"]["name"].append("Phishing")
+    iocs = extract_iocs(text or "", source=source, title=title)
+    return {"threat": th, "iocs": iocs}
+
+
+def strip_provenance(rec: dict) -> dict:
+    if not isinstance(rec, dict):
+        return rec
+    out = dict(rec)
+    if "provenance" in out:
+        out["provenance"] = []
+    return out
+
+
+def score_actionability(title: str | None, summary: str | None):
+    if not (title or summary):
+        return {}
+    text = (title or "") + " " + (summary or "")
+    if any(w in text.lower() for w in ["ransom", "credential", "privilege", "exploit"]):
+        return {"score": 70, "label": "Medium"}
+    return {"score": 40, "label": "Low"}
+
+
+def compute_relevance_score(intel: dict) -> dict:
+    intel = dict(intel)
+    intel.setdefault("priority", {})
+    intel["priority"].setdefault("score", 50)
+    intel["priority"].setdefault("label", "Medium")
+    return intel
+
+
+def generate_actionable_items(intel: dict):
+    return {}
 
 
 # =========================
 # ===== PDF Extraction ====
 # =========================
+def extract_text_pdftotext(pdf_path: str, *, max_pages: int | None = None) -> str:
+    if not HAS_PYMUPDF:
+        logger.warning(
+            "PyMuPDF (fitz) not available; cannot extract PDF text for %s", pdf_path
+        )
+        return ""
+    try:
+        doc = fitz.open(pdf_path)
+        pages: list[str] = []
+        pdf_max_pages = (
+            max_pages if max_pages is not None else CONFIG.get("PDF_MAX_PAGES", 50)
+        )
+        for i, page in enumerate(doc):
+            if pdf_max_pages and i >= pdf_max_pages:
+                break
+            try:
+                text = page.get_text("text") or ""
+            except Exception:
+                try:
+                    text = page.get_text() or ""
+                except Exception:
+                    text = ""
+            pages.append(text)
+        try:
+            doc.close()
+        except Exception:
+            pass
+        text = "\n".join(pages)
+        text = _dehyphenate_text(text)
+        return text
+    except Exception as exc:
+        logger.warning("PyMuPDF extraction failed for %s: %s", pdf_path, exc)
+        return ""
+
+
 def extract_text_from_file(path):
     texts = []
     if os.path.isdir(path):
@@ -109,11 +272,39 @@ def extract_text_from_file(path):
 
 
 # =========================
+# == Markdown Generation ==
+# =========================
+def generate_unstructured_markdown(items: list[dict]) -> str:
+    if not items:
+        return "# Unstructured Threat Intelligence\n\n_No new items._"
+
+    items = dedupe_records_by_title(items)
+    lines = ["# Unstructured Threat Intelligence\n"]
+    for rec in items:
+        title = rec.get("title") or "(no title)"
+        src = rec.get("source") or ""
+        ref_id = rec.get("id") or rec.get("text_id") or ""
+        lines.append(f"## {title}")
+        if src:
+            lines.append(f"_Source: {src}_")
+        if ref_id:
+            lines.append(f"_Ref ID: {ref_id}_")
+        summary = (
+            rec.get("summary_text") or rec.get("summary") or rec.get("description")
+        )
+        if summary:
+            lines.append("")
+            lines.append(summary)
+        lines.append("")
+    return "\n".join(lines)
+
+
+# =========================
 # ==== PDF Processing =====
 # =========================
-def run_unstructured_pdf_analysis(path=None, hours=24):
+def run_pdf_analysis(path=None, hours=24):
     mute_console()
-    out_dir = CONFIG.get("OUTPUT_DIR_UNSTRUCTURED") or "."
+    out_dir = CONFIG.get("OUTPUT_DIR_PDF") or "."
     os.makedirs(out_dir, exist_ok=True)
     if not path:
         path = os.path.join(os.getcwd(), "data", "PDF")
@@ -139,6 +330,7 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
             except Exception:
                 pass
 
+            intel = {"title": name, "text": text}
             try:
                 full_text_path = save_full_text(text, name)
             except Exception:
@@ -153,9 +345,10 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
             except Exception:
                 text_id = None
 
-            intel = extract_threat_indicators(text, source=fp or name, title=name)
+            ti = extract_threat_indicators(text, source=fp or name, title=name)
+            intel.update(ti)
             try:
-                intel["iocs"] = normalize_and_merge_iocs(text, source=fp or name)
+                intel["iocs"] = normalize_and_merge_iocs(ti, source=fp or name)
             except Exception:
                 try:
                     intel["iocs"] = extract_iocs(text, source=fp or name, title=name)
@@ -253,19 +446,8 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
                     pass
 
     date_stamp = datetime.now().strftime("%Y%m%d")
-    ndjson_path = os.path.join(
-        CONFIG["OUTPUT_DIR_UNSTRUCTURED"],
-        f"UnstructuredPDFIntel_{date_stamp}.ndjson"
-    )
+    ndjson_path = os.path.join(out_dir, f"UnstructuredPDFIntel_{date_stamp}.ndjson")
     try:
-
-        try:
-            inferred = infer_missing_vendor_and_actor(results)
-            if isinstance(inferred, list) and inferred:
-                results = inferred
-        except Exception:
-            pass
-
         for r in results:
             try:
                 if CONFIG.get("ENABLE_SUMMARIZATION"):
@@ -287,7 +469,7 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
                 pass
 
         try:
-            results = dedupe_records_by_title(results, fuzzy_threshold=0.95)
+            results = dedupe_records_by_title(results)
         except Exception:
             pass
 
@@ -323,7 +505,7 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
                         }
                     )
                 nav_path = os.path.join(
-                    CONFIG["OUTPUT_DIR_UNSTRUCTURED"],
+                    out_dir,
                     f"navigator_layer_{date_stamp}.json"
                 )
                 with open(nav_path, "w", encoding="utf-8") as nf:
@@ -331,15 +513,18 @@ def run_unstructured_pdf_analysis(path=None, hours=24):
     except Exception:
         pass
 
-    generate_unstructured_markdown(
-        sanitized,
-        "Unstructured PDF Intelligence Report",
-        f"UnstructuredPDFReport_{date_stamp}.md",
-    )
+    md_path = os.path.join(out_dir, f"UnstructuredPDFReport_{date_stamp}.md")
+    try:
+        markdown = generate_unstructured_markdown(sanitized)
+        with open(md_path, "w", encoding="utf-8") as mf:
+            mf.write(str(markdown))
+    except Exception as e:
+        logger.warning(f"Failed to generate or write PDF markdown {md_path}: {e}")
     try:
         if CONFIG.get("SIEM_ENABLED") and CONFIG.get("SIEM_TYPE") == "elastic":
             delivery.send_batch_to_elastic(sanitized)
     except Exception as e:
         logger.warning(f"SIEM delivery failed: {e}")
 
-    return {"records": len(results), "ndjson": ndjson_path}
+    record_count = len(files)
+    return {"records": record_count, "ndjson": ndjson_path}

@@ -14,12 +14,10 @@ import os
 # =========================
 warnings.filterwarnings("ignore", category=Warning, module=r"urllib3.*")
 from .config import logger, mute_console
-from .structured import run_structured_collection
-from .unstructured import run_unstructured_rss_analysis
-from .unstructured_pdf import (
-    run_unstructured_pdf_analysis as _run_unstructured_pdf_analysis,
-)
-from .llm_rawtext import run_llm_rawtext
+from .CVE import run_structured_collection
+from .fetch import run_unstructured_rss_analysis, run_fetch_rawtext, run_fetch
+from .pdf import run_pdf_analysis as _run_unstructured_pdf_analysis
+from .LLM import run_llm_rawtext
 from .reporting import run_reporting
 
 run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis
@@ -64,13 +62,13 @@ Help:
                         (current: {current_hours})
 
 Modules:
-|-- structured       :: Run structured collection
-|-- unstructured     :: Run unstructured RSS analysis
-|-- pdf <PATH>       :: Run unstructured PDF analysis on PATH
+|-- structured       :: Run structured CVE/KEV collection
+|-- unstructured     :: Fetch RSS articles to build rawtext (no enrichment)
+|-- pdf <PATH>       :: Run PDF extraction/enrichment on PATH
 |-- llm              :: Run LLM rawtext translation
 |-- reporting        :: Build cumulative LLM-based report (2/7/14/30 days)
 |-- tests            :: Run unit tests
-|-- all              :: Run structured + unstructured + llm
+|-- all              :: Run structured + fetch + llm
 --------------------------------------------------------------
 """
     logger.info(menu)
@@ -113,6 +111,17 @@ def _prompt_reporting_period() -> int:
     return 7
 
 
+def _prompt_fetch_before_llm() -> bool:
+    prompt = "Fetch articles to generate fresh rawtext before running LLM? [Y/n]: "
+    try:
+        raw = input(prompt).strip().lower()
+    except EOFError:
+        return False
+    if raw in ("", "y", "yes"):
+        return True
+    return False
+
+
 def _interactive_loop(default_hours: int, skip_history: bool) -> None:
     hours = default_hours
     while True:
@@ -149,9 +158,9 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             run_structured_collection(hours=chosen_hours, skip_history=skip_history)
 
         elif key == "unstructured":
-            logger.info("Running unstructured RSS analysis")
+            logger.info("Fetching articles to build rawtext bundle (no analysis)")
             chosen_hours = _prompt_hours(hours)
-            run_unstructured_rss_analysis(hours=chosen_hours)
+            run_fetch(hours=chosen_hours)
 
         elif key == "pdf":
             logger.info("Running unstructured PDF analysis (data/PDF folder)")
@@ -160,6 +169,10 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
 
         elif key == "llm":
             logger.info("Running LLM rawtext translation (no hours filter)")
+            if _prompt_fetch_before_llm():
+                chosen_hours = _prompt_hours(hours)
+                logger.info("Fetching articles to refresh rawtext before LLM")
+                run_fetch(hours=chosen_hours)
             run_llm_rawtext(hours=None)
 
         elif key == "reporting":
@@ -185,7 +198,7 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             logger.info("Running structured collection")
             run_structured_collection(hours=chosen_hours, skip_history=skip_history)
             logger.info("Running unstructured RSS analysis")
-            run_unstructured_rss_analysis(hours=chosen_hours)
+            run_fetch(hours=chosen_hours)
             logger.info("Running LLM rawtext translation")
             run_llm_rawtext(hours=chosen_hours)
 
@@ -234,8 +247,8 @@ def main() -> None:
                 ran_any = True
 
             if args.unstructured:
-                logger.info("Running unstructured RSS analysis")
-                run_unstructured_rss_analysis(hours=hours)
+                logger.info("Fetching articles to build rawtext bundle (no analysis)")
+                run_fetch(hours=hours)
                 ran_any = True
 
             if args.unstructured_pdf:

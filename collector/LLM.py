@@ -55,11 +55,11 @@ def _find_latest_rawtext_file(output_dir: Path) -> Optional[Path]:
 
 def _find_latest_rawtext_any(base_dir: Path) -> Optional[Path]:
     """
-    Locate the newest rawtext-*.json anywhere under the llm results root.
-    Assumes layout: <...>/results/llm/<YYYYMMDD>/<HHMMSS>/rawtext-<date>.json
+    Locate the newest rawtext-*.json anywhere under the rawtext results root.
+    Assumes layout: <...>/results/llmrawtext/<YYYYMMDD>/<HHMMSS>/rawtext-<date>.json
     """
     if not base_dir.exists():
-        logger.debug("LLM base dir does not exist: %s", base_dir)
+        logger.debug("Rawtext base dir does not exist: %s", base_dir)
         return None
     matches = list(base_dir.glob("**/rawtext-*.json"))
     if not matches:
@@ -340,6 +340,38 @@ def _write_ndjson(path: Path, records: Iterable[Dict[str, Any]]) -> None:
             f.write(json.dumps(rec, ensure_ascii=False, indent=2) + "\n\n")
 
 
+def _load_ndjson_flexible(path: Path) -> List[Dict[str, Any]]:
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        return []
+    # Try full JSON (array or object)
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, list):
+            return [r for r in obj if isinstance(r, dict)]
+        if isinstance(obj, dict):
+            return [obj]
+    except Exception:
+        pass
+
+    records: List[Dict[str, Any]] = []
+    decoder = json.JSONDecoder()
+    idx = 0
+    while idx < len(text):
+        while idx < len(text) and text[idx].isspace():
+            idx += 1
+        if idx >= len(text):
+            break
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+            if isinstance(obj, dict):
+                records.append(obj)
+            idx = end
+        except Exception:
+            break
+    return records
+
+
 def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
     logger.info("Building LLM markdown from %s records", len(records))
     lines: List[str] = []
@@ -352,6 +384,8 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
         return f"**{label}:** {value}" if value else f"**{label}:** N/A"
 
     for idx, rec in enumerate(records, start=1):
+        if not isinstance(rec, dict):
+            continue
         title = rec.get("title") or "(no title)"
         source = rec.get("source") or ""
         ts = rec.get("@timestamp") or rec.get("timestamp") or ""
@@ -370,7 +404,8 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
         if attack_summary:
             lines.append(_fmt_kv("Attack Summary", attack_summary))
 
-        mitre = llm_payload.get("mitre_techniques") or []
+        mitre_raw = llm_payload.get("mitre_techniques") or []
+        mitre = [m for m in mitre_raw if isinstance(m, dict)]
         lines.append("")
         lines.append("**MITRE Techniques:**")
         if mitre:
@@ -532,12 +567,12 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
 def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     output_dir = _get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Find latest rawtext across llm results root
-    llm_root = output_dir
+    # Find latest rawtext across rawtext results root
+    llm_root = Path(CONFIG.get("OUTPUT_DIR_LLM_RAW") or output_dir)
     try:
-        llm_root = output_dir.parents[1]
+        llm_root = llm_root.parents[1]
     except Exception:
-        llm_root = output_dir.parent
+        llm_root = llm_root.parent
     logger.debug("Searching for latest rawtext under %s", llm_root)
     raw_path = _find_latest_rawtext_any(llm_root)
     if raw_path is None:
@@ -565,6 +600,8 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
             "records_processed": 0,
         }
     processed: List[Dict[str, Any]] = []
+    # Progress tracking
+    pb_prefix = "LLM"
     overall_start = datetime.now()
     avg_secs = 0.0
     success_count = 0
@@ -579,15 +616,30 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
         avg_secs = ((avg_secs * (idx - 1)) + elapsed) / idx
         remaining = len(records) - idx
         eta_secs = avg_secs * remaining
+
+        def _fmt_eta(seconds: float) -> str:
+            if seconds >= 3600:
+                return f"{seconds/3600:.1f}h"
+            if seconds >= 60:
+                return f"{seconds/60:.1f}m"
+            return f"{seconds:.1f}s"
+
         if rec.get("llm"):
             success_count += 1
+        try:
+            from .progress import progress_bar
+
+            status = f"{idx}/{len(records)} ETA {_fmt_eta(eta_secs)}"
+            progress_bar(idx, len(records), prefix=pb_prefix, status=status)
+        except Exception:
+            pass
         logger.info(
-            "LLM completed %s/%s in %.1fs (avg %.1fs, ETA %.1fs, remaining %s): %s",
+            "LLM completed %s/%s in %.1fs (avg %.1fs, ETA %s, remaining %s): %s",
             idx,
             len(records),
             elapsed,
             avg_secs,
-            eta_secs,
+            _fmt_eta(eta_secs),
             remaining,
             title,
         )

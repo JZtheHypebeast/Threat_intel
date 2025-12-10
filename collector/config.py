@@ -27,6 +27,8 @@ STRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "structured")
 UNSTRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "unstructured")
 LLM_ROOT = os.path.join(RESULTS_ROOT, "llm")
 REPORTING_ROOT = os.path.join(RESULTS_ROOT, "reporting")
+PDF_ROOT = os.path.join(RESULTS_ROOT, "pdf")
+LLM_RAW_ROOT = os.path.join(RESULTS_ROOT, "llmrawtext")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 
 TODAY_STAMP = datetime.now().strftime("%Y%m%d")
@@ -35,10 +37,14 @@ STRUCTURED_DAY_DIR = os.path.join(STRUCTURED_ROOT, TODAY_STAMP)
 UNSTRUCTURED_DAY_DIR = os.path.join(UNSTRUCTURED_ROOT, TODAY_STAMP)
 LLM_DAY_DIR = os.path.join(LLM_ROOT, TODAY_STAMP)
 REPORTING_DAY_DIR = os.path.join(REPORTING_ROOT, TODAY_STAMP)
+PDF_DAY_DIR = os.path.join(PDF_ROOT, TODAY_STAMP)
+LLM_RAW_DAY_DIR = os.path.join(LLM_RAW_ROOT, TODAY_STAMP)
 STRUCTURED_RUN_DIR = os.path.join(STRUCTURED_DAY_DIR, RUN_STAMP)
 UNSTRUCTURED_RUN_DIR = os.path.join(UNSTRUCTURED_DAY_DIR, RUN_STAMP)
 LLM_RUN_DIR = os.path.join(LLM_DAY_DIR, RUN_STAMP)
 REPORTING_RUN_DIR = os.path.join(REPORTING_DAY_DIR, RUN_STAMP)
+PDF_RUN_DIR = os.path.join(PDF_DAY_DIR, RUN_STAMP)
+LLM_RAW_RUN_DIR = os.path.join(LLM_RAW_DAY_DIR, RUN_STAMP)
 
 os.makedirs(LOGS_DIR, exist_ok=True)
 LOGS_DAY_DIR = os.path.join(LOGS_DIR, TODAY_STAMP)
@@ -69,7 +75,9 @@ CONFIG = {
     "OUTPUT_DIR_STRUCTURED": STRUCTURED_RUN_DIR,
     "OUTPUT_DIR_UNSTRUCTURED": UNSTRUCTURED_RUN_DIR,
     "OUTPUT_DIR_LLM": LLM_RUN_DIR,
+    "OUTPUT_DIR_LLM_RAW": LLM_RAW_RUN_DIR,
     "OUTPUT_DIR_REPORTING": REPORTING_RUN_DIR,
+    "OUTPUT_DIR_PDF": PDF_RUN_DIR,
     "LOG_FILE": os.path.join(LOGS_DIR, TODAY_STAMP, "threat_intel_collector.log"),
     "USER_AGENT": os.getenv(
         "TI_USER_AGENT", "ThreatIntelCollector/5.0 (+https://example.local)"
