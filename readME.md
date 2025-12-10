@@ -3,15 +3,16 @@
 Version: 1
 
 This repository contains a lightweight threat-intel collector and processing
-pipeline. It supports three collection flows:
+pipeline. It supports four flows:
 
 - Structured CVE/KEV collection (CVE feeds and known exploited vulnerabilities).
-- Unstructured RSS/article pipeline — fetches articles from RSS feeds,
-  extracts indicators (IOCs), infers MITRE ATT&CK techniques, computes
-  relevance/priority scores, and writes sanitized NDJSON + Markdown reports.
-- LLM enrichment pipeline — reads the latest rawtext bundle, sends it to a
-  local Ollama model (default `llama3.1`) and produces cleaned NDJSON +
-  Markdown without embedding full raw text.
+- Fetch pipeline — pulls RSS articles and writes rawtext JSON for downstream use
+  (no in-app enrichment).
+- PDF pipeline — extracts text from PDFs, performs light summarization/scoring,
+  and writes NDJSON/Markdown.
+- LLM enrichment — reads the latest rawtext bundle, sends it to a local Ollama
+  model (default `llama3.1`), and produces cleaned NDJSON/Markdown without
+  embedding full raw text.
 
 This README explains how to run the collector, expected outputs, testing,
 configuration, and useful helper scripts.
@@ -31,7 +32,7 @@ A quick view of the repository layout and important files/folders:
   - `collector/pdf.py` — PDF extraction helper.
   - `collector/CVE.py` — structured CVE/KEV collection.
   - `collector/delivery.py` — SIEM/delivery hooks.
-  - `collector/enablers.py`, `collector/LLM.py`, `collector/progress.py` and other helpers.
+  - `collector/LLM.py`, `collector/progress.py` and other helpers.
   - `collector/logs/` and `collector/results/` — runtime output folders.
 - `data/` — static data artifacts used by the collector (PDF samples).
 - `scripts/` — helper and maintenance scripts (examples: `sanitize_results.py`, `minify_py.py`).
@@ -51,13 +52,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-- Run only the unstructured RSS pipeline for the last 28 hours:
+- Run only the fetch (RSS) pipeline for the last 28 hours:
 
 ```bash
 python3 -m collector.main --unstructured --hours 28
 ```
 
-- Run the structured + unstructured pipelines together for 24 hours:
+- Run the structured + fetch pipelines together for 24 hours:
 
 ```bash
 python3 -m collector.main --structured --unstructured --hours 24
@@ -71,7 +72,7 @@ python3 -m collector.main --llm
 
 Notes:
 - Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/`.
-  Categories: `structured/`, `unstructured/`, `pdf/`, `llm/`, and `llmrawtext/`.
+  Categories: `structured/`, `pdf/`, `llmrawtext/` (raw articles), and `llm/`.
 - Fetch pipeline writes full article bodies to `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json`
   so the LLM pipeline can consume them; NDJSON excludes raw bodies.
 - LLM summarization uses a local Ollama instance (`OLLAMA_HOST`, `OLLAMA_MODEL`
@@ -87,17 +88,27 @@ Notes:
 - Write rawtext JSON bundles for downstream LLM processing (no in-app enrichment).
 - PDF pipeline: extract text from PDFs, perform light summarization/scoring, and emit NDJSON/Markdown.
 
-## CLI flags (common)
+## CLI flags and menu
 
+Flags (non-interactive):
 - `--structured` — run structured CVE/KEV collection.
 - `--unstructured` — run RSS/article fetch to build rawtext (no enrichment).
 - `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path.
-- `--llm` — run LLM rawtext translation pipeline (uses latest rawtext bundle; no hours prompt).
+- `--llm` — run LLM rawtext translation (uses latest rawtext bundle; no hours prompt).
+- `--reporting <days>` — build a cumulative LLM-based report over 2/7/14/30 days.
 - `--tests` — run unit tests using the active Python interpreter.
 - `--hours <N>` — look-back window in hours for RSS items.
 - `--no-banner` — suppress ASCII banner at program start.
 
-Run `python3 -m collector.main -h` to view all flags and help text.
+Interactive menu commands mirror the above:
+- `structured` — structured CVE/KEV collection.
+- `unstructured` — fetch RSS articles to build rawtext.
+- `pdf <PATH>` — run PDF extraction on the given path (defaults to `data/PDF` if omitted).
+- `llm` — translate latest rawtext with the LLM.
+- `reporting` — build cumulative report (prompt for 2/7/14/30 days).
+- `tests` — run pytest.
+- `all` — structured + fetch + llm in sequence.
+- `hours <N>` — adjust the default look-back for fetch/structured in the session.
 
 Important note about the interactive menu and `--tests`:
 - The interactive menu and the `--tests` CLI flag run pytest using the same
@@ -109,6 +120,8 @@ Important note about the interactive menu and `--tests`:
 
 - `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json` — raw article bodies
   produced by the fetch pipeline for LLM consumption.
+- `collector/results/structured/<date>/<time>/StructuredCVEData_<date>.ndjson` — structured CVE/KEV NDJSON.
+- `collector/results/structured/<date>/<time>/StructuredCVEReport_<date>.md` — structured CVE/KEV Markdown.
 - `collector/results/pdf/<date>/<time>/UnstructuredPDFIntel_<date>.ndjson` —
   PDF extraction/enrichment output.
 - `collector/results/pdf/<date>/<time>/UnstructuredPDFReport_<date>.md` —
@@ -254,8 +267,6 @@ execute inside the same interpreter/venv that launched the application.
 
 ## Helper scripts
 
-- `scripts/sanitize_results.py` — sanitize NDJSON/rawtext files in a results
-  directory (for example remove long `text/raw_text/excerpt` fields).
 - `scripts/sanitize_results.py` — sanitize NDJSON/rawtext files in a results
   directory (for example remove long `text/raw_text/excerpt` fields).
 - `scripts/minify_py.py` — (developer) safely remove comments and collapse

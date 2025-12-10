@@ -169,7 +169,7 @@ def _compute_stats(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _render_pdf(markdown_text: str, out_path: Path) -> None:
     try:
-        import fitz  # PyMuPDF
+        import fitz
     except Exception as exc:
         logger.warning("PyMuPDF not available for PDF render: %s", exc)
         return
