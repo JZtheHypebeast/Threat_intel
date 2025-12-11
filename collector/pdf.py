@@ -13,42 +13,384 @@ from datetime import datetime, timezone
 # =========================
 from pypdf import PdfReader
 try:
-    import fitz  # PyMuPDF
+    import fitz
     HAS_PYMUPDF = True
 except Exception:
-    fitz = None
     HAS_PYMUPDF = False
 
 # =========================
-# ====== Local App ========
+# ===== Local Imports =====
 # =========================
-from .config import CONFIG, logger, write_jsonl, mute_console, safe_get
-from .progress import progress_bar, animate_progress
+from .config import CONFIG, logger, mute_console
+from .progress import animate_progress
+from .LLM import _call_llm
 from . import delivery
-from .fetch import extract_iocs
+
+SUMMARY_SENTENCES = 3
 
 # =========================
-# ===== Module Config =====
+# ===== Helper Utils ======
 # =========================
-PDF_DEFAULT_DIR = os.path.join(os.getcwd(), "data", "PDF")
-SUMMARY_SENTENCES = CONFIG.get("SUMMARY_MAX_SENTENCES", 2)
-TOP_FINDINGS_DEFAULT = 5
-SUMMARY_MAX_CHARS = CONFIG.get("SUMMARY_MAX_CHARS", 480)
-
-
-# =========================
-# ===== Helpers ===========
-# =========================
-def _dehyphenate_text(text: str) -> str:
+def summarize_unstructured_description(text: str, max_sentences: int = 3) -> str:
     if not text:
         return ""
-    text = text.replace("-\n", "")
-    text = text.replace("\r", "\n")
-    text = "\n".join(ln.rstrip() for ln in text.splitlines())
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    return " ".join(sentences[:max_sentences]).strip()
+
+
+def score_actionability(title: str | None, summary: str | None):
+    if not (title or summary):
+        return {}
+    text = (title or "") + " " + (summary or "")
+    if any(w in text.lower() for w in ["ransom", "credential", "privilege", "exploit"]):
+        return {"score": 70, "label": "Medium"}
+    return {"score": 40, "label": "Low"}
+
+
+def dedupe_records_by_title(records: list[dict]) -> list[dict]:
+    seen = set()
+    out = []
+    for rec in records:
+        title = (rec.get("title") or "").strip().lower()
+        if title in seen:
+            continue
+        seen.add(title)
+        out.append(rec)
+    return out
+
+
+def _pdf_prompt(title: str, source: str, text: str) -> str:
+    return (
+        "You are a senior cyber threat intelligence analyst creating an executive summary for management.\n"
+        "You will receive raw text extracted from a PDF report. It may include headers, footers, navigation text, and boilerplate; ignore those and focus on the main content.\n\n"
+        "Return ONLY a single JSON object with these keys:\n"
+        '- "summary": string (2–4 sentences, plain-language executive summary of the whole report: what it is, time frame, and its main conclusions)\n'
+        '- "top_insights": list of 3–7 objects, each with:\n'
+        '    - "title": short string headline for the insight\n'
+        '    - "detail": 1–3 sentences explaining the point in business terms\n'
+        '- "financial_relevance": object with:\n'
+        '    - "score": integer 0–100\n'
+        '    - "label": one of ["None","Low","Medium","High","Critical"]\n'
+        '    - "reason": short explanation of why this matters (or not) for financial institutions (banks, PSPs, card schemes, trading, insurance)\n'
+        '- "recommended_actions": list of 3–7 objects, each with:\n'
+        '    - "owner": e.g. "Board","CISO","Security Operations","Risk Management","Fraud","IT Operations"\n'
+        '    - "priority": one of ["Low","Medium","High"]\n'
+        '    - "text": 1–3 sentences describing a concrete action or decision\n'
+        '- "tags": list of short strings (e.g. ["ransomware","phishing","geopolitics","regulation","cloud","identity"])\n'
+        '- "threat_actors": optional list of objects, only if the report clearly names them:\n'
+        '    - "name": actor or campaign name\n'
+        '    - "role": e.g. "key actor in case studies","example group","mentioned only"\n'
+        '- "iocs": optional list of objects, ONLY if the report clearly lists them in an Indicators of Compromise section or equivalent:\n'
+        '    - "type": e.g. "domain","ip","url","hash","email"\n'
+        '    - "value": exact string as shown in the report\n'
+        '    - "context": short description of what the IOC represents\n'
+        "Rules:\n"
+        "- Do NOT invent actors, IOCs, statistics, or recommendations that are not supported by the text.\n"
+        "- If the text does not clearly define a field, leave it empty or use an empty list.\n"
+        "- Ignore generic contact details and benign corporate domains (e.g. microsoft.com, europol.europa.eu, fi-isac.nl) as IOCs unless the report explicitly labels them as malicious infrastructure or indicators.\n"
+        "- Focus on strategic themes, trends, risks, and high-level recommendations suitable for senior management.\n"
+        "- Many such PDFs include lengthy introductions, legal text, and navigation hints; ignore them in your analysis.\n"
+        "- Return ONLY raw JSON with the specified keys, no markdown or explanatory text.\n\n"
+        f"Title: {title or ''}\n"
+        f"Source: {source or ''}\n"
+        f'Text:\n"""{text}"""'
+    )
+
+
+def _normalize_pdf_llm(payload: dict) -> dict:
+    out = dict(payload) if isinstance(payload, dict) else {}
+    if out.get("summary") is None:
+        out["summary"] = ""
+    if out.get("top_insights") is None:
+        out["top_insights"] = []
+    if out.get("financial_relevance") is None:
+        out["financial_relevance"] = {}
+    if out.get("recommended_actions") is None:
+        out["recommended_actions"] = []
+    for key in ("threat_actors", "countries", "vendors", "iocs", "detections", "recommendations", "tags"):
+        if out.get(key) is None:
+            out[key] = []
+    return out
+
+
+# =========================
+# ===== PDF Extraction ====
+# =========================
+def extract_text_pdftotext(pdf_path: str, *, max_pages: int | None = None) -> str:
+    if not HAS_PYMUPDF:
+        logger.warning(
+            "PyMuPDF (fitz) not available; cannot extract PDF text for %s", pdf_path
+        )
+        return ""
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as e:
+        logger.warning("Failed to open PDF via PyMuPDF %s: %s", pdf_path, e)
+        return ""
+    text_parts = []
+    try:
+        for page_index, page in enumerate(doc):
+            if max_pages is not None and page_index >= max_pages:
+                break
+            try:
+                text_parts.append(page.get_text("text"))
+            except Exception as e:
+                logger.debug("Failed to extract text from page %s in %s: %s", page_index, pdf_path, e)
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+    return "\n".join(text_parts)
+
+
+def extract_text_pypdf(pdf_path: str, *, max_pages: int | None = None) -> str:
+    try:
+        reader = PdfReader(pdf_path)
+    except Exception as e:
+        logger.warning("Failed to read PDF with pypdf %s: %s", pdf_path, e)
+        return ""
+    text_parts = []
+    for idx, page in enumerate(reader.pages):
+        if max_pages is not None and idx >= max_pages:
+            break
+        try:
+            text_parts.append(page.extract_text() or "")
+        except Exception as e:
+            logger.debug("Failed to extract text from page %s in %s: %s", idx, pdf_path, e)
+    return "\n".join(text_parts)
+
+
+def extract_text_from_pdf(pdf_path: str, *, max_pages: int | None = None) -> str:
+    if HAS_PYMUPDF:
+        text = extract_text_pdftotext(pdf_path, max_pages=max_pages)
+        if text.strip():
+            return text
+    return extract_text_pypdf(pdf_path, max_pages=max_pages)
+
+
+def discover_pdf_files(base_path: str) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    if not os.path.exists(base_path):
+        logger.warning("PDF base path does not exist: %s", base_path)
+        return out
+    if os.path.isfile(base_path) and base_path.lower().endswith(".pdf"):
+        out.append((os.path.basename(base_path), base_path))
+        return out
+    for root, _, files in os.walk(base_path):
+        for fn in files:
+            if not fn.lower().endswith(".pdf"):
+                continue
+            fp = os.path.join(root, fn)
+            out.append((fn, fp))
+    return out
+
+
+def extract_text_from_file(base_path: str) -> list[tuple[str, str, str, dict]]:
+    files = discover_pdf_files(base_path)
+    out: list[tuple[str, str, str, dict]] = []
+    for name, fp in files:
+        logger.info("Extracting PDF: %s", fp)
+        t = extract_text_from_pdf(fp)
+        meta = {"title": name, "source": fp}
+        out.append((name, t, fp, meta))
+    return out
+
+
+def _dehyphenate_text(text: str) -> str:
+    text = re.sub(r"(\w+)-\n(\w+)", r"\1\2\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
     return text
 
 
-def _make_id(source: str, ts: float | None = None) -> str:
+def _pdf_llm_analyze(title: str, source: str, text: str) -> dict | None:
+    if not text or not text.strip():
+        return None
+    prompt = _pdf_prompt(title, source, text)
+    try:
+        resp = _call_llm(prompt)
+    except Exception as e:
+        logger.warning("PDF LLM call failed for %s: %s", title, e)
+        return None
+    if isinstance(resp, str):
+        try:
+            resp = json.loads(resp)
+        except Exception:
+            logger.debug("PDF LLM response not JSON for %s", title)
+            return None
+    if not isinstance(resp, dict):
+        return None
+    return _normalize_pdf_llm(resp)
+
+
+def normalize_and_merge_iocs(intel, source: str | None = None, context_text: str | None = None):
+    if isinstance(intel, str):
+        return []
+    if not isinstance(intel, dict):
+        return []
+    iocs = intel.get("iocs") or []
+    normed = []
+    for i in iocs:
+        if not isinstance(i, dict):
+            continue
+        t = (i.get("type") or "").strip().lower()
+        v = (i.get("value") or "").strip()
+        ctx = (i.get("context") or "").strip()
+        if not v:
+            continue
+        if t in {"domain", "url"}:
+            if any(dom in v for dom in ("microsoft.com", "europol.europa.eu", "fi-isac.nl")) and "malicious" not in ctx.lower():
+                continue
+        normed.append(
+            {
+                "type": t or "other",
+                "value": v,
+                "context": ctx,
+                "source": source or "",
+            }
+        )
+    if not normed:
+        return []
+    if not context_text:
+        return normed
+    lowered = context_text.lower()
+    enriched = []
+    for i in normed:
+        v = i["value"]
+        idx = lowered.find(v.lower())
+        snippet = ""
+        if idx != -1:
+            start = max(0, idx - 80)
+            end = min(len(context_text), idx + len(v) + 80)
+            snippet = context_text[start:end].replace("\n", " ")
+        j = dict(i)
+        if snippet:
+            j["excerpt"] = snippet
+        enriched.append(j)
+    return enriched
+
+
+def generate_unstructured_markdown(items: list[dict]) -> str:
+    if not items:
+        return "# PDF Threat Intelligence (Management View)\n\n_No new items._"
+
+    items = dedupe_records_by_title(items)
+    lines: list[str] = ["# PDF Threat Intelligence (Management View)\n"]
+    for rec in items:
+        title = rec.get("title") or "(no title)"
+        src = rec.get("source") or ""
+        ref_id = rec.get("id") or rec.get("text_id") or ""
+        lines.append(f"## {title}")
+        meta_parts: list[str] = []
+        if src:
+            meta_parts.append(f"Source: {src}")
+        if ref_id:
+            meta_parts.append(f"Ref ID: {ref_id}")
+        if meta_parts:
+            lines.append("_" + " • ".join(meta_parts) + "_")
+
+        llm = rec.get("llm") or {}
+        summary = (
+            llm.get("summary")
+            or rec.get("summary_text")
+            or rec.get("summary")
+            or rec.get("description")
+        )
+        if summary:
+            lines.append("")
+            lines.append(f"**Executive Summary:** {summary}")
+
+        top_insights = llm.get("top_insights") or []
+        if isinstance(top_insights, list) and top_insights:
+            lines.append("")
+            lines.append("**Top Insights:**")
+            for ti in top_insights:
+                if not isinstance(ti, dict):
+                    txt = str(ti)
+                    if txt:
+                        lines.append(f"- {txt}")
+                    continue
+                t_title = ti.get("title") or ""
+                detail = ti.get("detail") or ""
+                if t_title and detail:
+                    lines.append(f"- **{t_title}** — {detail}")
+                elif detail:
+                    lines.append(f"- {detail}")
+
+        fin = llm.get("financial_relevance") or {}
+        if isinstance(fin, dict) and (fin.get("label") or fin.get("score") is not None or fin.get("reason")):
+            label = fin.get("label") or "N/A"
+            score = fin.get("score")
+            score_str = str(score) if score is not None else "N/A"
+            reason = fin.get("reason") or ""
+            lines.append("")
+            lines.append(f"**Financial Relevance:** {label} {score_str} — {reason}")
+
+        recs = llm.get("recommended_actions") or []
+        if isinstance(recs, list) and recs:
+            lines.append("")
+            lines.append("**Recommended Actions:**")
+            for r in recs:
+                if not isinstance(r, dict):
+                    txt = str(r)
+                    if txt:
+                        lines.append(f"- {txt}")
+                    continue
+                owner = r.get("owner") or ""
+                prio = r.get("priority") or ""
+                text = r.get("text") or ""
+                if not text:
+                    continue
+                prefix_parts: list[str] = []
+                if owner:
+                    prefix_parts.append(owner)
+                if prio:
+                    prefix_parts.append(prio)
+                prefix = f"[{', '.join(prefix_parts)}] " if prefix_parts else ""
+                lines.append(f"- {prefix}{text}")
+
+        actors = llm.get("threat_actors") or []
+        if isinstance(actors, list) and actors:
+            lines.append("")
+            lines.append("**Mentioned Threat Actors:**")
+            for a in actors:
+                if not isinstance(a, dict):
+                    txt = str(a)
+                    if txt:
+                        lines.append(f"- {txt}")
+                    continue
+                name = a.get("name") or "Unknown"
+                role = a.get("role") or ""
+                parts = [name]
+                if role:
+                    parts.append(f"({role})")
+                lines.append("- " + " ".join(parts))
+
+        tags = llm.get("tags") or []
+        if isinstance(tags, list) and tags:
+            tag_strs = [str(t) for t in tags if t]
+            if tag_strs:
+                lines.append("")
+                lines.append(f"**Tags:** {', '.join(tag_strs)}")
+
+        lines.append("")
+    return "\n".join(lines)
+
+
+def build_pdf_record(name: str, text: str, path: str, meta: dict | None = None) -> dict:
+    meta = meta or {}
+    ts = datetime.now(timezone.utc).isoformat()
+    return {
+        "title": meta.get("title") or name,
+        "source": meta.get("source") or path,
+        "@timestamp": ts,
+        "text": text,
+        "full_text_path": None,
+        "meta": meta,
+    }
+
+
+def compute_record_id(source: str | None, ts: str | None) -> str:
     try:
         import hashlib
 
@@ -64,244 +406,18 @@ def _make_id(source: str, ts: float | None = None) -> str:
 def save_full_text(text: str, name: str) -> str | None:
     try:
         date_tag = datetime.now().strftime("%Y%m%d")
-        time_tag = datetime.now().strftime("%H%M%S")
-        base_dir = CONFIG.get("OUTPUT_DIR_PDF") or "."
-        out_dir = os.path.join(base_dir, date_tag, time_tag, "fulltext")
+        out_dir = CONFIG.get("OUTPUT_DIR_PDF") or "."
         os.makedirs(out_dir, exist_ok=True)
-        fname = f"{_make_id(name)}.txt" if name else f"{time_tag}.txt"
-        path = os.path.join(out_dir, fname)
+        safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name) or "pdf"
+        path = os.path.join(out_dir, f"{safe_name}_{date_tag}.txt")
         with open(path, "w", encoding="utf-8") as f:
-            f.write(text or "")
+            f.write(text)
         return path
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to save full text for %s: %s", name, e)
         return None
 
 
-def summarize_unstructured_description(text: str, max_sentences: int = 2) -> str:
-    if not text:
-        return ""
-    sentences = re.split(r"(?<=[.!?])\\s+", text.strip())
-    summary = " ".join(sentences[:max_sentences]).strip()
-    if len(summary) > SUMMARY_MAX_CHARS:
-        summary = summary[: SUMMARY_MAX_CHARS - 3] + "..."
-    return summary
-
-
-def dedupe_records_by_title(records: list[dict]) -> list[dict]:
-    seen = set()
-    out = []
-    for rec in records:
-        title = (rec.get("title") or "").strip().lower()
-        if title in seen:
-            continue
-        seen.add(title)
-        out.append(rec)
-    return out
-
-
-def extract_top_findings(text: str, k: int = 5) -> list[str]:
-    if not text:
-        return []
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    bullets = [ln for ln in lines if ln[:1] in {"-", "*", "•"}]
-    return bullets[:k]
-
-
-def detect_provenance(text: str) -> list[dict]:
-    out = []
-    if not text:
-        return out
-    for m in re.finditer(r"https?://[\\w\\-./?&=%#]+", text):
-        url = m.group(0)
-        out.append({"source_url": url, "confidence": 0.7, "excerpt": url})
-    return out
-
-
-def normalize_and_merge_iocs(intel, source: str | None = None, context_text: str | None = None):
-    # For PDF path we keep this minimal; returns normalized list of dicts with type/value
-    if isinstance(intel, str):
-        return []
-    if not isinstance(intel, dict):
-        return []
-    iocs = intel.get("iocs") or []
-    normed = []
-    for i in iocs:
-        if not isinstance(i, dict):
-            continue
-        typ = (i.get("type") or i.get("ioc_type") or "").strip().lower()
-        val = (i.get("value") or i.get("indicator") or i.get("ioc") or "").strip()
-        if typ and val:
-            normed.append({"type": typ, "indicator": val, "confidence": i.get("confidence", 0.5)})
-    return normed
-
-
-def extract_threat_indicators(text: str, source: str | None = None, title: str | None = None):
-    th = {"technique": {"name": []}}
-    lower = (text or "").lower()
-    if "ransom" in lower:
-        th["technique"]["name"].append("Ransomware")
-    if "phish" in lower:
-        th["technique"]["name"].append("Phishing")
-    iocs = extract_iocs(text or "", source=source, title=title)
-    return {"threat": th, "iocs": iocs}
-
-
-def strip_provenance(rec: dict) -> dict:
-    if not isinstance(rec, dict):
-        return rec
-    out = dict(rec)
-    if "provenance" in out:
-        out["provenance"] = []
-    return out
-
-
-def score_actionability(title: str | None, summary: str | None):
-    if not (title or summary):
-        return {}
-    text = (title or "") + " " + (summary or "")
-    if any(w in text.lower() for w in ["ransom", "credential", "privilege", "exploit"]):
-        return {"score": 70, "label": "Medium"}
-    return {"score": 40, "label": "Low"}
-
-
-def compute_relevance_score(intel: dict) -> dict:
-    intel = dict(intel)
-    intel.setdefault("priority", {})
-    intel["priority"].setdefault("score", 50)
-    intel["priority"].setdefault("label", "Medium")
-    return intel
-
-
-def generate_actionable_items(intel: dict):
-    return {}
-
-
-# =========================
-# ===== PDF Extraction ====
-# =========================
-def extract_text_pdftotext(pdf_path: str, *, max_pages: int | None = None) -> str:
-    if not HAS_PYMUPDF:
-        logger.warning(
-            "PyMuPDF (fitz) not available; cannot extract PDF text for %s", pdf_path
-        )
-        return ""
-    try:
-        doc = fitz.open(pdf_path)
-        pages: list[str] = []
-        pdf_max_pages = (
-            max_pages if max_pages is not None else CONFIG.get("PDF_MAX_PAGES", 50)
-        )
-        for i, page in enumerate(doc):
-            if pdf_max_pages and i >= pdf_max_pages:
-                break
-            try:
-                text = page.get_text("text") or ""
-            except Exception:
-                try:
-                    text = page.get_text() or ""
-                except Exception:
-                    text = ""
-            pages.append(text)
-        try:
-            doc.close()
-        except Exception:
-            pass
-        text = "\n".join(pages)
-        text = _dehyphenate_text(text)
-        return text
-    except Exception as exc:
-        logger.warning("PyMuPDF extraction failed for %s: %s", pdf_path, exc)
-        return ""
-
-
-def extract_text_from_file(path):
-    texts = []
-    if os.path.isdir(path):
-        for root, _, filenames in os.walk(path):
-            for fname in filenames:
-                if not fname.lower().endswith(".pdf"):
-                    continue
-                fp = os.path.join(root, fname)
-                try:
-                    text = extract_text_pdftotext(fp) or None
-                    meta = {}
-                    if not text:
-                        reader = PdfReader(fp)
-                        text = " ".join([p.extract_text() or "" for p in reader.pages])
-                        try:
-                            md = reader.metadata
-                            if md:
-                                if hasattr(md, "items"):
-                                    meta = {
-                                        k.replace("/", ""): v for k, v in md.items()
-                                    }
-                                else:
-                                    try:
-                                        meta = dict(md)
-                                    except Exception:
-                                        meta = {}
-                        except Exception:
-                            meta = {}
-                    texts.append((os.path.basename(fp), text or "", fp, meta))
-                except Exception as e:
-                    logger.warning(f"Failed to extract PDF {fp}: {e}")
-    else:
-        if str(path).lower().endswith(".pdf"):
-            try:
-                text = extract_text_pdftotext(path) or None
-                meta = {}
-                if not text:
-                    reader = PdfReader(path)
-                    text = " ".join([p.extract_text() or "" for p in reader.pages])
-                    try:
-                        md = reader.metadata
-                        if md:
-                            if hasattr(md, "items"):
-                                meta = {k.replace("/", ""): v for k, v in md.items()}
-                            else:
-                                try:
-                                    meta = dict(md)
-                                except Exception:
-                                    meta = {}
-                    except Exception:
-                        meta = {}
-                texts.append((os.path.basename(path), text or "", path, meta))
-            except Exception as e:
-                logger.warning(f"Failed to extract PDF {path}: {e}")
-    return texts
-
-
-# =========================
-# == Markdown Generation ==
-# =========================
-def generate_unstructured_markdown(items: list[dict]) -> str:
-    if not items:
-        return "# Unstructured Threat Intelligence\n\n_No new items._"
-
-    items = dedupe_records_by_title(items)
-    lines = ["# Unstructured Threat Intelligence\n"]
-    for rec in items:
-        title = rec.get("title") or "(no title)"
-        src = rec.get("source") or ""
-        ref_id = rec.get("id") or rec.get("text_id") or ""
-        lines.append(f"## {title}")
-        if src:
-            lines.append(f"_Source: {src}_")
-        if ref_id:
-            lines.append(f"_Ref ID: {ref_id}_")
-        summary = (
-            rec.get("summary_text") or rec.get("summary") or rec.get("description")
-        )
-        if summary:
-            lines.append("")
-            lines.append(summary)
-        lines.append("")
-    return "\n".join(lines)
-
-
-# =========================
-# ==== PDF Processing =====
-# =========================
 def run_pdf_analysis(path=None, hours=24):
     mute_console()
     out_dir = CONFIG.get("OUTPUT_DIR_PDF") or "."
@@ -329,121 +445,38 @@ def run_pdf_analysis(path=None, hours=24):
                 text = _dehyphenate_text(text)
             except Exception:
                 pass
+            llm_payload = _pdf_llm_analyze(
+                meta.get("title") or name,
+                meta.get("source") or fp,
+                text,
+            )
+            record = build_pdf_record(name, text, fp, meta)
+            record["llm"] = llm_payload or {}
+            return record
 
-            intel = {"title": name, "text": text}
-            try:
-                full_text_path = save_full_text(text, name)
-            except Exception:
-                full_text_path = None
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            try:
-                mtime = os.path.getmtime(fp) if fp else None
-            except Exception:
-                mtime = None
-            try:
-                text_id = _make_id(fp or name, mtime)
-            except Exception:
-                text_id = None
-
-            ti = extract_threat_indicators(text, source=fp or name, title=name)
-            intel.update(ti)
-            try:
-                intel["iocs"] = normalize_and_merge_iocs(ti, source=fp or name)
-            except Exception:
-                try:
-                    intel["iocs"] = extract_iocs(text, source=fp or name, title=name)
-                except Exception:
-                    intel["iocs"] = []
-            if CONFIG.get("ENABLE_SUMMARIZATION"):
-                try:
-                    intel["summary_text"] = summarize_unstructured_description(
-                        text, max_sentences=SUMMARY_SENTENCES
-                    )
-                except Exception:
-                    pass
-            if CONFIG.get("ENABLE_SCORING"):
-                intel = compute_relevance_score(intel)
-            try:
-                actions = generate_actionable_items(intel)
-                if isinstance(actions, dict):
-                    intel.update(actions)
-            except Exception:
-                pass
-            try:
-                mtime = os.path.getmtime(fp)
-                intel["@timestamp"] = datetime.fromtimestamp(
-                    mtime, timezone.utc
-                ).isoformat()
-            except Exception:
-                intel["@timestamp"] = datetime.now(timezone.utc).isoformat()
-            intel["source"] = fp
-            intel["full_text_path"] = full_text_path
-            intel["text_id"] = text_id
-            try:
-                intel["top_findings"] = extract_top_findings(
-                    text, k=TOP_FINDINGS_DEFAULT
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {executor.submit(_process_pdf, it): it for it in files}
+            for future in as_completed(future_map):
+                rec = future.result()
+                if not rec:
+                    completed += 1
+                    continue
+                results.append(rec)
+                completed += 1
+                animate_progress(
+                    f"Completed {completed}/{total} PDF analyses", 20
                 )
-            except Exception:
-                intel["top_findings"] = []
 
-            try:
-                prov = detect_provenance(text) or []
-            except Exception:
-                prov = []
-
-            try:
-                if meta:
-                    t = meta.get("Title") or meta.get("title")
-                    if t:
-                        prov.append(
-                            {
-                                "source_name": t,
-                                "source_url": None,
-                                "confidence": 0.7,
-                                "excerpt": "PDF metadata: Title",
-                                "pos": 0,
-                            }
-                        )
-                    a = meta.get("Author") or meta.get("author")
-                    if a:
-                        prov.append(
-                            {
-                                "source_name": a,
-                                "source_url": None,
-                                "confidence": 0.6,
-                                "excerpt": "PDF metadata: Author",
-                                "pos": 0,
-                            }
-                        )
-            except Exception:
-                pass
-
-            try:
-                intel["provenance"] = prov
-            except Exception:
-                intel["provenance"] = []
-            return intel
-
-        completed = 0
-        for f in files:
-            completed += 1
-            progress_bar(completed, total, prefix="PDF analyzed")
-            try:
-                res = _process_pdf(f)
-            except Exception as e:
-                fp = None
-                try:
-                    fp = f[2]
-                except Exception:
-                    fp = None
-                logger.warning(f"Error processing PDF {fp or '<unknown>'}: {e}")
-                res = None
-            if res:
-                results.append(res)
-                try:
-                    print(f"DEBUG: appended result source={res.get('source')}")
-                except Exception:
-                    pass
+    sanitized = []
+    for r in results:
+        rid = compute_record_id(r.get("source"), r.get("@timestamp"))
+        r["id"] = rid
+        full_path = save_full_text(r.get("text") or "", rid or r.get("title") or "pdf")
+        if full_path:
+            r["full_text_path"] = full_path
+        sanitized.append(r)
 
     date_stamp = datetime.now().strftime("%Y%m%d")
     ndjson_path = os.path.join(out_dir, f"UnstructuredPDFIntel_{date_stamp}.ndjson")
@@ -462,56 +495,16 @@ def run_pdf_analysis(path=None, hours=24):
                     r.get("title"),
                     r.get("summary_text") or " ".join(r.get("top_findings") or []),
                 )
-                if act:
-                    r.setdefault("threat", {})
-                    r["threat"]["actionability"] = act
+                if isinstance(act, dict):
+                    r["actionability"] = act
             except Exception:
                 pass
 
-        try:
-            results = dedupe_records_by_title(results)
-        except Exception:
-            pass
-
-        sanitized = [strip_provenance(r) for r in results]
-    except Exception:
-        sanitized = results
-
-    write_jsonl(ndjson_path, sanitized)
-    try:
-        if CONFIG.get("EXPORT_NAVIGATOR"):
-            from collections import Counter
-
-            counts = Counter()
-            for r in results:
-                for m in safe_get(r, "threat.technique.mitre", []) or []:
-                    tid = m.get("id")
-                    if tid:
-                        counts[tid] += 1
-            if counts:
-                top = max(counts.values())
-                layer = {
-                    "name": "Observed Techniques",
-                    "description": "Auto-generated layer",
-                    "techniques": [],
-                }
-                for tid, c in counts.items():
-                    score = int((c / top) * 100) if top else 0
-                    layer["techniques"].append(
-                        {
-                            "techniqueID": tid,
-                            "score": score,
-                            "comment": f"{c} occurrences",
-                        }
-                    )
-                nav_path = os.path.join(
-                    out_dir,
-                    f"navigator_layer_{date_stamp}.json"
-                )
-                with open(nav_path, "w", encoding="utf-8") as nf:
-                    json.dump(layer, nf, indent=2)
-    except Exception:
-        pass
+        with open(ndjson_path, "w", encoding="utf-8") as f:
+            for r in sanitized:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logger.warning("Failed to write PDF NDJSON %s: %s", ndjson_path, e)
 
     md_path = os.path.join(out_dir, f"UnstructuredPDFReport_{date_stamp}.md")
     try:

@@ -345,7 +345,5 @@ def run_unstructured_rss_analysis(hours: int = DEFAULT_HOURS) -> dict:
     logger.warning("run_unstructured_rss_analysis is deprecated; running rawtext fetch only.")
     return run_fetch_rawtext(hours=hours)
 
-
-# Preferred entry point name for clarity now that only fetching remains.
 def run_fetch(hours: int = DEFAULT_HOURS) -> dict:
     return run_fetch_rawtext(hours=hours)

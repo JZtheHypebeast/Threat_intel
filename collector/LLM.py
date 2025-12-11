@@ -144,76 +144,78 @@ def _build_prompt_from_raw(record: Dict[str, Any]) -> str:
         "From this raw text alone, extract structured, actionable threat intelligence.\n\n"
         "Return a STRICT JSON object with these fields, in this order:\n\n"
         '- "summary": string (1–3 sentences, plain language, high-level summary of the entire article: who/what/impact)\n'
-        '- "attack_summary": string (2–4 sentences, plain language, explaining how the attack or issue works end-to-end in simple terms; if the article describes a step-by-step flow or shows commands/scripts, briefly describe that sequence at a high level without copying commands)\n'
+        '- "attack_summary": string (2–4 sentences, plain language description of the attacker’s flow/sequence; if no concrete attack flow is described, give a concise explanation or set to an empty string)\n'
+        '- "category": string, one of ["Active Exploitation","Malware/Campaign","Tooling/Kit","Vulnerability (no exploitation known)","Patch","Product/Feature Update","Opinion/Editorial","Research","Other"]\n'
+        '- "priority": object, representing overall threat relevance:\n'
+        '    - "score": integer 0–100 (0 = informational only, 100 = critical/urgent)\n'
+        '    - "label": one of ["Informational","Low","Medium","High","Critical"]\n'
+        '    - "reason": short explanation based on impact, exploitability, and exposure, only using information in the article\n'
+        '- "financial_relevance": object, for financial-sector (banks, PSPs, card schemes, trading, insurance, etc.):\n'
+        '    - "score": integer 0–100\n'
+        '    - "label": one of ["None","Low","Medium","High","Critical"]\n'
+        '    - "reason": short explanation of why this is or is not important to financial institutions\n'
         '- "mitre_techniques": list of objects:\n'
         '    - "id": MITRE ATT&CK ID, e.g. "T1190", or null if unknown\n'
         '    - "name": technique name\n'
         '    - "tactic": ATT&CK tactic, e.g. "Initial Access"\n'
         '    - "confidence": float 0–1\n'
-        '    - "reason": short explanation\n'
-        '- "priority": object:\n'
-        '    - "score": integer 0–100\n'
-        '    - "label": one of ["Informational","Low","Medium","High","Critical"]\n'
-        '    - "reason": short explanation (impact, exploitability, exposure)\n'
-        '- "financial_relevance": object:\n'
-        '    - "score": integer 0–100\n'
-        '    - "label": one of ["None","Low","Medium","High","Critical"]\n'
-        '    - "reason": describe relevance to financial institutions\n'
+        '    - "reason": short explanation based on the article text\n'
         '- "threat_actors": list of objects:\n'
-        '    - "name": actor/family name if given, else "Unknown"\n'
-        '    - "type": e.g. "Financially motivated","State-sponsored","Cybercrime","Hacktivist","Unknown"\n'
-        '    - "country": country or region, or null\n'
+        '    - "name": actor/campaign name if stated (e.g. "Scattered Spider","Lazarus"), otherwise empty string\n'
+        '    - "type": e.g. "APT","Cybercrime","Ransomware group","Insider","Unknown"\n'
+        '    - "country": country/region if explicitly stated or strongly implied, otherwise empty string\n'
+        '    - "motivation": e.g. "Financial","Espionage","Hacktivism","Unknown"\n'
         '    - "confidence": float 0–1\n'
-        '    - "role": e.g. "Attributed","Suspected","Mentioned","Targeted"\n'
-        '    - "reason": short justification\n'
-        '- "countries": list of objects:\n'
-        '    - "name": country or region mentioned as victim/target/origin\n'
-        '    - "role": e.g. "Victim","Target","Origin","Infrastructure"\n'
+        '- "countries": list of objects (countries mentioned as victims, infrastructure, or attribution):\n'
+        '    - "name": country name\n'
+        '    - "role": e.g. "victim","infrastructure","attributed actor","other"\n'
         '    - "confidence": float 0–1\n'
-        '- "vendors": list of objects (must include every vendor or product explicitly mentioned in the text):\n'
-        '    - "name": vendor/organization producing affected product/service\n'
-        '    - "product": product/service name if mentioned\n'
+        '- "vendors": list of objects:\n'
+        '    - "name": vendor name (e.g. "Microsoft","Cisco","GitLab")\n'
+        '    - "product": product or service name if stated (e.g. "Exchange Server","GitLab CE/EE")\n'
         '    - "confidence": float 0–1\n'
-        '- "iocs": list of objects (only what is explicitly in the text, do NOT invent values):\n'
-        '    - "type": one of ["ip","domain","url","email","hash","filename","registry_key","artifact","cve","other"]\n'
+        '- "iocs": list of objects (indicators of compromise, ONLY if explicitly present in text):\n'
+        '    - "type": e.g. "domain","ip","url","hash","email","filename","registry","other"\n'
         '    - "value": the exact IOC string as seen in the text\n'
-        '    - "context": short description of how this IOC is used (e.g. "C2 server","phishing URL","payload hash","vulnerable endpoint","CVE reference")\n'
+        '    - "context": short description of how this IOC is used (e.g. "phishing URL","payload hash","C2 domain","malicious Docker image")\n'
         '    - "confidence": float 0–1\n'
         '- "cves": list of objects (must include every CVE ID explicitly mentioned in the text):\n'
         '    - "id": string CVE identifier, e.g. "CVE-2025-12345"\n'
-        '    - "severity": string or null (e.g. "Critical","High","Medium","Low") if stated in the article\n'
-        '    - "cvss": string or null if a CVSS score is stated in the article\n'
+        '    - "severity": string or null (e.g. "Critical","High","Medium","Low") if stated\n'
+        '    - "cvss": string or null if a CVSS score is stated\n'
         '    - "description": short description of what is affected and impact, based only on the article\n'
         '- "detections": list of objects describing practical detection ideas/analytics:\n'
-        '    - "name": short name, e.g. "Yurei ransomware filesystem behavior"\n'
+        '    - "name": short name, e.g. "AMOS macOS infostealer execution"\n'
         '    - "type": e.g. "Network","Endpoint","Email","Cloud","Identity","Generic"\n'
         '    - "idea": 1–3 sentences describing what to look for (conditions, patterns, logs)\n'
         '- "recommendations": list of objects for actionable response/hardening:\n'
         '    - "type": e.g. "Technical","Process","Awareness"\n'
         '    - "text": 1–3 sentences with concrete mitigation or response guidance\n'
-        '- "tags": list of short strings (e.g. ["ransomware","windows","cloud","ddos","apt"])\n'
+        '- "tags": list of short strings (e.g. ["ransomware","windows","cloud","ddos","apt","phishing","infostealer"])\n'
         '- "source_analysis": object:\n'
-        '    - "source_name": short name (e.g. "BleepingComputer","Vendor advisory")\n'
+        '    - "source_name": short name (e.g. "BleepingComputer","Vendor advisory","NCSC")\n'
         '    - "source_url": the URL you see below\n'
-        '    - "trust_level": one of ["Low","Medium","High"]\n'
-        '    - "reason": why this source is low/med/high confidence\n'
+        '    - "trust_level": one of ["Low","Medium","High"] based on how reliable the source appears\n'
+        '    - "reason": why this source is low/medium/high confidence\n'
         "Guidelines:\n"
-        "- Base everything only on the article text and general MITRE knowledge.\n"
-        "- If the article does not state an actor/country/vendor/IOC/CVE, either omit it or set confidence low and explain.\n"
-        "- For MITRE, do not invent IDs; if unsure, set id to null and confidence low.\n"
-        "- For IOCs, ONLY extract values explicitly present in the text (IPs, domains, URLs, hashes, emails, filenames, registry keys, CVE strings, etc.); do NOT fabricate or normalize beyond what is visible.\n"
-        "- Be exhaustive with IOCs, CVEs, and vendors: systematically scan the entire text and ensure that every IOC-like artifact, every CVE, and every vendor/product mention is captured in the respective lists, with no omissions and no exact-duplicate entries.\n"
-        "- If you are unsure whether something is an IOC, include it with type \"other\" and low confidence, and explain in the context.\n"
-        "- Priority should reflect technique criticality, exploit status (e.g. 'zero-day','actively exploited','PoC/public exploit'), and business impact.\n"
-        "- Financial relevance is about banks, PSPs, card data, securities, insurance, etc.\n"
-        "- The attack_summary should clearly describe the end-to-end flow (initial access, execution, persistence, lateral movement, impact) in simple language. If the article shows specific commands, scripts, or a step-by-step guide, explicitly mention that the article provides such a sequence and summarize the steps at a conceptual level without reproducing raw commands.\n"
+        "- Base everything only on the article text and general MITRE ATT&CK knowledge.\n"
+        "- If the article does not clearly state an actor/country/vendor/IOC/CVE, omit it or set low confidence and explain; do NOT invent names, values, or vendors.\n"
+        "- For MITRE, only provide an ID if the technique is clearly inferable from the described behavior. If unsure, set \"id\" to null or omit the technique.\n"
+        "- For IOCs, ONLY extract values explicitly present in the text (domains, IPs, URLs, hashes, emails, filenames, registry keys, etc.). Do NOT fabricate or normalize beyond what is visible.\n"
+        "- Do NOT treat generic service/platform domains (e.g. \"docker.com\",\"hub.docker.com\",\"chatgpt.com\") as IOCs unless the article explicitly states they are used as malicious infrastructure.\n"
+        "- Empty lists for mitre_techniques, iocs, cves, detections, or recommendations are acceptable if the article does not provide that information. Do NOT guess just to fill fields.\n"
+        "- Priority should reflect overall threat relevance and urgency based on impact, signs of active exploitation, availability of PoC/exploit, and breadth of exposure.\n"
+        "- If the article is mainly a product feature update, minor bugfix, marketing, or high-level advice, set category accordingly (e.g. \"Product/Feature Update\" or \"Opinion/Editorial\") and keep priority.score low (e.g. <= 20).\n"
+        "- Financial relevance is about banks, PSPs, card data, securities, trading platforms, insurance, and related financial infrastructure. Explain your reasoning.\n"
+        "- The attack_summary should clearly describe any concrete attack steps at a conceptual level without reproducing raw commands or very low-level syntax.\n"
         "- Detections and recommendations should be concise but concrete enough to guide SOC and incident response teams.\n"
         "- Do NOT include any markdown, bullet points, or commentary outside the JSON object.\n\n"
         "Return ONLY the JSON object, no extra commentary.\n\n"
         f"Article metadata:\n- Title: {title}\n- URL: {source}\n- Timestamp: {ts}\n\n"
-        f'Full raw text:\n"""{"".join(snippet)}"""'
+        f'Full raw text:\n"""{snippet}"""'
     )
     return prompt
+
 
 
 def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
@@ -344,7 +346,6 @@ def _load_ndjson_flexible(path: Path) -> List[Dict[str, Any]]:
     text = path.read_text(encoding="utf-8").strip()
     if not text:
         return []
-    # Try full JSON (array or object)
     try:
         obj = json.loads(text)
         if isinstance(obj, list):
@@ -371,7 +372,6 @@ def _load_ndjson_flexible(path: Path) -> List[Dict[str, Any]]:
             break
     return records
 
-
 def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
     logger.info("Building LLM markdown from %s records", len(records))
     lines: List[str] = []
@@ -383,19 +383,69 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
     def _fmt_kv(label: str, value: str | None) -> str:
         return f"**{label}:** {value}" if value else f"**{label}:** N/A"
 
-    for idx, rec in enumerate(records, start=1):
+    relevant: List[Dict[str, Any]] = []
+    low: List[Dict[str, Any]] = []
+    for rec in records:
         if not isinstance(rec, dict):
             continue
+        llm_payload = rec.get("llm") or {}
+        priority = llm_payload.get("priority") or {}
+        category = (llm_payload.get("category") or "").lower()
+        score = priority.get("score")
+        label = (priority.get("label") or "").lower()
+        is_relevant = False
+        if isinstance(score, (int, float)) and score >= 40:
+            is_relevant = True
+        elif label in {"high", "critical"}:
+            is_relevant = True
+        elif category in {
+            "active exploitation",
+            "malware/campaign",
+            "tooling/kit",
+            "vulnerability (no exploitation known)",
+            "patch",
+        }:
+            is_relevant = True
+        if is_relevant:
+            relevant.append(rec)
+        else:
+            low.append(rec)
+
+    def _render_record(idx: int, rec: Dict[str, Any]) -> None:
         title = rec.get("title") or "(no title)"
         source = rec.get("source") or ""
         ts = rec.get("@timestamp") or rec.get("timestamp") or ""
-        lines.append(f"## {idx}. {title}")
-        if source:
-            lines.append(f"_Source: {source}_")
-        if ts:
-            lines.append(f"_Timestamp: {ts}_")
         llm_payload = rec.get("llm") or {}
-        # Always render markdown from structured fields (ignore llm-provided markdown blobs)
+        priority = llm_payload.get("priority") or {}
+        fin = llm_payload.get("financial_relevance") or {}
+        category = llm_payload.get("category") or ""
+        pri_label = priority.get("label")
+        pri_score = priority.get("score")
+        fin_label = fin.get("label")
+        fin_score = fin.get("score")
+        badge_parts: List[str] = []
+        if pri_label:
+            if pri_score is not None:
+                badge_parts.append(f"{pri_label} {pri_score}")
+            else:
+                badge_parts.append(str(pri_label))
+        if category:
+            badge_parts.append(str(category))
+        if fin_label:
+            if fin_score is not None:
+                badge_parts.append(f"FI {fin_label} {fin_score}")
+            else:
+                badge_parts.append(f"FI {fin_label}")
+        badge = f"[{' | '.join(badge_parts)}]" if badge_parts else ""
+        header = f"## {idx}. {badge + ' ' if badge else ''}{title}".rstrip()
+        lines.append(header)
+        meta_parts: List[str] = []
+        if source:
+            meta_parts.append(f"Source: {source}")
+        if ts:
+            meta_parts.append(f"Timestamp: {ts}")
+        if meta_parts:
+            lines.append("_" + " • ".join(meta_parts) + "_")
         summary = llm_payload.get("summary")
         attack_summary = llm_payload.get("attack_summary")
         if summary:
@@ -403,7 +453,6 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
             lines.append(_fmt_kv("Summary", summary))
         if attack_summary:
             lines.append(_fmt_kv("Attack Summary", attack_summary))
-
         mitre_raw = llm_payload.get("mitre_techniques") or []
         mitre = [m for m in mitre_raw if isinstance(m, dict)]
         lines.append("")
@@ -415,21 +464,25 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
                 tactic = t.get("tactic") or ""
                 conf = t.get("confidence")
                 reason = t.get("reason") or ""
-                conf_str = f" (conf {conf})" if conf is not None else ""
-                tactic_str = f" ({tactic})" if tactic else ""
-                reason_str = f" — {reason}" if reason else ""
-                lines.append(f"- {tid} {name}{tactic_str}{conf_str}{reason_str}".strip())
+                parts = [tid]
+                if name:
+                    parts.append(name)
+                if tactic:
+                    parts.append(f"({tactic})")
+                extras: List[str] = []
+                if conf is not None:
+                    extras.append(f"conf {conf}")
+                detail = ", ".join(extras)
+                suffix = f" — {reason}" if reason else ""
+                lines.append(f"- {' '.join(parts)}{f' [{detail}]' if detail else ''}{suffix}".strip())
         else:
             lines.append("- N/A")
-
-        priority = llm_payload.get("priority") or {}
         if priority:
             lines.append("")
             lines.append("**Priority:**")
             lines.append(
                 f"- {priority.get('label','N/A')} {priority.get('score','N/A')} — {priority.get('reason','')}"
             )
-
         fin = llm_payload.get("financial_relevance") or {}
         if fin:
             lines.append("")
@@ -437,7 +490,6 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
             lines.append(
                 f"- {fin.get('label','N/A')} {fin.get('score','N/A')} — {fin.get('reason','')}"
             )
-
         actors = llm_payload.get("threat_actors") or []
         lines.append("")
         lines.append("**Threat Actors:**")
@@ -446,25 +498,20 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
                 name = a.get("name") or "Unknown"
                 typ = a.get("type") or ""
                 country = a.get("country") or ""
-                role = a.get("role") or ""
+                motivation = a.get("motivation") or ""
                 conf = a.get("confidence")
-                reason = a.get("reason") or ""
-                parts = [name]
+                parts: List[str] = [name]
                 if typ:
                     parts.append(f"({typ})")
-                extras = []
                 if country:
-                    extras.append(country)
-                if role:
-                    extras.append(role)
+                    parts.append(f"[{country}]")
+                if motivation:
+                    parts.append(f"- {motivation}")
                 if conf is not None:
-                    extras.append(f"conf {conf}")
-                detail = ", ".join(extras)
-                suffix = f" — {reason}" if reason else ""
-                lines.append(f"- {' '.join(parts)}{f' [{detail}]' if detail else ''}{suffix}")
+                    parts.append(f"(conf {conf})")
+                lines.append("- " + " ".join(parts))
         else:
             lines.append("- N/A")
-
         countries = llm_payload.get("countries") or []
         lines.append("")
         lines.append("**Countries:**")
@@ -473,10 +520,14 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
                 nm = c.get("name") or "Unknown"
                 role = c.get("role") or ""
                 conf = c.get("confidence")
-                lines.append(f"- {nm} {f'({role})' if role else ''}{f' conf {conf}' if conf is not None else ''}".strip())
+                parts: List[str] = [nm]
+                if role:
+                    parts.append(f"({role})")
+                if conf is not None:
+                    parts.append(f"conf {conf}")
+                lines.append("- " + " ".join(parts))
         else:
             lines.append("- N/A")
-
         vendors = llm_payload.get("vendors") or []
         lines.append("")
         lines.append("**Vendors/Products:**")
@@ -485,10 +536,14 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
                 nm = v.get("name") or "Unknown"
                 prod = v.get("product") or ""
                 conf = v.get("confidence")
-                lines.append(f"- {nm}{f' / {prod}' if prod else ''}{f' (conf {conf})' if conf is not None else ''}")
+                txt = nm
+                if prod:
+                    txt += f" / {prod}"
+                if conf is not None:
+                    txt += f" (conf {conf})"
+                lines.append(f"- {txt}")
         else:
             lines.append("- N/A")
-
         iocs = llm_payload.get("iocs") or []
         lines.append("")
         lines.append("**IOCs:**")
@@ -503,7 +558,6 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
                 lines.append(f"- {typ}: {val}{ctx_str}{conf_str}")
         else:
             lines.append("- N/A")
-
         cves = llm_payload.get("cves") or []
         lines.append("")
         lines.append("**CVEs:**")
@@ -513,16 +567,16 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
                 sev = cve.get("severity") or ""
                 cvss = cve.get("cvss") or ""
                 desc = cve.get("description") or ""
-                parts = [cid]
+                parts: List[str] = [cid] if cid else []
                 if sev:
                     parts.append(f"[{sev}]")
                 if cvss:
                     parts.append(f"CVSS {cvss}")
                 suffix = f" — {desc}" if desc else ""
-                lines.append(f"- {' '.join(parts)}{suffix}")
+                if parts:
+                    lines.append(f"- {' '.join(parts)}{suffix}")
         else:
             lines.append("- N/A")
-
         detections = llm_payload.get("detections") or []
         lines.append("")
         lines.append("**Detections:**")
@@ -534,23 +588,20 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
                 lines.append(f"- {name}{f' ({typ})' if typ else ''}: {idea}")
         else:
             lines.append("- N/A")
-
-        recommendations = llm_payload.get("recommendations") or []
+        recos = llm_payload.get("recommendations") or []
         lines.append("")
         lines.append("**Recommendations:**")
-        if recommendations:
-            for r in recommendations:
-                typ = r.get("type") or ""
-                txt = r.get("text") or ""
-                lines.append(f"- {f'[{typ}] ' if typ else ''}{txt}")
+        if recos:
+            for r in recos:
+                rtyp = r.get("type") or ""
+                text = r.get("text") or ""
+                lines.append(f"- {rtyp}: {text}" if rtyp else f"- {text}")
         else:
             lines.append("- N/A")
-
         tags = llm_payload.get("tags") or []
         if tags:
             lines.append("")
             lines.append("**Tags:** " + ", ".join(tags))
-
         src = llm_payload.get("source_analysis") or {}
         if src:
             lines.append("")
@@ -561,13 +612,38 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
             if src.get("source_url"):
                 lines.append(f"- URL: {src.get('source_url')}")
         lines.append("")
-    return "\n".join(lines)
 
+    for idx, rec in enumerate(relevant, start=1):
+        _render_record(idx, rec)
+
+    if low:
+        lines.append("## Low Relevance / FYI")
+        lines.append("")
+        for rec in low:
+            title = rec.get("title") or "(no title)"
+            source = rec.get("source") or ""
+            ts = rec.get("@timestamp") or rec.get("timestamp") or ""
+            llm_payload = rec.get("llm") or {}
+            priority = llm_payload.get("priority") or {}
+            pri_label = priority.get("label") or "Informational"
+            pri_score = priority.get("score")
+            badge = f"[{pri_label}{f' {pri_score}' if pri_score is not None else ''}]"
+            header = f"- {badge} {title}"
+            meta_parts: List[str] = []
+            if source:
+                meta_parts.append(f"Source: {source}")
+            if ts:
+                meta_parts.append(f"Timestamp: {ts}")
+            if meta_parts:
+                header += " — " + " • ".join(meta_parts)
+            lines.append(header)
+        lines.append("")
+
+    return "\n".join(lines)
 
 def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     output_dir = _get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Find latest rawtext across rawtext results root
     llm_root = Path(CONFIG.get("OUTPUT_DIR_LLM_RAW") or output_dir)
     try:
         llm_root = llm_root.parents[1]
@@ -609,7 +685,6 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
         rec = _enrich_record_with_llm(rec)
         rec = _strip_raw_text_fields(rec)
         elapsed = (datetime.now() - start_ts).total_seconds()
-        # update rolling average for ETA
         avg_secs = ((avg_secs * (idx - 1)) + elapsed) / idx
         remaining = len(records) - idx
         eta_secs = avg_secs * remaining
