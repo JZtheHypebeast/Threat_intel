@@ -47,7 +47,11 @@ def _parse_ndjson(path: Path) -> List[Dict[str, Any]]:
 
 
 def _collect_llm_records(days: int) -> List[Dict[str, Any]]:
-    llm_root = Path(CONFIG.get("OUTPUT_DIR_LLM")).parents[1]
+    out_cfg = CONFIG.get("OUTPUT_DIR_LLM")
+    base_path = Path(out_cfg) if out_cfg else Path(__file__).resolve().parent / "results" / "llm"
+    llm_root = base_path
+    if len(base_path.parents) >= 2 and base_path.name.isdigit():
+        llm_root = base_path.parents[2]
     if not llm_root.exists():
         logger.warning("LLM root does not exist: %s", llm_root)
         return []
