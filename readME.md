@@ -5,14 +5,11 @@ Version: 1
 This repository contains a lightweight threat-intel collector and processing
 pipeline. It supports four flows:
 
-- Structured CVE/KEV collection (CVE feeds and known exploited vulnerabilities).
-- Fetch pipeline — pulls RSS articles and writes rawtext JSON for downstream use
-  (no in-app enrichment).
-- PDF pipeline — extracts text from PDFs, performs light summarization/scoring,
-  and writes NDJSON/Markdown.
-- LLM enrichment — reads the latest rawtext bundle, sends it to a local Ollama
-  model (default `llama3.1`), and produces cleaned NDJSON/Markdown without
-  embedding full raw text.
+- Structured CVE/KEV collection with vendor cleanup and affected software pulled via a guarded LLM refinement step.
+- Fetch pipeline — pulls RSS articles and writes rawtext JSON for downstream use (no enrichment in this step).
+- PDF pipeline — extracts text from PDFs and (optionally) enriches each document via the PDF-specific LLM prompt; outputs NDJSON + Markdown.
+- LLM enrichment — reads the latest rawtext bundle, sends it to a local Ollama model (default `llama3.1`), and produces cleaned NDJSON/Markdown without embedding full raw text.
+- Reporting — builds a cumulative management report from recent LLM outputs (2/7/14/30 days).
 
 This README explains how to run the collector, expected outputs, testing,
 configuration, and useful helper scripts.
@@ -29,11 +26,12 @@ A quick view of the repository layout and important files/folders:
   - `collector/main.py` — CLI entrypoint and interactive menu.
   - `collector/config.py` — runtime `CONFIG` mapping (all env-vars are defined here).
 - `collector/fetch.py` — fetches RSS articles and writes rawtext bundles (no enrichment).
-  - `collector/pdf.py` — PDF extraction helper.
-  - `collector/CVE.py` — structured CVE/KEV collection.
-  - `collector/delivery.py` — SIEM/delivery hooks.
-  - `collector/LLM.py`, `collector/progress.py` and other helpers.
-  - `collector/logs/` and `collector/results/` — runtime output folders.
+- `collector/pdf.py` — PDF extraction + optional PDF LLM enrichment.
+- `collector/CVE.py` — structured CVE/KEV collection (with LLM refinement of vendor/description/affected software).
+- `collector/LLM.py` — unstructured LLM enrichment for fetched articles.
+- `collector/reporting.py` — cumulative reporting over recent LLM outputs.
+- `collector/progress.py` and other helpers.
+- `collector/logs/` and `collector/results/` — runtime output folders.
 - `data/` — static data artifacts used by the collector (PDF samples).
 - `scripts/` — helper and maintenance scripts (examples: `sanitize_results.py`, `minify_py.py`).
 - `tests/` — pytest unit tests covering extraction, normalization, and writer behavior.
@@ -72,12 +70,13 @@ python3 -m collector.main --llm
 
 Notes:
 - Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/`.
-  Categories: `structured/`, `pdf/`, `llmrawtext/` (raw articles), and `llm/`.
+  Categories: `structured/`, `pdf/`, `llmrawtext/` (raw articles), `llm/`, and `reporting/`.
 - Fetch pipeline writes full article bodies to `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json`
   so the LLM pipeline can consume them; NDJSON excludes raw bodies.
+- Structured CVE uses an internal LLM refinement per CVE to clean vendor and add affected software; if LLM is disabled the deterministic fields remain.
+- PDF pipeline can call the PDF LLM prompt per document; failures fall back to extraction-only output.
 - LLM summarization uses a local Ollama instance (`OLLAMA_HOST`, `OLLAMA_MODEL`
-  or `LLM_MODEL`, `LLM_ENABLED=true`), default model `llama3.1`, and a 300s
-  request timeout. If Ollama is not reachable the run logs the failure and moves on.
+  or `LLM_MODEL`, `LLM_ENABLED=true`), default model `llama3.1`, and the configured timeout. If Ollama is not reachable the run logs the failure and moves on.
 - The LLM pipeline automatically selects the most recent `rawtext-<date>.json`
   under `collector/results/llmrawtext/` and skips any `--hours` prompt.
 
@@ -86,14 +85,17 @@ Notes:
 - Poll RSS feeds and fetch article HTML/text (parallelized with a thread pool).
 - Sanitize and normalize article text (boilerplate removal, dehyphenation).
 - Write rawtext JSON bundles for downstream LLM processing (no in-app enrichment).
-- PDF pipeline: extract text from PDFs, perform light summarization/scoring, and emit NDJSON/Markdown.
+- LLM pipeline: produce structured intel (summary, MITRE, actors, IOCs, detections, recommendations, etc.) and Markdown from rawtext.
+- Structured CVE: fetch NVD/KEV, normalize CVEs, and optionally refine vendor/description/affected via LLM.
+- PDF pipeline: extract text from PDFs and optionally LLM-enrich for management-friendly summaries.
+- Reporting: combine recent LLM outputs into a cumulative report (2/7/14/30 days).
 
 ## CLI flags and menu
 
 Flags (non-interactive):
 - `--structured` — run structured CVE/KEV collection.
 - `--unstructured` — run RSS/article fetch to build rawtext (no enrichment).
-- `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path.
+- `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path (defaults to `data/PDF` if omitted in the menu).
 - `--llm` — run LLM rawtext translation (uses latest rawtext bundle; no hours prompt).
 - `--reporting <days>` — build a cumulative LLM-based report over 2/7/14/30 days.
 - `--tests` — run unit tests using the active Python interpreter.
@@ -132,6 +134,8 @@ Important note about the interactive menu and `--tests`:
   LLM-enriched Markdown summary.
 - `collector/results/structured/<date>/<time>/StructuredCVEReport_<date>.md` —
   structured CVE/KEV Markdown.
+- `collector/results/reporting/<date>/<time>/LLM-CumulativeReport_*` —
+  cumulative reports (markdown/json/pdf) built from recent LLM outputs.
 
 NDJSON records intentionally exclude the full article bodies; they are kept
 in `rawtext-<date>.json` to simplify downstream indexing and reduce NDJSON size.
@@ -139,113 +143,20 @@ in `rawtext-<date>.json` to simplify downstream indexing and reduce NDJSON size.
 ## Configuration (env vars / CONFIG keys)
 
 All runtime configuration is provided via the `CONFIG` mapping in
-`collector/config.py`. Most values may be overridden using environment
-variables (often prefixed with `TI_`). Below is a complete, grouped list of
-`CONFIG` keys and their corresponding env vars / defaults to help with
-customization.
+`collector/config.py`. Common knobs (env var override shown in parentheses):
 
-General
-- `VENDORS` / `TI_VENDORS` — list of vendor/product names used for grouping
-  and heuristics (default: built-in vendor list).
-- `RSS_FEEDS` / `TI_RSS_FEEDS` — list of RSS feed URLs to ingest (default:
-  built-in feed list).
-- `OUTPUT_DIR` / `TI_OUTPUT_DIR` — output directory (default: `collector/results/<YYYYMMDD>`).
-- `LOG_FILE` — log file path (default: `collector/logs/threat_intel_collector.log`).
-- `USER_AGENT` / `TI_USER_AGENT` — HTTP User-Agent header (default: `ThreatIntelCollector/5.0 (+https://example.local)`).
-- `OLLAMA_HOST` / `TI_OLLAMA_HOST` — Ollama API host (default: `http://localhost:11434`).
-- `LLM_MODEL` / `OLLAMA_MODEL` — Ollama model name (default: `llama3`).
-- `LLM_ENABLED` — enable/disable LLM enrichment (default: true).
+- `RSS_FEEDS` (`TI_RSS_FEEDS`) — list of RSS feed URLs.
+- `VENDORS` (`TI_VENDORS`) — vendor names used for CVE grouping/heuristics.
+- Output dirs (auto-set per run): `OUTPUT_DIR_STRUCTURED`, `OUTPUT_DIR_LLM`, `OUTPUT_DIR_LLM_RAW`, `OUTPUT_DIR_PDF`, `OUTPUT_DIR_REPORTING`.
+- Logging / UA: `LOG_FILE`, `USER_AGENT` (`TI_USER_AGENT`).
+- HTTP: `HTTP_RETRIES_TOTAL`, `HTTP_BACKOFF_FACTOR`, `HTTP_STATUS_FORCELIST`, `HTTP_POOL_CONNECTIONS`, `HTTP_POOL_MAXSIZE`, `REQUEST_TIMEOUT`, `BOILERPLATE_KEYWORDS`, `HTML_STRIP_ELEMENTS`, `ENABLE_UA_ROTATION`, `FALLBACK_USER_AGENTS`.
+- CVE feeds: `NVD_API_BASE`, `CISA_KEV_URL`, `COMMUNITY_KEV_URL`, `CVE_REGEX`, `CRITICAL_THRESHOLD`, `INTERESTING_MIN`.
+- PDF: `PDF_MAX_PAGES`, `SUMMARY_MAX_SENTENCES`, `SUMMARY_MAX_CHARS`.
+- LLM / Ollama: `LLM_ENABLED`, `OLLAMA_HOST`, `LLM_MODEL` (`OLLAMA_MODEL`), `LLM_REQUEST_TIMEOUT`, `LLM_TEMPERATURE`.
+- Reporting: `OUTPUT_DIR_REPORTING` for cumulative reports.
+- SIEM: `SIEM_ENABLED`, `SIEM_TYPE`, `ELASTIC_*` settings, `SIEM_DRY_RUN`.
 
-Feeds & external APIs
-- `NVD_API_BASE` / `TI_NVD_API_BASE` — base URL for NVD API (default NVD v2 endpoint).
-- `CISA_KEV_URL` / `TI_CISA_KEV_URL` — CISA Known Exploited Vulnerabilities feed URL.
-- `COMMUNITY_KEV_URL` / `TI_COMMUNITY_KEV_URL` — community KEV feed URL.
-
-HTTP / Fetching
-- `ENABLE_UA_ROTATION` / `TI_ENABLE_UA_ROTATION` — enable rotating user agents (default: true).
-- `FALLBACK_USER_AGENTS` / `TI_FALLBACK_USER_AGENTS` — JSON array of fallback UA strings.
-- `HTTP_RETRIES_TOTAL` / `TI_HTTP_RETRIES_TOTAL` — total retries for requests (default: 3).
-- `HTTP_BACKOFF_FACTOR` / `TI_HTTP_BACKOFF_FACTOR` — backoff factor for retries (default: 0.3).
-- `HTTP_STATUS_FORCELIST` / `TI_HTTP_STATUS_FORCELIST` — status codes to retry (default: [500,502,503,504]).
-- `HTTP_POOL_CONNECTIONS` / `TI_HTTP_POOL_CONNECTIONS` — connection pool size (default: 100).
-- `HTTP_POOL_MAXSIZE` / `TI_HTTP_POOL_MAXSIZE` — pool max size (default: 100).
-- `REQUEST_TIMEOUT` / `TI_REQUEST_TIMEOUT` — request timeout seconds (default: 25).
-
-Concurrency & dedupe
-- `MAX_WORKERS` / `TI_MAX_WORKERS` — thread pool size for fetching (default: 8).
-- `FUZZY_MATCHING_ENABLE` / `TI_FUZZY_MATCHING_ENABLE` — enable fuzzy title deduplication (default: false).
-- `FUZZY_MATCH_THRESHOLD` / `TI_FUZZY_MATCH_THRESHOLD` — fuzzy threshold percent (default: 85).
-
-Text processing & sanitization
-- `HTML_PARSER` / `TI_HTML_PARSER` — HTML parser to use (e.g., `html.parser`, `lxml`).
-- `HTML_MAX_LEN` / `TI_HTML_MAX_LEN` — max HTML length to process (default: 50000).
-- `HTML_STRIP_ELEMENTS` / `TI_HTML_STRIP_ELEMENTS` — JSON array of tags to drop (default: [`script`,`style`,`noscript`,`header`,`footer`,`nav`]).
-- `BOILERPLATE_KEYWORDS` / `TI_BOILERPLATE_KEYWORDS` — keywords to treat as boilerplate (list default includes `cookies`, `privacy`, `subscribe`, etc.).
-- `EXCERPT_RADIUS` / `TI_EXCERPT_RADIUS` — characters around matched snippet for excerpt (default: 160).
-- `MIN_SENTENCE_WORDS`, `MIN_PARAGRAPH_WORDS`, `MIN_REPEAT_FOR_SHORT_MATCH` — processing thresholds (defaults: 5, 20, 2).
-
-PDF & OCR
-- `PDFTOTEXT_TIMEOUT` / `TI_PDFTOTEXT_TIMEOUT` — timeout for pdftotext helper (default: 30).
-- `PDF_MAX_PAGES` / `TI_PDF_MAX_PAGES` — maximum pages to process from a PDF (default: 50).
-
-Extraction, patterns & MITRE
-- `PATTERNS_FILE` / `TI_PATTERNS_FILE` — custom JSON file with extraction regexes and classification rules.
-- `MITRE_MAP_FILE` / `TI_MITRE_MAP_FILE` — optional MITRE mapping JSON file to enrich technique IDs/names.
-- `MITRE_MITIGATIONS_FILE` / `TI_MITRE_MITIGATIONS_FILE` — optional mitigation mapping JSON file.
-- `CVE_REGEX` / `TI_CVE_REGEX` — regex used to detect CVE identifiers (default: `\\bCVE-\\d{4}-\\d{4,7}\\b`).
-- `TECHNIQUE_SCORE_BOOST` / `TECHNIQUE_SCORE_BOOST` — JSON mapping to boost specific technique scores.
-
-Summarization, scoring & actionability
-- `ENABLE_SUMMARIZATION` — enable auto summaries (default: true).
-- `SUMMARY_MAX_SENTENCES` / `TI_SUMMARY_MAX_SENTENCES` — max sentences in summary (default: 2).
-- `SUMMARY_MAX_CHARS` / `TI_SUMMARY_MAX_CHARS` — max chars in summary (default: 500).
-- `ENABLE_SCORING` — enable scoring pipeline (default: true).
-- `WEIGHT_ACTORS`, `WEIGHT_CAMPAIGNS`, `WEIGHT_THREATS`, `WEIGHT_DENSITY` — numeric weights used when computing scores (defaults: 30,25,25,20).
-- `ACTIONABILITY_WEIGHTS` / `TI_ACTIONABILITY_WEIGHTS` — optional JSON map to tune actionability scoring.
-
-Top findings / snippet extraction
-- `TOP_FINDING_MIN_WORDS` / `TI_TOP_FINDING_MIN_WORDS` — min words for top finding (default: 10).
-- `TOP_FINDING_MAX_WORDS` / `TI_TOP_FINDING_MAX_WORDS` — max words for top finding (default: 80).
-- `BULLET_FINDING_REGEX` / `TI_BULLET_FINDING_REGEX` — regex for bullet list detection (default provided).
-- `PROMO_PATTERNS` / `TI_PROMO_PATTERNS` — patterns to filter promotional text.
-- `SHORT_SOCIAL_REGEX`, `SHORT_SOCIAL_MAX_WORDS` — filters for short social posts.
-- `MAX_SNIPPETS_PER_TYPE` / `TI_MAX_SNIPPETS_PER_TYPE` — number of excerpt snippets to keep per type (default: 3).
-
-Provenance & LLM detection
-- `PROVENANCE_KEYWORDS` / `TI_PROVENANCE_KEYWORDS` — keywords considered LLM/provenance indicators (default includes `chatgpt`, `openai`, etc.).
-- `PROVENANCE_STRIP_PATTERNS` / `TI_PROVENANCE_STRIP_PATTERNS` — regexes to strip provenance boilerplate.
-
-Mitigations / mitigation snippets
-- `MITIG_SNIPPET_FIRST_SENT_MAX` / `TI_MITIG_SNIPPET_FIRST_SENT_MAX` — max chars for the first mitigation sentence (default: 200).
-- `MITIG_SNIPPET_MAX_CHARS` / `TI_MITIG_SNIPPET_MAX_CHARS` — max chars for mitigation snippets (default: 300).
-
-Suricata / rule generation
-- `SURICATA_SID_START` / `TI_SURICATA_SID_START` — starting SID for generated Suricata rules (default: 1000001).
-- `SURICATA_ALERT_TEMPLATE` / `TI_SURICATA_ALERT_TEMPLATE` — template string used when generating Suricata alerts.
-
-Misc runtime knobs
-- `COMPILED_PATTERNS_CACHE_MAXSIZE` / `TI_COMPILED_PATTERNS_CACHE_MAXSIZE` — cache size for compiled regex loader (default: 1).
-- `INCLUDE_ENTRIES_WITHOUT_DATE` / `TI_INCLUDE_ENTRIES_WITHOUT_DATE` — include entries lacking a published date (default: true).
-- `ARCHIVE_TTL_DAYS` / `ARCHIVE_TTL_DAYS` — days to keep archive files (default: 90).
-- `EXPORT_NAVIGATOR` / `EXPORT_NAVIGATOR` — produce a Mitre navigator layer (default: false).
-
-SIEM / Delivery
-- `SIEM_ENABLED` / `TI_SIEM_ENABLED` — enable SIEM delivery (default: false).
-- `SIEM_TYPE` / `TI_SIEM_TYPE` — SIEM backend type (default: `elastic`).
-- `ELASTIC_ENDPOINT`, `ELASTIC_INDEX`, `ELASTIC_API_KEY`, `ELASTIC_USER`, `ELASTIC_PASS` — Elastic delivery settings.
-- `SIEM_BATCH_SIZE`, `SIEM_MAX_RETRIES`, `SIEM_TIMEOUT`, `SIEM_DRY_RUN` — delivery controls and dry-run toggle.
-
-MITRE priority tuning
-- `MITRE_PRIORITY_BASE_WEIGHT`, `MITRE_PRIORITY_EVIDENCE_WEIGHT` — weights used to compute MITRE priority (defaults: 0.6 and 0.4).
-- `INFERRED_TECHNIQUE_SCORE_MULTIPLIER` — multiplier for inferred techniques (default: 0.8).
-- `MITRE_SIGNAL_MENTION`, `MITRE_SIGNAL_CVE`, `MITRE_SIGNAL_IOC`, `MITRE_SIGNAL_ACTIONABILITY` — numeric signals used when scoring MITRE relevance.
-
-Advanced / developer
-- `COMPILED_PATTERNS_CACHE_MAXSIZE` — compiled regex cache size.
-- `LLM_REQUEST_TIMEOUT` — Ollama request timeout seconds (default: 300).
-- `OLLAMA_MODEL`/`LLM_MODEL` — Ollama model name (default: `llama3.1`).
-
-Refer to `collector/config.py` for exact defaults and the code-side behavior. Environment variables that accept JSON (arrays/dicts) should be provided as valid JSON strings.
+Refer to `collector/config.py` for exact defaults and optional keys.
 
 ## Tests & development
 
