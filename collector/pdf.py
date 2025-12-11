@@ -526,5 +526,13 @@ def run_pdf_analysis(path=None, hours=24):
     except Exception as e:
         logger.warning(f"SIEM delivery failed: {e}")
 
-    record_count = len(files)
+    record_count = len(results)
+    logger.info(
+        "PDF summary: files=%s records=%s ndjson=%s markdown=%s",
+        len(files),
+        record_count,
+        ndjson_path,
+        md_path,
+    )
+
     return {"records": record_count, "ndjson": ndjson_path}

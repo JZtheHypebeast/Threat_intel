@@ -4,6 +4,7 @@ import time
 from typing import Optional
 import threading
 import os
+import io
 
 # =========================
 # ===== Module Config =====
@@ -58,25 +59,6 @@ def progress_bar(
         out_no_cr = out_no_cr + " " + status
 
     try:
-        is_tty = bool(
-            getattr(sys.stdout, "isatty", lambda: False)()
-            or getattr(sys.stderr, "isatty", lambda: False)()
-        )
-        if not is_tty:
-            is_tty = bool(
-                getattr(sys.__stdout__, "isatty", lambda: False)()
-                or getattr(sys.__stderr__, "isatty", lambda: False)()
-            )
-    except Exception:
-        is_tty = False
-
-    try:
-        if os.getenv("TI_FORCE_PROGRESS_INLINE", "false").lower() == "true":
-            is_tty = True
-    except Exception:
-        pass
-
-    try:
         disable_inline = os.getenv("TI_DISABLE_INLINE", "false").lower() == "true"
     except Exception:
         disable_inline = False
@@ -84,10 +66,12 @@ def progress_bar(
     prefer_inline = not disable_inline
 
     if prefer_inline:
-        if is_tty:
-            out_stream = sys.stderr if getattr(sys, "stderr", None) else sys.stdout
-        else:
-            out_stream = sys.stdout
+        out_stream = sys.stderr if getattr(sys, "stderr", None) else sys.stdout
+        try:
+            if hasattr(sys, "__stdout__") and sys.stdout is not sys.__stdout__:
+                out_stream = sys.stdout
+        except Exception:
+            pass
 
         if not hasattr(progress_bar, "_lock"):
             try:

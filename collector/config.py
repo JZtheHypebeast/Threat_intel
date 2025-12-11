@@ -273,6 +273,10 @@ def mute_console():
     console_handler.setLevel(logging.ERROR)
 
 
+def unmute_console():
+    console_handler.setLevel(logging.INFO)
+
+
 def write_jsonl(path, records):
     with open(path, "w", encoding="utf-8") as f:
         for r in records:

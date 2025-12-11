@@ -18,6 +18,7 @@ from dateutil import parser as dtparser
 # ====== Local App ========
 # =========================
 from .config import CONFIG, fetch_json, logger, mute_console, safe_get, write_jsonl
+from .LLM import _call_llm
 from .progress import animate_progress, progress_bar
 
 CRITICAL_THRESHOLD = CONFIG["CRITICAL_THRESHOLD"]
@@ -130,6 +131,7 @@ def fetch_nvd_single(cve_id: str) -> Optional[Dict[str, Any]]:
 
 
 def fetch_kev_sources() -> set:
+    logger.info("Fetching KEV sources (CISA + community)")
     kev_ids = set()
     for url in (CISA_KEV_URL, COMMUNITY_KEV_URL):
         j = fetch_json(url)
@@ -220,6 +222,170 @@ def normalize_cve(
     }
 
 
+def _collect_cpes(cve: Dict[str, Any]) -> list[str]:
+    cpes = []
+    cfg = cve.get("configurations") or {}
+    nodes = cfg.get("nodes", []) if isinstance(cfg, dict) else []
+    for node in nodes:
+        for match in node.get("cpeMatch", []) or []:
+            uri = match.get("cpe23Uri") or match.get("criteria")
+            if uri:
+                cpes.append(uri)
+    return cpes
+
+
+def _llm_refine_cve(entry: Dict[str, Any], cve_raw: Dict[str, Any]) -> Dict[str, Any]:
+    if not CONFIG.get("LLM_ENABLED", True):
+        return entry
+
+    cve_id = safe_get(entry, "vulnerability.id") or cve_raw.get("id")
+    if not cve_id:
+        return entry
+
+    entry.setdefault("vendor", {})
+    entry.setdefault("vulnerability", {})
+
+    def _parse_cpe_vendor(cpe_uri: str) -> Optional[str]:
+        try:
+            parts = cpe_uri.split(":")
+            if len(parts) >= 5 and parts[0] == "cpe" and parts[1] == "2.3":
+                return parts[3] or None
+        except Exception:
+            return None
+        return None
+
+    cpes: List[str] = _collect_cpes(cve_raw) or []
+    cpe_vendors = {
+        v.strip()
+        for v in (_parse_cpe_vendor(cpe) for cpe in cpes)
+        if v and v.strip()
+    }
+
+    current_vendor = safe_get(entry, "vendor.name") or ""
+
+    prompt_parts: List[str] = [
+        "You are validating CVE metadata.",
+        "You must use ONLY the information explicitly present in the provided description and CPE URIs.",
+        "Do NOT infer, guess, or rely on any outside knowledge.",
+        "",
+        "Return a single JSON object with EXACTLY these keys:",
+        '- \"vendor\": string',
+        '- \"description\": string',
+        '- \"affected\": list of objects with keys \"product\" (string) and \"version\" (string)',
+        "",
+        "STRICT RULES:",
+        "1. VENDOR",
+        "   - The vendor MUST come directly from the CPEs (cpe:2.3:a:<vendor>:<product>:...) if any exist.",
+        "   - If NO CPEs exist, and the description explicitly names a clear software vendor, you MAY use that.",
+        "   - If multiple vendors appear, choose the one associated with the affected product according to the CPEs or description.",
+        "   - If you are not certain, set vendor to \"\" (empty string). Never guess.",
+        "",
+        "2. DESCRIPTION",
+        "   - Produce a concise 1–3 sentence human-readable summary.",
+        "   - Base it ONLY on the provided description text.",
+        "   - Do NOT add details not explicitly stated.",
+        "",
+        "3. AFFECTED",
+        "   - Derive ONLY from CPE URIs or explicit version ranges in the description.",
+        "   - For each object in 'affected', include product and version.",
+        "   - If no clear product/version information exists, return an empty list.",
+        "",
+        "4. PROHIBITIONS",
+        "   - NEVER invent vendors, products, or versions.",
+        "   - NEVER infer vendor from the organization reporting or fixing the issue.",
+        "   - NEVER infer vendor from typical vendors of a vulnerability class.",
+        "   - NEVER alter, omit, or restate the CVE ID.",
+        "   - Do NOT include any extra keys beyond vendor, description, affected.",
+        "",
+        "5. FORMAT",
+        "   - Return ONLY raw JSON.",
+        "",
+        f"CVE: {cve_id}",
+        f"Current vendor: {current_vendor}",
+        f"CVSS: {safe_get(entry,'vulnerability.score.base')} severity={safe_get(entry,'vulnerability.severity')}",
+        f"Known exploited: {safe_get(entry,'vulnerability.known_exploited')}",
+        "",
+        "Description:",
+        extract_description(cve_raw) or "",
+        "",
+        "CPE URIs:",
+    ]
+
+    if cpes:
+        prompt_parts.extend(cpes)
+    else:
+        prompt_parts.append("(none)")
+
+    prompt = "\n".join(prompt_parts)
+
+    try:
+        llm_resp = _call_llm(prompt)
+    except Exception as exc:
+        logger.debug("LLM CVE enrich failed for %s: %s", cve_id, exc)
+        return entry
+
+    if isinstance(llm_resp, str):
+        try:
+            llm_resp = json.loads(llm_resp)
+        except Exception:
+            return entry
+
+    if not isinstance(llm_resp, Dict):
+        return entry
+
+    vendor_new = llm_resp.get("vendor")
+    if isinstance(vendor_new, str):
+        vendor_new = vendor_new.strip()
+
+    def _is_generic_vendor(v: str) -> bool:
+        return v.lower() in {"", "unknown", "n/a", "none", "null"}
+
+    if isinstance(vendor_new, str) and not _is_generic_vendor(vendor_new):
+        if cpe_vendors:
+            normalized_new = vendor_new.casefold()
+            normalized_cpe_vendors = {v.casefold() for v in cpe_vendors}
+            if (
+                normalized_new in normalized_cpe_vendors
+                or (current_vendor and normalized_new == current_vendor.casefold())
+            ):
+                entry["vendor"]["name"] = vendor_new
+            else:
+                logger.debug(
+                    "LLM vendor '%s' rejected for %s (CPE vendors: %s)",
+                    vendor_new,
+                    cve_id,
+                    cpe_vendors,
+                )
+        else:
+            entry["vendor"]["name"] = vendor_new
+
+    desc_new = llm_resp.get("description")
+    if isinstance(desc_new, str) and desc_new.strip():
+        entry["vulnerability"]["description_llm"] = desc_new.strip()
+
+    affected = llm_resp.get("affected")
+    if isinstance(affected, list):
+        clean: List[Dict[str, Any]] = []
+        for a in affected:
+            if not isinstance(a, dict):
+                continue
+            prod = a.get("product")
+            ver = a.get("version")
+            if not isinstance(prod, str):
+                continue
+            prod = prod.strip()
+            if not prod:
+                continue
+            item: Dict[str, Any] = {"product": prod}
+            if isinstance(ver, str) and ver.strip():
+                item["version"] = ver.strip()
+            clean.append(item)
+        if clean:
+            entry["vulnerability"]["affected_software"] = clean
+
+    return entry
+
+
 def generate_markdown(
     critical, interesting, modified, hours: int, output_dir: str
 ) -> str:
@@ -233,42 +399,64 @@ def generate_markdown(
         "---\n",
     ]
 
-    def fmt(r, show_modified=False):
-        vuln = r["vulnerability"]
-        src = r.get("source", {}).get("url")
-        desc = (vuln["description"] or "").replace("\n", " ")[:400] + "..."
-        parts = [
-            f"### {vuln['id']}",
-            f"**Vendor:** {r['vendor']['name']}",
-            f"**CVSS Base Score:** {vuln['score']['base'] or 'N/A'}",
-            f"**Severity:** {vuln['severity'] or 'N/A'}",
-            f"**Published:** {vuln.get('published') or 'N/A'}",
-        ]
-        if show_modified:
-            parts.append(f"**Last Modified:** {vuln.get('last_modified') or 'N/A'}")
-        if vuln.get("known_exploited"):
-            parts.append("**Known Exploited (KEV):** Yes")
-        if src:
-            parts.append(f"**Source:** [{src}]({src})")
-        parts.append(f"**Description:** {desc}")
-        parts.append("\n---\n")
-        return "\n".join(parts)
+    def cve_link(cve_id: str) -> str:
+        return f"https://nvd.nist.gov/vuln/detail/{cve_id}"
 
-    sections = [
-        (f"## Critical CVEs (CVSS ≥ {CRITICAL_THRESHOLD})\n", critical),
-        (
-            f"## Interesting CVEs (CVSS {INTERESTING_MIN}–{CRITICAL_THRESHOLD})\n",
-            interesting,
-        ),
-        (f"## Recently Modified CVEs (Last {hours}h)\n", modified),
-    ]
+    all_recs = (critical or []) + (interesting or []) + (modified or [])
+    vendor_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for r in all_recs:
+        vendor = safe_get(r, "vendor.name") or "Unknown Vendor"
+        vendor_groups.setdefault(vendor, []).append(r)
 
-    for title, group in sections:
-        lines.append(title)
-        if group:
-            lines.extend(fmt(r, show_modified=(group == modified)) for r in group)
-        else:
-            lines.append("_None found._\n\n")
+    for vendor in sorted(vendor_groups.keys()):
+        group = vendor_groups[vendor]
+        group.sort(
+            key=lambda r: safe_get(r, "vulnerability.score.base") or 0, reverse=True
+        )
+        lines.append(f"## Vendor: {vendor} (Total {len(group)})\n")
+        for r in group:
+            vuln = r.get("vulnerability", {})
+            cve_id = vuln.get("id") or "Unknown CVE"
+            score = vuln.get("score", {}).get("base")
+            severity = vuln.get("severity") or "N/A"
+            published = vuln.get("published") or "N/A"
+            known = "Yes" if vuln.get("known_exploited") else "No"
+            desc = (
+                vuln.get("description_llm")
+                or vuln.get("description")
+                or ""
+            ).replace("\n", " ").strip()
+            lines.append(f"### [{cve_id}]({cve_link(cve_id)})")
+            lines.append(f"- CVSS Base Score: {score if score is not None else 'N/A'}")
+            lines.append(f"- Severity: {severity}")
+            lines.append(f"- Published: {published}")
+            lines.append(f"- Known Exploited (KEV): {known}")
+            lines.append(f"- Description: {desc if desc else 'N/A'}")
+
+            affected = vuln.get("affected_software") or []
+            if affected:
+                for sw in affected:
+                    prod = sw.get("product", "Unknown product")
+                    ver = sw.get("version")
+                    suffix = f" version {ver}" if ver else ""
+                    lines.append(f"- Affected: {prod}{suffix}")
+            else:
+                lines.append("- Affected: N/A")
+
+            mitigations = r.get("mitigations") or []
+            if mitigations:
+                lines.append("- Mitigations:")
+                for m in mitigations:
+                    if isinstance(m, dict):
+                        txt = m.get("text") or m.get("mitigation") or ""
+                    else:
+                        txt = str(m)
+                    if txt:
+                        lines.append(f"  - {txt}")
+            lines.append("\n")
+
+    if not vendor_groups:
+        lines.append("_No CVEs found in the selected window._\n")
 
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
@@ -293,11 +481,31 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
         kev_ids = fetch_kev_sources()
         progress_bar(1, PROGRESS_TOTAL_STEPS, prefix="Structured: KEV fetched")
 
+        logger.info(
+            "Fetching NVD windows: published=%s modified=%s",
+            start.isoformat(),
+            end.isoformat(),
+        )
         animate_progress("Fetching NVD data", 25)
         patterns = build_vendor_patterns(VENDORS)
+        t0 = datetime.now(timezone.utc)
         published_data = fetch_nvd_window(start, end, mode="published")
+        t1 = datetime.now(timezone.utc)
+        logger.info(
+            "Fetched NVD published window: items=%s duration=%.1fs",
+            len(published_data),
+            (t1 - t0).total_seconds(),
+        )
         modified_data = fetch_nvd_window(start, end, mode="modified")
+        t2 = datetime.now(timezone.utc)
+        logger.info(
+            "Fetched NVD modified window: items=%s duration=%.1fs",
+            len(modified_data),
+            (t2 - t1).total_seconds(),
+        )
         results = {}
+        total_llm = len(published_data) + len(modified_data)
+        llm_done = 0
 
         for item in published_data:
             cve = item["cve"]
@@ -313,6 +521,7 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 ) or scan_text_fields_for_vendor(cve, patterns)
             if vendor:
                 entry = normalize_cve(cve, vendor, kev_ids)
+                entry = _llm_refine_cve(entry, cve)
                 pub_str = entry.get("vulnerability", {}).get("published")
                 if pub_str:
                     try:
@@ -325,6 +534,16 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     entry["modified_only"] = True
 
                 results[cve["id"]] = entry
+            llm_done += 1
+            try:
+                progress_bar(
+                    llm_done,
+                    total_llm if total_llm else 1,
+                    prefix="Structured LLM",
+                    status=f"{llm_done}/{total_llm}",
+                )
+            except Exception:
+                pass
 
         for item in modified_data:
             cve = item["cve"]
@@ -340,8 +559,19 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 ) or scan_text_fields_for_vendor(cve, patterns)
             if vendor and cve["id"] not in results:
                 entry = normalize_cve(cve, vendor, kev_ids)
+                entry = _llm_refine_cve(entry, cve)
                 entry["modified_only"] = True
                 results[cve["id"]] = entry
+            llm_done += 1
+            try:
+                progress_bar(
+                    llm_done,
+                    total_llm if total_llm else 1,
+                    prefix="Structured LLM",
+                    status=f"{llm_done}/{total_llm}",
+                )
+            except Exception:
+                pass
 
         progress_bar(
             3, PROGRESS_TOTAL_STEPS, prefix=f"Structured: {len(results)} vendor CVEs"
@@ -349,12 +579,33 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
 
         animate_progress("Parsing RSS feeds", 20)
         rss_hits = parse_rss_feeds()
+        total_llm += len(rss_hits)
         for feed_cve in rss_hits:
             cve_id = feed_cve["cve"]
             if cve_id in results:
+                llm_done += 1
+                try:
+                    progress_bar(
+                        llm_done,
+                        total_llm if total_llm else 1,
+                        prefix="Structured LLM",
+                        status=f"{llm_done}/{total_llm}",
+                    )
+                except Exception:
+                    pass
                 continue
             cve_obj = fetch_nvd_single(cve_id)
             if not cve_obj:
+                llm_done += 1
+                try:
+                    progress_bar(
+                        llm_done,
+                        total_llm if total_llm else 1,
+                        prefix="Structured LLM",
+                        status=f"{llm_done}/{total_llm}",
+                    )
+                except Exception:
+                    pass
                 continue
             vendor_field = (
                 safe_get(cve_obj, "vendorProject")
@@ -370,6 +621,7 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 entry = normalize_cve(
                     cve_obj, vendor, kev_ids, from_article=True, source=feed_cve["link"]
                 )
+                entry = _llm_refine_cve(entry, cve_obj)
                 pub_str = entry.get("vulnerability", {}).get("published")
                 if pub_str:
                     try:
@@ -383,6 +635,16 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     entry["article_discovered"] = True
 
                 results[cve_id] = entry
+            llm_done += 1
+            try:
+                progress_bar(
+                    llm_done,
+                    total_llm if total_llm else 1,
+                    prefix="Structured LLM",
+                    status=f"{llm_done}/{total_llm}",
+                )
+            except Exception:
+                pass
 
         records = list(results.values())
         new_cves = []

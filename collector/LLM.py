@@ -600,9 +600,6 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
             "records_processed": 0,
         }
     processed: List[Dict[str, Any]] = []
-    # Progress tracking
-    pb_prefix = "LLM"
-    overall_start = datetime.now()
     avg_secs = 0.0
     success_count = 0
     for idx, rec in enumerate(records, start=1):
@@ -626,13 +623,6 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
 
         if rec.get("llm"):
             success_count += 1
-        try:
-            from .progress import progress_bar
-
-            status = f"{idx}/{len(records)} ETA {_fmt_eta(eta_secs)}"
-            progress_bar(idx, len(records), prefix=pb_prefix, status=status)
-        except Exception:
-            pass
         logger.info(
             "LLM completed %s/%s in %.1fs (avg %.1fs, ETA %s, remaining %s): %s",
             idx,

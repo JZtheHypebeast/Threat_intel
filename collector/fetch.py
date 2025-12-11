@@ -9,6 +9,8 @@ from datetime import datetime, timezone, timedelta
 
 import feedparser
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from dateutil import parser as dtparser
 
@@ -23,6 +25,44 @@ WEEKLY_RECAP_MARKER = "weekly recap"
 MAX_WORKERS_DEFAULT = CONFIG.get("MAX_WORKERS", 6)
 PROGRESS_PREFIX_FEEDS = "Feeds"
 PROGRESS_PREFIX_ARTICLES = "Articles"
+REQUEST_TIMEOUT = CONFIG.get("REQUEST_TIMEOUT", 25)
+HTTP_CONNECT_TIMEOUT = CONFIG.get("HTTP_CONNECT_TIMEOUT", 5)
+HTTP_READ_TIMEOUT = CONFIG.get("HTTP_READ_TIMEOUT", REQUEST_TIMEOUT)
+HTTP_RETRIES_TOTAL = CONFIG.get("HTTP_RETRIES_TOTAL", 3)
+HTTP_BACKOFF_FACTOR = CONFIG.get("HTTP_BACKOFF_FACTOR", 0.3)
+HTTP_STATUS_FORCELIST = CONFIG.get("HTTP_STATUS_FORCELIST", [500, 502, 503, 504])
+HTTP_POOL_CONNECTIONS = CONFIG.get("HTTP_POOL_CONNECTIONS", 50)
+HTTP_POOL_MAXSIZE = CONFIG.get("HTTP_POOL_MAXSIZE", 50)
+HTTP_MAX_CONTENT_LENGTH = CONFIG.get("HTTP_MAX_CONTENT_LENGTH", 5_000_000)
+USER_AGENT = CONFIG.get("HTTP_USER_AGENT") or CONFIG.get(
+    "USER_AGENT", "ThreatIntelCollector/5.0"
+)
+
+_SESSION: requests.Session | None = None
+
+
+def _http_session() -> requests.Session:
+    global _SESSION
+    if _SESSION is not None:
+        return _SESSION
+    retries = Retry(
+        total=HTTP_RETRIES_TOTAL,
+        backoff_factor=HTTP_BACKOFF_FACTOR,
+        status_forcelist=HTTP_STATUS_FORCELIST,
+        allowed_methods=frozenset(["GET"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(
+        max_retries=retries,
+        pool_connections=HTTP_POOL_CONNECTIONS,
+        pool_maxsize=HTTP_POOL_MAXSIZE,
+    )
+    sess = requests.Session()
+    sess.mount("http://", adapter)
+    sess.mount("https://", adapter)
+    sess.headers.update({"User-Agent": USER_AGENT})
+    _SESSION = sess
+    return sess
 
 
 def _dehyphenate_text(text: str) -> str:
@@ -66,15 +106,39 @@ def html_to_main_text(html: str, *, strip_boilerplate: bool = True) -> str:
     return "\n".join(lines)
 
 
-def fetch_article_text(url: str, timeout: int = 15) -> dict:
+def fetch_article_text(url: str, timeout: int = REQUEST_TIMEOUT) -> dict:
     if not url:
         return {"text": ""}
-    headers = {"User-Agent": CONFIG.get("HTTP_USER_AGENT", "Mozilla/5.0")}
     proxies = CONFIG.get("PROXIES") or None
     try:
-        resp = requests.get(url, timeout=timeout, headers=headers, proxies=proxies)
+        resp = _http_session().get(
+            url,
+            timeout=(HTTP_CONNECT_TIMEOUT, timeout or HTTP_READ_TIMEOUT),
+            proxies=proxies,
+            stream=True,
+        )
         resp.raise_for_status()
-        txt = html_to_main_text(resp.text)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        if ctype and not any(hint in ctype for hint in ("text/html", "application/xhtml")):
+            logger.debug("Skipping non-HTML content for %s (%s)", url, ctype)
+            return {"text": ""}
+        collected = []
+        total = 0
+        for chunk in resp.iter_content(chunk_size=8192, decode_unicode=False):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > HTTP_MAX_CONTENT_LENGTH:
+                logger.debug("Truncated response for %s at %s bytes", url, total)
+                break
+            collected.append(chunk)
+        raw_bytes = b"".join(collected)
+        if not raw_bytes:
+            logger.debug("Empty body for %s", url)
+            return {"text": ""}
+        encoding = resp.encoding or "utf-8"
+        text_body = raw_bytes.decode(encoding, errors="ignore")
+        txt = html_to_main_text(text_body)
         return {"text": _dehyphenate_text(txt)}
     except Exception as exc:
         logger.debug("Failed to fetch %s: %s", url, exc)
@@ -146,7 +210,6 @@ def generate_actionable_items(intel: dict) -> dict:
 
 
 def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
-    mute_console()
     feeds = CONFIG.get("RSS_FEEDS", []) or []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     entries = []
@@ -264,7 +327,13 @@ def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
     with open(out_raw, "w", encoding="utf-8") as rf:
         json.dump(records, rf, ensure_ascii=False, indent=2)
     progress_bar(1, 1, prefix="Write RawText", status=f"wrote={len(records)} file={rawtext_fn}")
-    logger.info("Wrote rawtext json: %s", out_raw)
+    logger.info(
+        "Fetch summary: discovered=%s deduped=%s written=%s path=%s",
+        len(entries),
+        len(uniq),
+        len(records),
+        out_raw,
+    )
     return {
         "records_total": len(records),
         "rawtext_path": out_raw,

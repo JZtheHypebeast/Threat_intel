@@ -13,7 +13,7 @@ import os
 # ====== Local App ========
 # =========================
 warnings.filterwarnings("ignore", category=Warning, module=r"urllib3.*")
-from .config import logger, mute_console
+from .config import logger, mute_console, unmute_console
 from .CVE import run_structured_collection
 from .fetch import run_unstructured_rss_analysis, run_fetch_rawtext, run_fetch
 from .pdf import run_pdf_analysis as _run_unstructured_pdf_analysis
@@ -71,7 +71,8 @@ Modules:
 |-- all              :: Run structured + fetch + llm
 --------------------------------------------------------------
 """
-    logger.info(menu)
+    # Avoid cluttering logs; show menu only on console
+    print(menu)
 
 
 def _prompt_hours(current_hours: int) -> int:
@@ -125,6 +126,7 @@ def _prompt_fetch_before_llm() -> bool:
 def _interactive_loop(default_hours: int, skip_history: bool) -> None:
     hours = default_hours
     while True:
+        unmute_console()
         _print_menu(hours)
         try:
             cmd = input(">> ").strip()
@@ -165,7 +167,10 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
         elif key == "pdf":
             logger.info("Running unstructured PDF analysis (data/PDF folder)")
             mute_console()
-            run_unstructured_pdf_analysis()
+            try:
+                run_unstructured_pdf_analysis()
+            finally:
+                unmute_console()
 
         elif key == "llm":
             logger.info("Running LLM rawtext translation (no hours filter)")
@@ -223,6 +228,7 @@ def main() -> None:
     no_banner_env = os.getenv("COLLECTOR_NO_BANNER", "").lower() in ("1", "true", "yes")
     if not (getattr(args, "no_banner", False) or no_banner_env):
         _print_banner()
+    unmute_console()
 
     hours = args.hours or DEFAULT_HOURS
     skip_history = args.no_history
@@ -254,7 +260,10 @@ def main() -> None:
             if args.unstructured_pdf:
                 logger.info("Running unstructured PDF analysis")
                 mute_console()
-                run_unstructured_pdf_analysis(path=args.unstructured_pdf, hours=hours)
+                try:
+                    run_unstructured_pdf_analysis(path=args.unstructured_pdf, hours=hours)
+                finally:
+                    unmute_console()
                 ran_any = True
 
             if args.llm:
