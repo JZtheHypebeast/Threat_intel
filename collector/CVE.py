@@ -24,6 +24,7 @@ from .progress import animate_progress, progress_bar
 CRITICAL_THRESHOLD = CONFIG["CRITICAL_THRESHOLD"]
 INTERESTING_MIN = CONFIG["INTERESTING_MIN"]
 VENDORS = CONFIG["VENDORS"]
+EXCLUDED_SOFTWARE = {v.lower() for v in CONFIG.get("EXCLUDED_SOFTWARE") or []}
 RSS_FEEDS = CONFIG["RSS_FEEDS"]
 NVD_API_BASE = CONFIG["NVD_API_BASE"]
 CISA_KEV_URL = CONFIG["CISA_KEV_URL"]
@@ -80,6 +81,23 @@ def extract_vendor_from_cpes(
                 if v2:
                     return v2
     return None
+
+
+def collect_cpe_products(cve: Dict[str, Any]) -> List[str]:
+    products: List[str] = []
+    cfg = cve.get("configurations") or {}
+    nodes = cfg.get("nodes", []) if isinstance(cfg, dict) else []
+    for node in nodes:
+        for match in node.get("cpeMatch", []) or []:
+            uri = match.get("cpe23Uri") or match.get("criteria")
+            if not uri:
+                continue
+            parts = uri.split(":")
+            if len(parts) >= 5 and parts[0] == "cpe" and parts[1] == "2.3":
+                prod = parts[4]
+                if prod:
+                    products.append(prod)
+    return products
 
 
 def scan_text_fields_for_vendor(
@@ -519,7 +537,22 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 vendor = extract_vendor_from_cpes(
                     cve, patterns
                 ) or scan_text_fields_for_vendor(cve, patterns)
-            if vendor:
+            if vendor and vendor.lower() not in EXCLUDED_SOFTWARE:
+                products = collect_cpe_products(cve)
+                if products:
+                    normalized = [p.lower() for p in products]
+                    if all(p in EXCLUDED_SOFTWARE for p in normalized):
+                        llm_done += 1
+                        try:
+                            progress_bar(
+                                llm_done,
+                                total_llm if total_llm else 1,
+                                prefix="Structured LLM",
+                                status=f"{llm_done}/{total_llm}",
+                            )
+                        except Exception:
+                            pass
+                        continue
                 entry = normalize_cve(cve, vendor, kev_ids)
                 entry = _llm_refine_cve(entry, cve)
                 pub_str = entry.get("vulnerability", {}).get("published")
@@ -557,7 +590,26 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 vendor = extract_vendor_from_cpes(
                     cve, patterns
                 ) or scan_text_fields_for_vendor(cve, patterns)
-            if vendor and cve["id"] not in results:
+            if (
+                vendor
+                and vendor.lower() not in EXCLUDED_SOFTWARE
+                and cve["id"] not in results
+            ):
+                products = collect_cpe_products(cve)
+                if products:
+                    normalized = [p.lower() for p in products]
+                    if all(p in EXCLUDED_SOFTWARE for p in normalized):
+                        llm_done += 1
+                        try:
+                            progress_bar(
+                                llm_done,
+                                total_llm if total_llm else 1,
+                                prefix="Structured LLM",
+                                status=f"{llm_done}/{total_llm}",
+                            )
+                        except Exception:
+                            pass
+                        continue
                 entry = normalize_cve(cve, vendor, kev_ids)
                 entry = _llm_refine_cve(entry, cve)
                 entry["modified_only"] = True
@@ -618,6 +670,21 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     cve_obj, patterns
                 ) or scan_text_fields_for_vendor(cve_obj, patterns)
             if vendor:
+                products = collect_cpe_products(cve_obj)
+                if products:
+                    normalized = [p.lower() for p in products]
+                    if all(p in EXCLUDED_SOFTWARE for p in normalized):
+                        llm_done += 1
+                        try:
+                            progress_bar(
+                                llm_done,
+                                total_llm if total_llm else 1,
+                                prefix="Structured LLM",
+                                status=f"{llm_done}/{total_llm}",
+                            )
+                        except Exception:
+                            pass
+                        continue
                 entry = normalize_cve(
                     cve_obj, vendor, kev_ids, from_article=True, source=feed_cve["link"]
                 )

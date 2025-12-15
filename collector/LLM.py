@@ -549,10 +549,16 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
         lines.append("**IOCs:**")
         if iocs:
             for i in iocs:
-                typ = i.get("type") or ""
-                val = i.get("value") or i.get("indicator") or ""
-                ctx = i.get("context") or ""
-                conf = i.get("confidence")
+                if isinstance(i, dict):
+                    typ = i.get("type") or ""
+                    val = i.get("value") or i.get("indicator") or ""
+                    ctx = i.get("context") or ""
+                    conf = i.get("confidence")
+                else:
+                    typ = ""
+                    val = str(i)
+                    ctx = ""
+                    conf = None
                 ctx_str = f" — {ctx}" if ctx else ""
                 conf_str = f" (conf {conf})" if conf is not None else ""
                 lines.append(f"- {typ}: {val}{ctx_str}{conf_str}")

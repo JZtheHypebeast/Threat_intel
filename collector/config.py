@@ -183,6 +183,7 @@ CONFIG = {
     "LLM_MODEL": os.getenv("TI_LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1")),
     "LLM_ENABLED": os.getenv("TI_LLM_ENABLED", "true").lower() == "true",
     "LLM_TEMPERATURE": float(os.getenv("TI_LLM_TEMPERATURE", 0.2)),
+    "EXCLUDED_SOFTWARE": json.loads(os.getenv("TI_EXCLUDED_SOFTWARE", "[]")),
 }
 
 # =========================
@@ -193,6 +194,7 @@ if not CONFIG["VENDORS"]:
         "Microsoft",
         "Cisco",
         "VMware",
+        "Fortra",
         "Fortinet",
         "Palo Alto Networks",
         "Palo Alto",
@@ -208,8 +210,8 @@ if not CONFIG["VENDORS"]:
         "EngageProcess",
         "AFAS",
         "Nettime solutions",
-        "JOIN",
-        "Jira",
+        "Decos",
+        "Atlassian",
         "GoAnywhere",
         "Mitel",
         "Teams",
@@ -236,6 +238,14 @@ if not CONFIG["VENDORS"]:
         "Olympic banking",
         "qwihi",
         "Forti",
+    ]
+
+# =========================
+# EXCLUDED SOFTWARE / VENDORS
+# =========================
+if not CONFIG["EXCLUDED_SOFTWARE"]:
+    CONFIG["EXCLUDED_SOFTWARE"] = [
+        "JOIN"
     ]
 
 # =========================

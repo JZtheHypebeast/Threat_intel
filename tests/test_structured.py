@@ -61,6 +61,27 @@ class TestStructuredHelpers(unittest.TestCase):
         self.assertEqual(entry["vulnerability"]["id"], "CVE-2025-0003")
         self.assertIsNotNone(entry["vulnerability"]["published"])
 
+    def test_collect_cpe_products(self):
+        cve = {
+            "configurations": {
+                "nodes": [
+                    {
+                        "cpeMatch": [
+                            {
+                                "cpe23Uri": "cpe:2.3:a:atlassian:confluence:1.0:*:*:*:*:*:*:*",
+                            },
+                            {
+                                "criteria": "cpe:2.3:a:atlassian:jira:9.1:*:*:*:*:*:*:*",
+                            },
+                        ]
+                    }
+                ]
+            }
+        }
+        products = CVE.collect_cpe_products(cve)
+        self.assertIn("confluence", [p.lower() for p in products])
+        self.assertIn("jira", [p.lower() for p in products])
+
 
 if __name__ == "__main__":
     unittest.main()
