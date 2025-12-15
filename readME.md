@@ -42,31 +42,52 @@ Use this section as a quick reference for where to look when making changes.
 
 ## Quick Start
 
-- Create and activate a Python virtual environment and install dependencies:
+### Ubuntu Server install (collector + Ollama 3.1)
 
+1) Install system dependencies and Python venv:
 ```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip git curl
+```
+
+2) Clone the repo and set up venv:
+```bash
+git clone <your-repo-url> threat_intel
+cd threat_intel
 python3 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-- Run only the fetch (RSS) pipeline for the last 28 hours:
-
+3) Install Ollama and pull llama3.1 (on the server):
 ```bash
-python3 -m collector.main --unstructured --hours 28
+curl -fsSL https://ollama.com/install.sh | sh
+sudo systemctl enable --now ollama
+# Verify service
+curl http://localhost:11434/api/version
+# Pull model
+ollama pull llama3.1
 ```
 
-- Run the structured + fetch pipelines together for 24 hours:
-
+4) Run pipelines:
 ```bash
+# Structured CVE + fetch (24h window)
 python3 -m collector.main --structured --unstructured --hours 24
-```
 
-- Run the LLM enrichment pipeline on the most recent rawtext bundle (no hours prompt):
-
-```bash
+# LLM enrichment on latest rawtext
 python3 -m collector.main --llm
+
+# PDF extraction (defaults to data/PDF)
+python3 -m collector.main --unstructured-pdf
+
+# Cumulative reporting (e.g., last 7 days)
+python3 -m collector.main --reporting 7
 ```
+
+Notes:
+- Ensure `OLLAMA_HOST` and `OLLAMA_MODEL`/`LLM_MODEL` (default `llama3.1`) are set if the Ollama service is remote or uses a non-default model.
+- Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/` with categories: `structured/`, `pdf/`, `llmrawtext/`, `llm/`, and `reporting/`.
 
 Notes:
 - Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/`.

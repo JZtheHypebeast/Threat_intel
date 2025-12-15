@@ -71,7 +71,6 @@ Modules:
 |-- all              :: Run structured + fetch + llm
 --------------------------------------------------------------
 """
-    # Avoid cluttering logs; show menu only on console
     print(menu)
 
 
