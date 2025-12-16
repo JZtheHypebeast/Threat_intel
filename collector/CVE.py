@@ -410,10 +410,15 @@ def generate_markdown(
     date_stamp = datetime.now().strftime("%Y%m%d")
     md_path = os.path.join(output_dir, f"StructuredCVEReport_{date_stamp}.md")
 
+    total_modified = len(modified)
+    total_new = max(0, len((critical or [])) + len((interesting or [])) - total_modified)
+
     lines = [
         "# Structured CVE Intelligence Report\n",
         f"**Generated:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  \n",
         f"**Window:** Last {hours} hours\n",
+        f"**New CVEs:** {total_new}\n",
+        f"**Modified CVEs:** {total_modified}\n",
         "---\n",
     ]
 
@@ -426,28 +431,54 @@ def generate_markdown(
         vendor = safe_get(r, "vendor.name") or "Unknown Vendor"
         vendor_groups.setdefault(vendor, []).append(r)
 
+    if vendor_groups:
+        top_vendor = max(vendor_groups.items(), key=lambda kv: len(kv[1]))
+        lines.insert(4, f"**Top Vendor by Count:** {top_vendor[0]} ({len(top_vendor[1])})\n")
+
+    def _parse_dt(val: Optional[str]) -> datetime:
+        if not val:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        try:
+            return dtparser.parse(val).astimezone(timezone.utc)
+        except Exception:
+            return datetime.min.replace(tzinfo=timezone.utc)
+
     for vendor in sorted(vendor_groups.keys()):
         group = vendor_groups[vendor]
-        group.sort(
-            key=lambda r: safe_get(r, "vulnerability.score.base") or 0, reverse=True
+        modified_group = [g for g in group if g.get("modified_only")]
+        new_group = [g for g in group if not g.get("modified_only")]
+
+        modified_group.sort(
+            key=lambda r: _parse_dt(safe_get(r, "vulnerability.last_modified")), reverse=True
         )
+        new_group.sort(
+            key=lambda r: _parse_dt(safe_get(r, "vulnerability.published")), reverse=True
+        )
+
+        ordered = modified_group + new_group
+
         lines.append(f"## Vendor: {vendor} (Total {len(group)})\n")
-        for r in group:
+        for r in ordered:
             vuln = r.get("vulnerability", {})
             cve_id = vuln.get("id") or "Unknown CVE"
             score = vuln.get("score", {}).get("base")
             severity = vuln.get("severity") or "N/A"
             published = vuln.get("published") or "N/A"
+            last_modified = vuln.get("last_modified") or "N/A"
             known = "Yes" if vuln.get("known_exploited") else "No"
             desc = (
                 vuln.get("description_llm")
                 or vuln.get("description")
                 or ""
             ).replace("\n", " ").strip()
-            lines.append(f"### [{cve_id}]({cve_link(cve_id)})")
+            header = f"### [{cve_id}]({cve_link(cve_id)})"
+            if r.get("modified_only"):
+                header += " (Modified)"
+            lines.append(header)
             lines.append(f"- CVSS Base Score: {score if score is not None else 'N/A'}")
             lines.append(f"- Severity: {severity}")
             lines.append(f"- Published: {published}")
+            lines.append(f"- Last Modified: {last_modified}")
             lines.append(f"- Known Exploited (KEV): {known}")
             lines.append(f"- Description: {desc if desc else 'N/A'}")
 
