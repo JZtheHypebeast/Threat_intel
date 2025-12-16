@@ -15,7 +15,7 @@ import requests
 # ===== Module Config =====
 # =========================
 RAWTEXT_GLOB = "rawtext-*.json"
-RAWTEXT_LLM_PREFIX = "rawtext-LLM_"
+RAWTEXT_LLM_PREFIX = "LLM-JSON_"
 LLM_MD_PREFIX = "LLM-UnstructuredReport_"
 RAW_TEXT_SNIPPET_MAX = 8000
 OLLAMA_DEFAULT_HOST = "http://localhost:11434"

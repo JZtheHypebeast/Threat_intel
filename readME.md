@@ -149,7 +149,7 @@ Important note about the interactive menu and `--tests`:
   PDF extraction/enrichment output.
 - `collector/results/pdf/<date>/<time>/UnstructuredPDFReport_<date>.md` —
   PDF human-readable Markdown.
-- `collector/results/llm/<date>/<time>/rawtext-LLM_<date>.ndjson` —
+- `collector/results/llm/<date>/<time>/LLM-JSON_<date>.ndjson` —
   LLM-enriched NDJSON (pretty-printed; no `raw_text`/`text` fields).
 - `collector/results/llm/<date>/<time>/LLM-UnstructuredReport_<date>.md` —
   LLM-enriched Markdown summary.

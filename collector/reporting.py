@@ -137,10 +137,14 @@ def _collect_llm_records(days: int) -> List[Dict[str, Any]]:
     seen: set[Path] = set()
     out: List[Dict[str, Any]] = []
 
+    patterns = ["LLM-JSON_*.ndjson", "rawtext-LLM_*.ndjson"]
     for root in candidates:
         if not root.exists():
             continue
-        for f in root.rglob("rawtext-LLM_*.ndjson"):
+        files = []
+        for pat in patterns:
+            files.extend(root.rglob(pat))
+        for f in files:
             if f in seen:
                 continue
             seen.add(f)
