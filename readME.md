@@ -3,12 +3,12 @@
 Version: 1
 
 This repository contains a lightweight threat-intel collector and processing
-pipeline. It supports four flows:
+pipeline. It supports these flows:
 
 - Structured CVE/KEV collection with vendor cleanup and affected software pulled via a guarded LLM refinement step.
-- Fetch pipeline — pulls RSS articles and writes rawtext JSON for downstream use (no enrichment in this step).
 - PDF pipeline — extracts text from PDFs and (optionally) enriches each document via the PDF-specific LLM prompt; outputs NDJSON + Markdown.
-- LLM enrichment — reads the latest rawtext bundle, sends it to a local Ollama model (default `llama3.1`), and produces cleaned NDJSON/Markdown without embedding full raw text.
+- LLM enrichment — fetches RSS articles (rawtext) and then sends them to a local Ollama model (default `llama3.1`), producing cleaned NDJSON/Markdown without embedding full raw text.
+- GeoFeed — geopolitical RSS scanner with scoring, watchlists, and optional LLM summaries.
 - Reporting — builds a cumulative management report from recent LLM outputs (2/7/14/30 days).
 
 This README explains how to run the collector, expected outputs, testing,
@@ -25,10 +25,10 @@ A quick view of the repository layout and important files/folders:
   - `collector/__init__.py`
   - `collector/main.py` — CLI entrypoint and interactive menu.
   - `collector/config.py` — runtime `CONFIG` mapping (all env-vars are defined here).
-- `collector/fetch.py` — fetches RSS articles and writes rawtext bundles (no enrichment).
 - `collector/pdf.py` — PDF extraction + optional PDF LLM enrichment.
 - `collector/CVE.py` — structured CVE/KEV collection (with LLM refinement of vendor/description/affected software).
-- `collector/LLM.py` — unstructured LLM enrichment for fetched articles.
+- `collector/LLM.py` — RSS fetch + rawtext generation + LLM enrichment.
+- `collector/geofeed.py` — geopolitical RSS scanner with scoring and LLM summaries.
 - `collector/reporting.py` — cumulative reporting over recent LLM outputs.
 - `collector/progress.py` and other helpers.
 - `collector/logs/` and `collector/results/` — runtime output folders.
@@ -72,14 +72,17 @@ ollama pull llama3.1
 
 4) Run pipelines:
 ```bash
-# Structured CVE + fetch (24h window)
-python3 -m collector.main --structured --unstructured --hours 24
+# Structured CVE (24h window)
+python3 -m collector.main --structured --hours 24
 
-# LLM enrichment on latest rawtext
-python3 -m collector.main --llm
+# LLM enrichment (fetches rawtext + runs LLM)
+python3 -m collector.main --llm --hours 24
 
 # PDF extraction (defaults to data/PDF)
 python3 -m collector.main --unstructured-pdf
+
+# GeoFeed (geopolitical scanner)
+python3 -m collector.geofeed --hours 24
 
 # Cumulative reporting (e.g., last 7 days)
 python3 -m collector.main --reporting 7
@@ -87,37 +90,35 @@ python3 -m collector.main --reporting 7
 
 Notes:
 - Ensure `OLLAMA_HOST` and `OLLAMA_MODEL`/`LLM_MODEL` (default `llama3.1`) are set if the Ollama service is remote or uses a non-default model.
-- Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/` with categories: `structured/`, `pdf/`, `llmrawtext/`, `llm/`, and `reporting/`.
+- Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/` with categories: `structured/`, `pdf/`, `llmrawtext/`, `llm/`, `reporting/`, and `geofeed/`.
 
 Notes:
 - Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/`.
   Categories: `structured/`, `pdf/`, `llmrawtext/` (raw articles), `llm/`, and `reporting/`.
-- Fetch pipeline writes full article bodies to `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json`
-  so the LLM pipeline can consume them; NDJSON excludes raw bodies.
+- LLM pipeline writes full article bodies to `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json`
+  so enrichment can consume them; NDJSON excludes raw bodies.
 - Structured CVE uses an internal LLM refinement per CVE to clean vendor and add affected software; if LLM is disabled the deterministic fields remain.
 - PDF pipeline can call the PDF LLM prompt per document; failures fall back to extraction-only output.
 - LLM summarization uses a local Ollama instance (`OLLAMA_HOST`, `OLLAMA_MODEL`
   or `LLM_MODEL`, `LLM_ENABLED=true`), default model `llama3.1`, and the configured timeout. If Ollama is not reachable the run logs the failure and moves on.
-- The LLM pipeline automatically selects the most recent `rawtext-<date>.json`
-  under `collector/results/llmrawtext/` and skips any `--hours` prompt.
+- The LLM pipeline fetches rawtext for the selected hours, then enriches that same window.
 
 ## What the collector does (high level)
 
 - Poll RSS feeds and fetch article HTML/text (parallelized with a thread pool).
 - Sanitize and normalize article text (boilerplate removal, dehyphenation).
-- Write rawtext JSON bundles for downstream LLM processing (no in-app enrichment).
-- LLM pipeline: produce structured intel (summary, MITRE, actors, IOCs, detections, recommendations, etc.) and Markdown from rawtext.
+- LLM pipeline: fetch rawtext, then produce structured intel (summary, MITRE, actors, IOCs, detections, recommendations, etc.) and Markdown.
 - Structured CVE: fetch NVD/KEV, normalize CVEs, and optionally refine vendor/description/affected via LLM.
 - PDF pipeline: extract text from PDFs and optionally LLM-enrich for management-friendly summaries.
 - Reporting: combine recent LLM outputs into a cumulative report (2/7/14/30 days).
+- GeoFeed: score and summarize geopolitical signals from RSS feeds.
 
 ## CLI flags and menu
 
 Flags (non-interactive):
 - `--structured` — run structured CVE/KEV collection.
-- `--unstructured` — run RSS/article fetch to build rawtext (no enrichment).
 - `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path (defaults to `data/PDF` if omitted in the menu).
-- `--llm` — run LLM rawtext translation (uses latest rawtext bundle; no hours prompt).
+- `--llm` — fetch rawtext + run LLM enrichment for the given hours.
 - `--reporting <days>` — build a cumulative LLM-based report over 2/7/14/30 days.
 - `--tests` — run unit tests using the active Python interpreter.
 - `--hours <N>` — look-back window in hours for RSS items.
@@ -125,12 +126,11 @@ Flags (non-interactive):
 
 Interactive menu commands mirror the above:
 - `structured` — structured CVE/KEV collection.
-- `unstructured` — fetch RSS articles to build rawtext.
 - `pdf <PATH>` — run PDF extraction on the given path (defaults to `data/PDF` if omitted).
-- `llm` — translate latest rawtext with the LLM.
+- `llm` — prompt for hours, fetch rawtext, then run LLM enrichment.
 - `reporting` — build cumulative report (prompt for 2/7/14/30 days).
 - `tests` — run pytest.
-- `all` — structured + fetch + llm in sequence.
+- `all` — structured + llm in sequence.
 - `hours <N>` — adjust the default look-back for fetch/structured in the session.
 
 Important note about the interactive menu and `--tests`:
@@ -142,7 +142,7 @@ Important note about the interactive menu and `--tests`:
 ## Outputs and file conventions
 
 - `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json` — raw article bodies
-  produced by the fetch pipeline for LLM consumption.
+  produced by the LLM pipeline for enrichment.
 - `collector/results/structured/<date>/<time>/StructuredCVEData_<date>.ndjson` — structured CVE/KEV NDJSON.
 - `collector/results/structured/<date>/<time>/StructuredCVEReport_<date>.md` — structured CVE/KEV Markdown.
 - `collector/results/pdf/<date>/<time>/UnstructuredPDFIntel_<date>.ndjson` —
@@ -157,6 +157,10 @@ Important note about the interactive menu and `--tests`:
   structured CVE/KEV Markdown.
 - `collector/results/reporting/<date>/<time>/LLM-CumulativeReport_*` —
   cumulative reports (markdown/json/pdf) built from recent LLM outputs.
+- `collector/results/geofeed/<date>/<time>/geofeed.ndjson` —
+  GeoFeed scored NDJSON.
+- `collector/results/geofeed/<date>/<time>/geofeed_summary_<date>.md` —
+  GeoFeed summary markdown.
 
 NDJSON records intentionally exclude the full article bodies; they are kept
 in `rawtext-<date>.json` to simplify downstream indexing and reduce NDJSON size.
