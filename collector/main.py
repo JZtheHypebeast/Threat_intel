@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore", category=Warning, module=r"urllib3.*")
 from .config import logger, mute_console, unmute_console
 from .CVE import run_structured_collection
 from .pdf import run_pdf_analysis as _run_unstructured_pdf_analysis
-from .LLM import run_fetch, run_llm_rawtext
+from .articles import run_fetch, run_llm_rawtext
 from .reporting import run_reporting
 
 run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis

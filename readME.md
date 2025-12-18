@@ -27,7 +27,7 @@ A quick view of the repository layout and important files/folders:
   - `collector/config.py` — runtime `CONFIG` mapping (all env-vars are defined here).
 - `collector/pdf.py` — PDF extraction + optional PDF LLM enrichment.
 - `collector/CVE.py` — structured CVE/KEV collection (with LLM refinement of vendor/description/affected software).
-- `collector/LLM.py` — RSS fetch + rawtext generation + LLM enrichment.
+- `collector/articles.py` — RSS fetch + rawtext generation + LLM enrichment.
 - `collector/geofeed.py` — geopolitical RSS scanner with scoring and LLM summaries.
 - `collector/reporting.py` — cumulative reporting over recent LLM outputs.
 - `collector/progress.py` and other helpers.

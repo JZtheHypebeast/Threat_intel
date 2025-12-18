@@ -23,7 +23,7 @@ except Exception:
 # =========================
 from .config import CONFIG, logger, mute_console
 from .progress import animate_progress
-from .LLM import _call_llm
+from .articles import _call_llm
 from . import delivery
 
 # =========================

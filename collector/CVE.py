@@ -19,7 +19,7 @@ from dateutil import parser as dtparser
 # ====== Local App ========
 # =========================
 from .config import CONFIG, fetch_json, logger, mute_console, safe_get, write_jsonl
-from .LLM import _call_llm
+from .articles import _call_llm
 from .progress import animate_progress, progress_bar, start_live_progress, stop_live_progress
 
 CRITICAL_THRESHOLD = CONFIG["CRITICAL_THRESHOLD"]
