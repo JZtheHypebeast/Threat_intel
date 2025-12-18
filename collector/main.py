@@ -64,12 +64,12 @@ Help:
                         (current: {current_hours})
 
 Modules:
-|-- structured       :: Run structured CVE/KEV collection
-|-- llm              :: Run LLM enrichment on latest rawtext
+|-- cve              :: Run structured CVE/KEV collection
+|-- articles         :: Fetch RSS articles + run LLM enrichment
 {geofeed_line}|-- reporting        :: Build cumulative LLM-based report (2/7/14/30 days)
 |-- tests            :: Run unit tests
 |-- pdf              :: Run PDF extraction/enrichment on data/PDF folder
-|-- all              :: Run structured + fetch + llm
+|-- all              :: Run CVE + articles
 --------------------------------------------------------------
 """
     print(menu)
@@ -110,16 +110,6 @@ def _prompt_reporting_period() -> int:
     logger.warning("Invalid selection; defaulting to 7 days")
     return 7
 
-
-def _prompt_fetch_before_llm() -> bool:
-    prompt = "Fetch articles to generate fresh rawtext before running LLM? [Y/n]: "
-    try:
-        raw = input(prompt).strip().lower()
-    except EOFError:
-        return False
-    if raw in ("", "y", "yes"):
-        return True
-    return False
 
 def _has_geofeed() -> bool:
     pkg = __package__ or ""
@@ -170,7 +160,7 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             else:
                 logger.info("Current hours: %s", hours)
 
-        elif key == "structured":
+        elif key == "cve":
             logger.info("Running structured collection")
             chosen_hours = _prompt_hours(hours)
             run_structured_collection(hours=chosen_hours, skip_history=skip_history)
@@ -183,7 +173,7 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             finally:
                 unmute_console()
 
-        elif key == "llm":
+        elif key == "articles":
             logger.info("Running LLM rawtext translation")
             chosen_hours = _prompt_hours(hours)
             logger.info("Fetching articles to refresh rawtext before LLM")
@@ -216,7 +206,7 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             chosen_hours = _prompt_hours(hours)
             logger.info("Running structured collection")
             run_structured_collection(hours=chosen_hours, skip_history=skip_history)
-            logger.info("Running unstructured RSS analysis")
+            logger.info("Running article fetch + LLM enrichment")
             run_fetch(hours=chosen_hours)
             logger.info("Running LLM rawtext translation")
             run_llm_rawtext(hours=chosen_hours)
@@ -230,9 +220,9 @@ def main() -> None:
     parser.add_argument("--no-banner", action="store_true")
     parser.add_argument("--hours", type=int)
     parser.add_argument("--tests", action="store_true")
-    parser.add_argument("--structured", action="store_true")
+    parser.add_argument("--cve", action="store_true")
     parser.add_argument("--unstructured-pdf")
-    parser.add_argument("--llm", action="store_true")
+    parser.add_argument("--articles", action="store_true")
     parser.add_argument("--geofeed", action="store_true", help="Run GeoFeed geopolitical local-news scanner (if present)")
     parser.add_argument("--reporting", type=int, help="Build cumulative report over N days (2/7/14/30)")
     parser.add_argument("--no-history", action="store_true")
@@ -253,14 +243,14 @@ def main() -> None:
             sys.exit(0)
 
         if (
-            args.structured
+            args.cve
             or args.unstructured_pdf
-            or args.llm
+            or args.articles
             or args.reporting
         ):
             ran_any = False
 
-            if args.structured:
+            if args.cve:
                 logger.info("Running structured collection")
                 run_structured_collection(hours=hours, skip_history=skip_history)
                 ran_any = True
@@ -274,7 +264,7 @@ def main() -> None:
                     unmute_console()
                 ran_any = True
 
-            if args.llm:
+            if args.articles:
                 logger.info("Running LLM rawtext translation")
                 run_fetch(hours=hours)
                 run_llm_rawtext(hours=hours)
@@ -311,7 +301,7 @@ def main() -> None:
 
             if not ran_any:
                 logger.warning(
-                    "No mode selected; use --structured, --unstructured-pdf PATH, or --llm."
+                    "No mode selected; use --cve, --unstructured-pdf PATH, or --articles."
                 )
         else:
             _interactive_loop(hours, skip_history)
