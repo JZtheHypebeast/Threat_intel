@@ -16,9 +16,8 @@ import warnings
 warnings.filterwarnings("ignore", category=Warning, module=r"urllib3.*")
 from .config import logger, mute_console, unmute_console
 from .CVE import run_structured_collection
-from .fetch import run_fetch
 from .pdf import run_pdf_analysis as _run_unstructured_pdf_analysis
-from .LLM import run_llm_rawtext
+from .LLM import run_fetch, run_llm_rawtext
 from .reporting import run_reporting
 
 run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis
@@ -66,8 +65,7 @@ Help:
 
 Modules:
 |-- structured       :: Run structured CVE/KEV collection
-|-- unstructured     :: Fetch RSS articles + build rawtext (no enrichment)
-|-- llm              :: Run LLM enrichment on rawtext
+|-- llm              :: Run LLM enrichment on latest rawtext
 {geofeed_line}|-- reporting        :: Build cumulative LLM-based report (2/7/14/30 days)
 |-- tests            :: Run unit tests
 |-- pdf              :: Run PDF extraction/enrichment on data/PDF folder
@@ -177,11 +175,6 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             chosen_hours = _prompt_hours(hours)
             run_structured_collection(hours=chosen_hours, skip_history=skip_history)
 
-        elif key == "unstructured":
-            logger.info("Fetching articles to build rawtext bundle (no analysis)")
-            chosen_hours = _prompt_hours(hours)
-            run_fetch(hours=chosen_hours)
-
         elif key == "pdf":
             logger.info("Running unstructured PDF analysis (data/PDF folder)")
             mute_console()
@@ -191,12 +184,11 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
                 unmute_console()
 
         elif key == "llm":
-            logger.info("Running LLM rawtext translation (no hours filter)")
-            if _prompt_fetch_before_llm():
-                chosen_hours = _prompt_hours(hours)
-                logger.info("Fetching articles to refresh rawtext before LLM")
-                run_fetch(hours=chosen_hours)
-            run_llm_rawtext(hours=None)
+            logger.info("Running LLM rawtext translation")
+            chosen_hours = _prompt_hours(hours)
+            logger.info("Fetching articles to refresh rawtext before LLM")
+            run_fetch(hours=chosen_hours)
+            run_llm_rawtext(hours=chosen_hours)
 
         elif key == "geofeed":
             chosen_hours = _prompt_hours(hours)
@@ -239,7 +231,6 @@ def main() -> None:
     parser.add_argument("--hours", type=int)
     parser.add_argument("--tests", action="store_true")
     parser.add_argument("--structured", action="store_true")
-    parser.add_argument("--unstructured", action="store_true")
     parser.add_argument("--unstructured-pdf")
     parser.add_argument("--llm", action="store_true")
     parser.add_argument("--geofeed", action="store_true", help="Run GeoFeed geopolitical local-news scanner (if present)")
@@ -263,7 +254,6 @@ def main() -> None:
 
         if (
             args.structured
-            or args.unstructured
             or args.unstructured_pdf
             or args.llm
             or args.reporting
@@ -273,11 +263,6 @@ def main() -> None:
             if args.structured:
                 logger.info("Running structured collection")
                 run_structured_collection(hours=hours, skip_history=skip_history)
-                ran_any = True
-
-            if args.unstructured:
-                logger.info("Fetching articles to build rawtext bundle (no analysis)")
-                run_fetch(hours=hours)
                 ran_any = True
 
             if args.unstructured_pdf:
@@ -290,8 +275,9 @@ def main() -> None:
                 ran_any = True
 
             if args.llm:
-                logger.info("Running LLM rawtext translation (no hours filter)")
-                run_llm_rawtext(hours=None)
+                logger.info("Running LLM rawtext translation")
+                run_fetch(hours=hours)
+                run_llm_rawtext(hours=hours)
                 ran_any = True
 
             if args.geofeed:
@@ -325,7 +311,7 @@ def main() -> None:
 
             if not ran_any:
                 logger.warning(
-                    "No mode selected; use --structured, --unstructured, --unstructured-pdf PATH, or --llm."
+                    "No mode selected; use --structured, --unstructured-pdf PATH, or --llm."
                 )
         else:
             _interactive_loop(hours, skip_history)
