@@ -5,11 +5,21 @@ from __future__ import annotations
 # =========================
 import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
-import os
+
+# =========================
+# ===== Third-Party =======
+# =========================
 import requests
+
+# =========================
+# ====== Local App ========
+# =========================
+from .config import CONFIG
+from .progress import start_live_progress, stop_live_progress
 
 # =========================
 # ===== Module Config =====
@@ -20,11 +30,12 @@ LLM_MD_PREFIX = "LLM-UnstructuredReport_"
 RAW_TEXT_SNIPPET_MAX = 8000
 OLLAMA_DEFAULT_HOST = "http://localhost:11434"
 
-from .config import CONFIG
-
 logger = logging.getLogger(__name__)
 
 
+# =========================
+# ======== Helpers ========
+# =========================
 def _ollama_host() -> str:
     return os.getenv("OLLAMA_HOST", CONFIG.get("OLLAMA_HOST", OLLAMA_DEFAULT_HOST)).rstrip("/")
 
@@ -68,6 +79,32 @@ def _find_latest_rawtext_any(base_dir: Path) -> Optional[Path]:
     latest = max(matches, key=lambda p: p.stat().st_mtime)
     logger.debug("Latest rawtext (global search): %s", latest)
     return latest
+
+
+# =========================
+# ====== Formatting =======
+# =========================
+
+
+def _format_eta(seconds: float) -> str:
+    if seconds <= 0:
+        return "ETA 00s"
+    mins, secs = divmod(int(seconds), 60)
+    hours, mins = divmod(mins, 60)
+    if hours:
+        return f"ETA {hours}h{mins:02d}m"
+    if mins:
+        return f"ETA {mins:02d}m{secs:02d}s"
+    return f"ETA {secs:02d}s"
+
+
+def _shorten_title(title: str, max_len: int = 60) -> str:
+    if not title:
+        return "-"
+    title = str(title).strip()
+    if len(title) <= max_len:
+        return title
+    return title[: max_len - 3].rstrip() + "..."
 
 
 def _load_rawtext_records(path: Path) -> List[Dict[str, Any]]:
@@ -647,6 +684,9 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
 
     return "\n".join(lines)
 
+# =========================
+# ========= Runner ========
+# =========================
 def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     output_dir = _get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -684,37 +724,45 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     processed: List[Dict[str, Any]] = []
     avg_secs = 0.0
     success_count = 0
-    for idx, rec in enumerate(records, start=1):
-        start_ts = datetime.now()
-        title = rec.get("title") or "(no title)"
-        logger.info("LLM enriching %s/%s: %s", idx, len(records), title)
-        rec = _enrich_record_with_llm(rec)
-        rec = _strip_raw_text_fields(rec)
-        elapsed = (datetime.now() - start_ts).total_seconds()
-        avg_secs = ((avg_secs * (idx - 1)) + elapsed) / idx
-        remaining = len(records) - idx
-        eta_secs = avg_secs * remaining
+    progress_state = {"current": 0, "status": ""}
+    animator = start_live_progress("LLM", len(records), progress_state)
+    try:
+        for idx, rec in enumerate(records, start=1):
+            title = rec.get("title") or "(no title)"
+            short_title = _shorten_title(title)
+            remaining = len(records) - (idx - 1)
+            eta_secs = avg_secs * remaining
+            progress_state["current"] = idx - 1
+            progress_state["status"] = f"{idx}/{len(records)} {_format_eta(eta_secs)} | {short_title}"
 
-        def _fmt_eta(seconds: float) -> str:
-            if seconds >= 3600:
-                return f"{seconds/3600:.1f}h"
-            if seconds >= 60:
-                return f"{seconds/60:.1f}m"
-            return f"{seconds:.1f}s"
+            start_ts = datetime.now()
+            logger.info("LLM enriching %s/%s: %s", idx, len(records), title)
+            rec = _enrich_record_with_llm(rec)
+            rec = _strip_raw_text_fields(rec)
+            elapsed = (datetime.now() - start_ts).total_seconds()
+            avg_secs = ((avg_secs * (idx - 1)) + elapsed) / idx
+            remaining = len(records) - idx
+            eta_secs = avg_secs * remaining
 
-        if rec.get("llm"):
-            success_count += 1
-        logger.info(
-            "LLM completed %s/%s in %.1fs (avg %.1fs, ETA %s, remaining %s): %s",
-            idx,
-            len(records),
-            elapsed,
-            avg_secs,
-            _fmt_eta(eta_secs),
-            remaining,
-            title,
-        )
-        processed.append(rec)
+            if rec.get("llm"):
+                success_count += 1
+            logger.info(
+                "LLM completed %s/%s in %.1fs (avg %.1fs, ETA %s, remaining %s): %s",
+                idx,
+                len(records),
+                elapsed,
+                avg_secs,
+                _format_eta(eta_secs),
+                remaining,
+                title,
+            )
+            processed.append(rec)
+            progress_state["current"] = idx
+            progress_state["status"] = f"{idx}/{len(records)} {_format_eta(eta_secs)} | {short_title}"
+    finally:
+        progress_state["current"] = len(records) if records else 0
+        progress_state["status"] = f"{len(records)}/{len(records)} {_format_eta(0)}"
+        stop_live_progress(animator[0], animator[1], wait=True)
     today_stamp = datetime.now().strftime("%Y%m%d")
     ndjson_path = output_dir / f"{RAWTEXT_LLM_PREFIX}{today_stamp}.ndjson"
     md_path = output_dir / f"{LLM_MD_PREFIX}{today_stamp}.md"

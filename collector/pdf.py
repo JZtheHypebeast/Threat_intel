@@ -26,6 +26,9 @@ from .progress import animate_progress
 from .LLM import _call_llm
 from . import delivery
 
+# =========================
+# ===== Module Config =====
+# =========================
 SUMMARY_SENTENCES = 3
 
 # =========================

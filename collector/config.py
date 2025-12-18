@@ -1,10 +1,12 @@
+# =========================
+# === Standard Library ====
+# =========================
 import json
 import logging
 import os
 import sys
-from datetime import datetime
-
 import warnings
+from datetime import datetime
 
 try:
     from urllib3.exceptions import NotOpenSSLWarning
@@ -16,11 +18,15 @@ except Exception:
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*SWIG.*")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"fitz.*")
 
+# =========================
+# ===== Third-Party =======
+# =========================
 import requests
 
 # =========================
-# ===== Path Constants ====
+# ===== Module Config =====
 # =========================
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_ROOT = os.path.join(BASE_DIR, "results")
 STRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "structured")
@@ -51,9 +57,6 @@ LOGS_DAY_DIR = os.path.join(LOGS_DIR, TODAY_STAMP)
 os.makedirs(LOGS_DAY_DIR, exist_ok=True)
 
 CONFIG = {
-# =========================
-# External APIs
-# =========================
     "VENDORS": os.getenv("TI_VENDORS", None),
     "RSS_FEEDS": os.getenv("TI_RSS_FEEDS", None),
     "NVD_API_BASE": os.getenv(
@@ -66,9 +69,6 @@ CONFIG = {
     "COMMUNITY_KEV_URL": os.getenv(
         "TI_COMMUNITY_KEV_URL", "https://kevin.gtfkd.com/kev"
     ),
-# =========================
-# Output / Logging
-# =========================
     "OUTPUT_DIR_STRUCTURED": STRUCTURED_RUN_DIR,
     "OUTPUT_DIR_UNSTRUCTURED": UNSTRUCTURED_RUN_DIR,
     "OUTPUT_DIR_LLM": LLM_RUN_DIR,
@@ -79,22 +79,13 @@ CONFIG = {
     "USER_AGENT": os.getenv(
         "TI_USER_AGENT", "ThreatIntelCollector/5.0 (+https://example.local)"
     ),
-# =========================
-# Feature Toggles
-# =========================
     "ENABLE_SUMMARIZATION": os.getenv("ENABLE_SUMMARIZATION", "true").lower() == "true",
     "ENABLE_SCORING": os.getenv("ENABLE_SCORING", "true").lower() == "true",
     "EXPORT_NAVIGATOR": os.getenv("EXPORT_NAVIGATOR", "false").lower() == "true",
     "ARCHIVE_TTL_DAYS": int(os.getenv("ARCHIVE_TTL_DAYS", 90)),
-# =========================
-# Concurrency / Windows
-# =========================
     "MAX_WORKERS": int(os.getenv("TI_MAX_WORKERS", 8)),
     "MIN_SENTENCE_WORDS": int(os.getenv("MIN_SENTENCE_WORDS", 5)),
     "MIN_PARAGRAPH_WORDS": int(os.getenv("MIN_PARAGRAPH_WORDS", 20)),
-# =========================
-# HTTP / Networking
-# =========================
     "HTTP_RETRIES_TOTAL": int(os.getenv("TI_HTTP_RETRIES_TOTAL", 3)),
     "HTTP_BACKOFF_FACTOR": float(os.getenv("TI_HTTP_BACKOFF_FACTOR", 0.3)),
     "HTTP_STATUS_FORCELIST": json.loads(
@@ -146,9 +137,6 @@ CONFIG = {
             "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/116.0",
         ]
     ),
-# =========================
-# Parsing / HTML / Extraction
-# =========================
     "INCLUDE_ENTRIES_WITHOUT_DATE": os.getenv(
         "TI_INCLUDE_ENTRIES_WITHOUT_DATE", "true"
     ).lower()
@@ -161,9 +149,6 @@ CONFIG = {
     "CRITICAL_THRESHOLD": float(os.getenv("TI_CRITICAL", 8.5)),
     "INTERESTING_MIN": float(os.getenv("TI_INTERESTING_MIN", 6.5)),
     "INTERESTING_MAX": float(os.getenv("TI_INTERESTING_MAX", 8.5)),
-# =========================
-# SIEM / Delivery
-# =========================
     "SIEM_ENABLED": os.getenv("TI_SIEM_ENABLED", "false").lower() == "true",
     "SIEM_TYPE": os.getenv("TI_SIEM_TYPE", "elastic"),
     "ELASTIC_ENDPOINT": os.getenv("TI_ELASTIC_ENDPOINT", "http://localhost:9200"),
@@ -175,20 +160,105 @@ CONFIG = {
     "SIEM_MAX_RETRIES": int(os.getenv("TI_SIEM_MAX_RETRIES", 3)),
     "SIEM_TIMEOUT": int(os.getenv("TI_SIEM_TIMEOUT", 15)),
     "SIEM_DRY_RUN": os.getenv("TI_SIEM_DRY_RUN", "true").lower() == "true",
-# =========================
-# LLM / Ollama
-# =========================
     "LLM_REQUEST_TIMEOUT": int(os.getenv("TI_LLM_REQUEST_TIMEOUT", 420)),
     "OLLAMA_HOST": os.getenv("TI_OLLAMA_HOST", "http://localhost:11434"),
     "LLM_MODEL": os.getenv("TI_LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1")),
     "LLM_ENABLED": os.getenv("TI_LLM_ENABLED", "true").lower() == "true",
     "LLM_TEMPERATURE": float(os.getenv("TI_LLM_TEMPERATURE", 0.2)),
     "EXCLUDED_SOFTWARE": json.loads(os.getenv("TI_EXCLUDED_SOFTWARE", "[]")),
+
+    "GEOFEED_ENABLED": os.getenv("TI_GEOFEED_ENABLED", "false").lower() == "true",
+
+    "GEOFEED_MIN_SCORE": float(os.getenv("TI_GEOFEED_MIN_SCORE", 3.0)),
+
+    "GEOFEED_MAX_ITEMS_PER_FEED": int(os.getenv("TI_GEOFEED_MAX_ITEMS_PER_FEED", 60)),
+    "GEOFEED_REQUEST_TIMEOUT": int(os.getenv("TI_GEOFEED_REQUEST_TIMEOUT", 25)),
+
+    "GEOFEED_USE_OLLAMA": os.getenv("TI_GEOFEED_USE_OLLAMA", "true").lower() == "true",
+    "GEOFEED_OLLAMA_MODEL": os.getenv(
+        "TI_GEOFEED_OLLAMA_MODEL",
+        os.getenv("TI_LLM_MODEL", "llama3.1"),
+    ),
+    "GEOFEED_ADD_LLM_SUMMARY": os.getenv("TI_GEOFEED_ADD_LLM_SUMMARY", "true").lower() == "true",
+    "GEOFEED_LLM_SUMMARY_MAX_CHARS": int(os.getenv("TI_GEOFEED_LLM_SUMMARY_MAX_CHARS", 280)),
+
+
+    "GEOFEED_RSS_FEEDS": json.loads(os.getenv("TI_GEOFEED_RSS_FEEDS", "null"))
+    or [
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+%22United+States%22)+(war+OR+military+OR+escalation+OR+ultimatum+OR+retaliation)+when:7d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+AND+%22United+States%22)+(sanctions+OR+embargo+OR+asset+freeze+OR+designation+OR+secondary+sanctions)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+AND+%22United+States%22)+(navy+OR+warship+OR+destroyer+OR+%22carrier+strike+group%22+OR+deployment+OR+military+posture)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+%22United+States%22)+(airspace+OR+NOTAM+OR+no-fly+OR+intercept+OR+fighter+OR+drone)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Guyana+OR+Venezuela)+(Essequibo+OR+Esequibo+OR+border+OR+incursion+OR+clash+OR+mobilization)+when:30d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Guyana+OR+Suriname)+(offshore+OR+oil+OR+rig+OR+platform+OR+FPSO+OR+%22Stabroek+Block%22)+(attack+OR+sabotage+OR+seized+OR+naval)+when:30d&hl=en-US&gl=US&ceid=US:en",
+    ],
+
+    "GEOFEED_WATCHLIST_LOCATIONS": json.loads(os.getenv("TI_GEOFEED_WATCHLIST_LOCATIONS", "null"))
+    or [
+        "Venezuela", "Guyana", "Suriname", "United States",
+        "Essequibo", "Esequibo",
+        "Georgetown", "Paramaribo", "Caracas",
+        "Orinoco", "Cuyuni",
+        "Stabroek", "Stabroek Block",
+        "Guyana-Venezuela border",
+        "Caribbean", "Caribbean Sea",
+    ],
+
+    "GEOFEED_WATCHLIST_ASSETS": json.loads(os.getenv("TI_GEOFEED_WATCHLIST_ASSETS", "null"))
+    or [
+        "port", "airport", "pipeline", "refinery", "oil terminal",
+        "offshore platform", "rig", "FPSO",
+        "coast guard", "naval base", "air base",
+        "power plant", "substation",
+    ],
+
+    "GEOFEED_SIGNAL_WEIGHTS": json.loads(os.getenv("TI_GEOFEED_SIGNAL_WEIGHTS", "null"))
+    or {
+        "airstrike": 4, "missile": 4, "drone strike": 3, "shelling": 4, "artillery": 4,
+        "incursion": 4, "border clash": 4,
+
+        "carrier strike group": 5,
+        "aircraft carrier": 5,
+        "warship": 3,
+        "destroyer": 3,
+        "naval deployment": 4,
+        "troop deployment": 4,
+        "military buildup": 4,
+        "mobilization": 4,
+        "conscription": 4,
+        "state of emergency": 3,
+        "martial law": 4,
+
+        "airspace closed": 4,
+        "notam": 3,
+        "no-fly": 4,
+        "intercept": 3,
+
+        "sanctions": 3,
+        "asset freeze": 4,
+        "embargo": 4,
+        "secondary sanctions": 5,
+        "designation": 3,
+        "expels diplomats": 4,
+        "embassy closure": 4,
+    },
+
+    "GEOFEED_AMPLIFIERS": json.loads(os.getenv("TI_GEOFEED_AMPLIFIERS", "null"))
+    or {
+        "port": 1, "airport": 1, "pipeline": 2, "refinery": 2, "oil terminal": 2,
+        "offshore": 1, "rig": 2, "fpso": 2,
+        "evacuation": 2, "killed": 2, "casualties": 2, "injured": 1,
+        "sanctions": 1,  # additive if already signaled
+    },
+
+    "GEOFEED_DAMPENERS": json.loads(os.getenv("TI_GEOFEED_DAMPENERS", "null"))
+    or {
+        "exercise": 2, "drill": 2, "training": 2,
+        "opinion": 2, "editorial": 2,
+        "anniversary": 3,
+    },
 }
 
-# =========================
-# VENDORS
-# =========================
 if not CONFIG["VENDORS"]:
     CONFIG["VENDORS"] = [
         "Microsoft",
@@ -237,17 +307,11 @@ if not CONFIG["VENDORS"]:
         "Forti",
     ]
 
-# =========================
-# EXCLUDED SOFTWARE / VENDORS
-# =========================
 if not CONFIG["EXCLUDED_SOFTWARE"]:
     CONFIG["EXCLUDED_SOFTWARE"] = [
         "JOIN"
     ]
 
-# =========================
-# FEEDS
-# =========================
 if not CONFIG["RSS_FEEDS"]:
     CONFIG["RSS_FEEDS"] = [
         "https://gbhackers.com/feed/",
@@ -261,6 +325,9 @@ if not CONFIG["RSS_FEEDS"]:
         "https://www.zerodayinitiative.com/rss/published/",
     ]
 
+# =========================
+# ======== Logging ========
+# =========================
 file_handler = logging.FileHandler(CONFIG["LOG_FILE"])
 file_handler.setLevel(logging.INFO)
 

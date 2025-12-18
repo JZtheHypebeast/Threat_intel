@@ -1,10 +1,12 @@
+# =========================
+# === Standard Library ====
+# =========================
+import os
 import shutil
 import sys
+import threading
 import time
 from typing import Optional
-import threading
-import os
-import io
 
 # =========================
 # ===== Module Config =====
@@ -17,6 +19,9 @@ DEFAULT_ANIMATE_DELAY = 0.05
 DEFAULT_LIVE_DELAY = 0.08
 
 
+# =========================
+# ======== Helpers ========
+# =========================
 def _terminal_width(default=80) -> int:
     try:
         cols = shutil.get_terminal_size().columns

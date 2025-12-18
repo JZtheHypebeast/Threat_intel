@@ -4,10 +4,11 @@ from __future__ import annotations
 # === Standard Library ====
 # =========================
 import argparse
+import importlib.util
+import os
+import subprocess
 import sys
 import warnings
-import subprocess
-import os
 
 # =========================
 # ====== Local App ========
@@ -15,7 +16,7 @@ import os
 warnings.filterwarnings("ignore", category=Warning, module=r"urllib3.*")
 from .config import logger, mute_console, unmute_console
 from .CVE import run_structured_collection
-from .fetch import run_unstructured_rss_analysis, run_fetch_rawtext, run_fetch
+from .fetch import run_fetch
 from .pdf import run_pdf_analysis as _run_unstructured_pdf_analysis
 from .LLM import run_llm_rawtext
 from .reporting import run_reporting
@@ -41,15 +42,17 @@ BANNER = r"""
 Threat Intel Collector — Created by Marc R. Kock
 """
 
-
 # =========================
-# ===== Console Output ====
+# ======= Helpers =========
 # =========================
 def _print_banner() -> None:
     logger.info(BANNER)
 
-
 def _print_menu(current_hours: int) -> None:
+    geofeed_line = ""
+    if _has_geofeed():
+        geofeed_line = "|-- geofeed          :: Run GeoFeed geopolitical scanner (LLM summary if enabled)\n"
+
     menu = f"""
 --------------------------------------------------------------
 Threat Intel Collector Menu
@@ -63,16 +66,15 @@ Help:
 
 Modules:
 |-- structured       :: Run structured CVE/KEV collection
-|-- unstructured     :: Fetch RSS articles to build rawtext (no enrichment)
-|-- pdf <PATH>       :: Run PDF extraction/enrichment on PATH
-|-- llm              :: Run LLM rawtext translation
-|-- reporting        :: Build cumulative LLM-based report (2/7/14/30 days)
+|-- unstructured     :: Fetch RSS articles + build rawtext (no enrichment)
+|-- llm              :: Run LLM enrichment on rawtext
+{geofeed_line}|-- reporting        :: Build cumulative LLM-based report (2/7/14/30 days)
 |-- tests            :: Run unit tests
+|-- pdf              :: Run PDF extraction/enrichment on data/PDF folder
 |-- all              :: Run structured + fetch + llm
 --------------------------------------------------------------
 """
     print(menu)
-
 
 def _prompt_hours(current_hours: int) -> int:
     prompt = f"Hours to look back (press Enter for default {current_hours}h): "
@@ -121,7 +123,24 @@ def _prompt_fetch_before_llm() -> bool:
         return True
     return False
 
+def _has_geofeed() -> bool:
+    pkg = __package__ or ""
+    mod = f"{pkg}.geofeed" if pkg else "geofeed"
+    return importlib.util.find_spec(mod) is not None
 
+
+def _run_geofeed(hours: int) -> None:
+    pkg = __package__ or ""
+    mod = f"{pkg}.geofeed" if pkg else "geofeed"
+    if importlib.util.find_spec(mod) is None:
+        logger.warning("GeoFeed module not found (geofeed.py missing); skipping")
+        return
+    logger.info("Launching GeoFeed (standalone module)")
+    subprocess.run([sys.executable, "-m", mod, "--hours", str(hours)], check=False)
+
+# =========================
+# ======= Runner ==========
+# =========================
 def _interactive_loop(default_hours: int, skip_history: bool) -> None:
     hours = default_hours
     while True:
@@ -179,6 +198,10 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
                 run_fetch(hours=chosen_hours)
             run_llm_rawtext(hours=None)
 
+        elif key == "geofeed":
+            chosen_hours = _prompt_hours(hours)
+            _run_geofeed(chosen_hours)
+
         elif key == "reporting":
             logger.info("Building cumulative LLM-based report")
             days = _prompt_reporting_period()
@@ -219,6 +242,7 @@ def main() -> None:
     parser.add_argument("--unstructured", action="store_true")
     parser.add_argument("--unstructured-pdf")
     parser.add_argument("--llm", action="store_true")
+    parser.add_argument("--geofeed", action="store_true", help="Run GeoFeed geopolitical local-news scanner (if present)")
     parser.add_argument("--reporting", type=int, help="Build cumulative report over N days (2/7/14/30)")
     parser.add_argument("--no-history", action="store_true")
     parser.add_argument("-h", "--help", dest="show_help", action="store_true")
@@ -268,6 +292,10 @@ def main() -> None:
             if args.llm:
                 logger.info("Running LLM rawtext translation (no hours filter)")
                 run_llm_rawtext(hours=None)
+                ran_any = True
+
+            if args.geofeed:
+                _run_geofeed(hours)
                 ran_any = True
 
             if args.reporting:

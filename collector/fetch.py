@@ -1,21 +1,32 @@
 from __future__ import annotations
 
+# =========================
+# === Standard Library ====
+# =========================
 import calendar
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 
+# =========================
+# ===== Third-Party =======
+# =========================
+from bs4 import BeautifulSoup
+from dateutil import parser as dtparser
 import feedparser
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from bs4 import BeautifulSoup
-from dateutil import parser as dtparser
 
-from .config import CONFIG, logger, mute_console
+# =========================
+# ====== Local App ========
+# =========================
+from .config import CONFIG, logger
 from .progress import progress_bar, start_live_progress, stop_live_progress
+
 # =========================
 # ===== Module Config =====
 # =========================
@@ -41,6 +52,9 @@ USER_AGENT = CONFIG.get("HTTP_USER_AGENT") or CONFIG.get(
 _SESSION: requests.Session | None = None
 
 
+# =========================
+# ======== Helpers ========
+# =========================
 def _http_session() -> requests.Session:
     global _SESSION
     if _SESSION is not None:
@@ -72,6 +86,18 @@ def _dehyphenate_text(text: str) -> str:
     text = text.replace("\r", "\n")
     text = "\n".join(ln.rstrip() for ln in text.splitlines())
     return text
+
+
+def _format_eta(seconds: float) -> str:
+    if seconds <= 0:
+        return "ETA 00s"
+    mins, secs = divmod(int(seconds), 60)
+    hours, mins = divmod(mins, 60)
+    if hours:
+        return f"ETA {hours}h{mins:02d}m"
+    if mins:
+        return f"ETA {mins:02d}m{secs:02d}s"
+    return f"ETA {secs:02d}s"
 
 
 def html_to_main_text(html: str, *, strip_boilerplate: bool = True) -> str:
@@ -209,6 +235,11 @@ def generate_actionable_items(intel: dict) -> dict:
     return {"recommended_actions": actions, "mitigation_snippets": snippets}
 
 
+# =========================
+# ========= Run ===========
+# =========================
+
+
 def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
     feeds = CONFIG.get("RSS_FEEDS", []) or []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -268,6 +299,7 @@ def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
         animator = start_live_progress(
             prefix=PROGRESS_PREFIX_ARTICLES, total=total_entries, shared=shared
         )
+    start_time = time.time()
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS_DEFAULT) as ex:
         futures = {
@@ -277,7 +309,9 @@ def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
         completed = 0
         for fut in as_completed(futures):
             completed += 1
-            status = f"fetched:{completed}/{total_entries}"
+            elapsed = time.time() - start_time
+            remaining = max(total_entries - completed, 0) * (elapsed / max(completed, 1))
+            status = f"{completed}/{total_entries} {_format_eta(remaining)}"
             try:
                 shared["current"] = completed
                 shared["status"] = status

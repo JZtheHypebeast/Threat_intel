@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# =========================
+# === Standard Library ====
+# =========================
 import json
 import logging
 import math
@@ -10,14 +13,27 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# =========================
+# ===== Third-Party =======
+# =========================
 import requests
 
+# =========================
+# ====== Local App ========
+# =========================
 from .config import CONFIG
 from .progress import start_live_progress, stop_live_progress
 
 logger = logging.getLogger(__name__)
 
+# =========================
+# ===== Module Config =====
+# =========================
 REPORT_FILE_PREFIX = "ManagementReport"
+
+# =========================
+# ======== Helpers ========
+# =========================
 
 
 def _reporting_output_dir() -> Path:
@@ -33,7 +49,9 @@ def _llm_root_dir() -> Path:
         return Path(out_cfg)
     return Path.cwd() / "results" / "llm"
 
-
+# =========================
+# ======= LLM I/O =========
+# =========================
 def _ollama_host() -> str:
     return str(CONFIG.get("LLM_HOST", os.getenv("OLLAMA_HOST", "http://localhost:11434"))).rstrip("/")
 
@@ -552,6 +570,9 @@ def _write_outputs(out_dir: Path, period_label: str, markdown_text: str, meta: D
     return {"markdown": str(md_path), "pdf": str(pdf_path), "json": str(json_path)}
 
 
+# =========================
+# ========= Runner ========
+# =========================
 def run_reporting(period_days: int) -> Dict[str, Any]:
     records = _collect_llm_records(period_days)
     if not records:
