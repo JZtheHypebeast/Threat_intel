@@ -167,6 +167,10 @@ CONFIG = {
     "LLM_TEMPERATURE": float(os.getenv("TI_LLM_TEMPERATURE", 0.2)),
     "EXCLUDED_SOFTWARE": json.loads(os.getenv("TI_EXCLUDED_SOFTWARE", "[]")),
 
+# =========================
+# ======= GeoFeed =========
+# =========================
+
     "GEOFEED_ENABLED": os.getenv("TI_GEOFEED_ENABLED", "false").lower() == "true",
 
     "GEOFEED_MIN_SCORE": float(os.getenv("TI_GEOFEED_MIN_SCORE", 3.0)),
@@ -182,80 +186,226 @@ CONFIG = {
     "GEOFEED_ADD_LLM_SUMMARY": os.getenv("TI_GEOFEED_ADD_LLM_SUMMARY", "true").lower() == "true",
     "GEOFEED_LLM_SUMMARY_MAX_CHARS": int(os.getenv("TI_GEOFEED_LLM_SUMMARY_MAX_CHARS", 280)),
 
-
     "GEOFEED_RSS_FEEDS": json.loads(os.getenv("TI_GEOFEED_RSS_FEEDS", "null"))
     or [
+        # --- Google News (baseline aggregation) ---
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+%22United+States%22)+(war+OR+military+OR+escalation+OR+ultimatum+OR+retaliation)+when:7d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+AND+%22United+States%22)+(sanctions+OR+embargo+OR+asset+freeze+OR+designation+OR+secondary+sanctions)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+AND+%22United+States%22)+(navy+OR+warship+OR+destroyer+OR+%22carrier+strike+group%22+OR+deployment+OR+military+posture)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+%22United+States%22)+(airspace+OR+NOTAM+OR+no-fly+OR+intercept+OR+fighter+OR+drone)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Guyana+OR+Venezuela)+(Essequibo+OR+Esequibo+OR+border+OR+incursion+OR+clash+OR+mobilization)+when:30d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Guyana+OR+Suriname)+(offshore+OR+oil+OR+rig+OR+platform+OR+FPSO+OR+%22Stabroek+Block%22)+(attack+OR+sabotage+OR+seized+OR+naval)+when:30d&hl=en-US&gl=US&ceid=US:en",
+
+        # --- AIR / FLIGHT / AVIATION (military & ISR) ---
+        "https://theaviationist.com/feed/",
+        "https://www.flightradar24.com/blog/feed/",
+        "https://www.adsbexchange.com/feed/",
+
+        # --- MARITIME / NAVAL / SANCTIONS SHIPPING ---
+        "https://news.usni.org/feed",
+        "https://www.maritime-executive.com/rss",
+        "https://gcaptain.com/feed/",
+        "https://blog.marinetraffic.com/feed/",
+
+        # --- LAND / GROUND / MILITARY POSTURE ---
+        "https://www.understandingwar.org/rss.xml",
+        "https://www.oryxspioenkop.com/feeds/posts/default",
+        "https://warontherocks.com/feed/",
+
+        # --- MULTI-DOMAIN / ESCALATION MAPS ---
+        "https://liveuamap.com/rss",
+        "https://liveuamap.com/en/rss/americas",
+        "https://www.bellingcat.com/feed/",
+        "https://www.crisis24.com/rss",
     ],
+
+    # ---------------------------
+    # IMPROVED CONFIGURABLES
+    # ---------------------------
 
     "GEOFEED_WATCHLIST_LOCATIONS": json.loads(os.getenv("TI_GEOFEED_WATCHLIST_LOCATIONS", "null"))
     or [
+        # Core
         "Venezuela", "Guyana", "Suriname", "United States",
-        "Essequibo", "Esequibo",
-        "Georgetown", "Paramaribo", "Caracas",
-        "Orinoco", "Cuyuni",
-        "Stabroek", "Stabroek Block",
-        "Guyana-Venezuela border",
+        "Colombia", "Brazil", "Trinidad and Tobago",
+
+        # Disputed area & spelling variants
+        "Essequibo", "Esequibo", "Guayana Esequiba",
+
+        # Key cities / political nodes
+        "Caracas", "Georgetown", "Paramaribo",
+        "Maracaibo", "Puerto La Cruz", "Barcelona (Venezuela)", "Maturín",
+        "Ciudad Guayana", "Puerto Ordaz", "San Félix",
+        "Ciudad Bolívar", "Tumeremo",
+
+        # Border / region cues
+        "Guyana-Venezuela border", "Cuyuni", "Cuyuní", "Orinoco", "Orinoco River",
+        "Bolívar (state)", "Delta Amacuro", "Anzoátegui", "Zulia",
+        "Barima-Waini", "Cuyuni-Mazaruni", "Potaro-Siparuni",
+
+        # Maritime / basin / offshore cues
         "Caribbean", "Caribbean Sea",
+        "Gulf of Paria", "Atlantic Ocean",
+        "Orinoco Delta",
+        "Stabroek", "Stabroek Block",
+        "Liza", "Payara", "Yellowtail",
+        "Demerara", "Demerara River",
     ],
+
 
     "GEOFEED_WATCHLIST_ASSETS": json.loads(os.getenv("TI_GEOFEED_WATCHLIST_ASSETS", "null"))
     or [
-        "port", "airport", "pipeline", "refinery", "oil terminal",
-        "offshore platform", "rig", "FPSO",
-        "coast guard", "naval base", "air base",
-        "power plant", "substation",
+        # Transport & nodes
+        "port", "harbor", "terminal", "airport", "runway", "airfield", "air base",
+        "border crossing", "checkpoint", "bridge", "highway", "rail", "river crossing",
+
+        # Energy / critical infrastructure
+        "pipeline", "refinery", "oil terminal", "gas plant", "LNG", "compressor station",
+        "offshore platform", "platform", "rig", "drillship", "FPSO", "floating production",
+        "subsea", "wellhead", "export terminal",
+
+        # Security / military sites
+        "naval base", "coast guard", "garrison", "barracks", "forward operating base",
+        "radar", "air defense", "SAM site", "missile battery", "command center",
+        "ammunition depot", "weapons depot",
+
+        # Cyber/comm-ish (often relevant in escalation)
+        "power plant", "substation", "transmission line",
+        "telecom", "internet outage", "cell tower", "undersea cable",
     ],
+
 
     "GEOFEED_SIGNAL_WEIGHTS": json.loads(os.getenv("TI_GEOFEED_SIGNAL_WEIGHTS", "null"))
     or {
-        "airstrike": 4, "missile": 4, "drone strike": 3, "shelling": 4, "artillery": 4,
-        "incursion": 4, "border clash": 4,
+        # Kinetic / direct conflict
+        "airstrike": 4, "missile": 4, "missile strike": 4, "rocket": 3,
+        "drone strike": 3, "uav strike": 3, "shelling": 4, "artillery": 4,
+        "bombing": 4, "strike package": 3,
+        "shootdown": 5, "shot down": 5,
+        "killed": 3, "casualties": 3,
 
+        # Border / territorial escalation
+        "incursion": 4, "border clash": 4, "border violation": 4,
+        "cross-border": 4, "infiltration": 4,
+        "seized territory": 5, "annexation": 5,
+        "clash": 3, "skirmish": 3,
+
+        # Maritime escalation / interdiction
+        "blockade": 5, "naval blockade": 5,
+        "interdiction": 4, "boarded": 4, "boarding": 4,
+        "seized vessel": 5, "ship seized": 5, "detained crew": 4,
+        "escort": 3, "convoy": 3,
+
+        # Force posture / deployments
         "carrier strike group": 5,
         "aircraft carrier": 5,
         "warship": 3,
         "destroyer": 3,
+        "frigate": 3,
+        "submarine": 4,
         "naval deployment": 4,
+        "task force": 4,
         "troop deployment": 4,
         "military buildup": 4,
         "mobilization": 4,
+        "partial mobilization": 4,
         "conscription": 4,
+        "call-up": 4,
         "state of emergency": 3,
         "martial law": 4,
+        "curfew": 3,
 
+        # Airspace / aviation triggers
         "airspace closed": 4,
+        "airspace closure": 4,
         "notam": 3,
         "no-fly": 4,
         "intercept": 3,
+        "scramble": 3,
+        "violated airspace": 4,
+        "air defense": 3,
 
+        # Diplomatic crisis
+        "expels diplomats": 4,
+        "expelled diplomats": 4,
+        "embassy closure": 4,
+        "diplomatic relations severed": 5,
+        "recall ambassador": 4,
+
+        # Sanctions / economic coercion
         "sanctions": 3,
         "asset freeze": 4,
         "embargo": 4,
         "secondary sanctions": 5,
         "designation": 3,
-        "expels diplomats": 4,
-        "embassy closure": 4,
+        "sdn": 4,
+        "ofac": 4,
+        "general license": 3,
+        "license revoked": 4,
+        "waiver": 3,
+
+        # Hybrid / gray-zone
+        "sabotage": 4,
+        "attack on infrastructure": 4,
+        "explosion": 3,
+        "mysterious explosion": 2,
+        "internet shutdown": 3,
+        "communications blackout": 3,
     },
+
 
     "GEOFEED_AMPLIFIERS": json.loads(os.getenv("TI_GEOFEED_AMPLIFIERS", "null"))
     or {
-        "port": 1, "airport": 1, "pipeline": 2, "refinery": 2, "oil terminal": 2,
-        "offshore": 1, "rig": 2, "fpso": 2,
-        "evacuation": 2, "killed": 2, "casualties": 2, "injured": 1,
-        "sanctions": 1,  # additive if already signaled
+        # Critical infrastructure multipliers
+        "port": 1, "harbor": 1, "terminal": 1,
+        "airport": 1, "airfield": 1, "runway": 1,
+        "pipeline": 2, "refinery": 2, "oil terminal": 2,
+        "gas plant": 2, "lng": 2,
+        "offshore": 1, "rig": 2, "drillship": 2, "fpso": 2,
+
+        # Military site multipliers
+        "naval base": 2, "air base": 2, "garrison": 2,
+        "radar": 2, "air defense": 2, "sam": 2, "missile battery": 2,
+        "ammunition depot": 2, "weapons depot": 2,
+
+        # Human impact / urgency
+        "evacuation": 2, "evacuation order": 3,
+        "killed": 2, "dead": 2, "fatalities": 2,
+        "casualties": 2, "injured": 1, "wounded": 1,
+        "hostage": 3, "detained": 2,
+
+        # Escalation language
+        "ultimatum": 2,
+        "retaliation": 2,
+        "warning shot": 2,
+
+        # Sanctions additive
+        "sanctions": 1,
+
+        # “Scale” cues
+        "battalion": 2, "brigade": 2, "division": 3,
+        "squadron": 2, "task force": 2, "fleet": 3,
+        "carrier": 3,
     },
+
 
     "GEOFEED_DAMPENERS": json.loads(os.getenv("TI_GEOFEED_DAMPENERS", "null"))
     or {
-        "exercise": 2, "drill": 2, "training": 2,
-        "opinion": 2, "editorial": 2,
-        "anniversary": 3,
+        # Exercises / routine activity (often noisy)
+        "exercise": 2, "drill": 2, "training": 2, "wargame": 2,
+        "routine": 2, "scheduled": 2,
+
+        # Low-signal content types
+        "opinion": 2, "editorial": 2, "op-ed": 2,
+        "analysis": 1, "explainer": 2, "background": 2,
+        "interview": 2, "podcast": 3,
+        "documentary": 3, "book": 3,
+
+        # Time-based / commemorative noise
+        "anniversary": 3, "memorial": 3, "history": 2,
+
+        # Market chatter
+        "stocks": 2, "markets": 2, "earnings": 3,
     },
 }
 
