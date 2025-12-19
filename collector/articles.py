@@ -360,6 +360,7 @@ def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
     shared = {"current": 0, "status": ""}
     animator = None
     if total_entries:
+        shared["status"] = f"0/{total_entries} {_format_eta(0)}"
         animator = start_live_progress(
             prefix=PROGRESS_PREFIX_ARTICLES, total=total_entries, shared=shared
         )
@@ -375,7 +376,9 @@ def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
             completed += 1
             elapsed = time.time() - start_time
             remaining = max(total_entries - completed, 0) * (elapsed / max(completed, 1))
-            status = f"{completed}/{total_entries} {_format_eta(remaining)}"
+            link, title, pub_dt, summary = futures[fut]
+            short_title = _shorten_title(title or "(no title)")
+            status = f"{completed}/{total_entries} {_format_eta(remaining)} | {short_title}"
             try:
                 shared["current"] = completed
                 shared["status"] = status
@@ -383,8 +386,6 @@ def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
                 progress_bar(
                     completed, total_entries, prefix=PROGRESS_PREFIX_ARTICLES, status=status
                 )
-
-            link, title, pub_dt, summary = futures[fut]
             text = ""
             try:
                 meta = fut.result()
@@ -407,6 +408,11 @@ def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
             records.append(record)
 
     if animator:
+        try:
+            shared["current"] = total_entries
+            shared["status"] = f"{total_entries}/{total_entries} {_format_eta(0)}"
+        except Exception:
+            pass
         try:
             stop_live_progress(animator[0], animator[1])
         except Exception:
@@ -1073,7 +1079,7 @@ def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     avg_secs = 0.0
     success_count = 0
     progress_state = {"current": 0, "status": ""}
-    animator = start_live_progress("LLM", len(records), progress_state)
+    animator = start_live_progress("Articles LLM", len(records), progress_state)
     try:
         for idx, rec in enumerate(records, start=1):
             title = rec.get("title") or "(no title)"

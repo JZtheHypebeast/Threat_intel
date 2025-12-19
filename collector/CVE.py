@@ -538,11 +538,11 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
     try:
         end = datetime.now(timezone.utc)
         start = end - timedelta(hours=hours)
-        progress_bar(0, PROGRESS_TOTAL_STEPS, prefix="Structured: initializing")
+        progress_bar(0, PROGRESS_TOTAL_STEPS, prefix="CVE: initializing")
 
         animate_progress("Fetching KEV sources", 15)
         kev_ids = fetch_kev_sources()
-        progress_bar(1, PROGRESS_TOTAL_STEPS, prefix="Structured: KEV fetched")
+        progress_bar(1, PROGRESS_TOTAL_STEPS, prefix="CVE: KEV fetched")
 
         logger.info(
             "Fetching NVD windows: published=%s modified=%s",
@@ -575,9 +575,10 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
         llm_total = total_llm if total_llm else 1
         llm_state = {"current": 0, "status": ""}
         llm_start = time.time()
-        llm_animator = start_live_progress("Structured LLM", llm_total, llm_state)
+        llm_state["status"] = f"0/{llm_total} {_format_eta(0)}"
+        llm_animator = start_live_progress("CVE LLM", llm_total, llm_state)
 
-        def _update_llm_progress(done: int) -> None:
+        def _update_llm_progress(done: int, current_cve: str = "") -> None:
             llm_state["current"] = min(done, llm_total)
             if total_llm > 0:
                 elapsed = time.time() - llm_start
@@ -585,9 +586,12 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 llm_state["status"] = f"{done}/{total_llm} {_format_eta(remaining)}"
             else:
                 llm_state["status"] = f"{done}/{total_llm} {_format_eta(0)}"
+            if current_cve:
+                llm_state["status"] = f"{llm_state['status']} | {current_cve}"
 
         for item in published_data:
             cve = item["cve"]
+            cve_id = cve.get("id") or "Unknown CVE"
             vendor_field = (
                 safe_get(cve, "vendorProject")
                 or safe_get(cve, "sourceIdentifier")
@@ -604,7 +608,7 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     normalized = [p.lower() for p in products]
                     if all(p in EXCLUDED_SOFTWARE for p in normalized):
                         llm_done += 1
-                        _update_llm_progress(llm_done)
+                        _update_llm_progress(llm_done, cve_id)
                         continue
                 entry = normalize_cve(cve, vendor, kev_ids)
                 entry = _llm_refine_cve(entry, cve)
@@ -621,10 +625,11 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
 
                 results[cve["id"]] = entry
             llm_done += 1
-            _update_llm_progress(llm_done)
+            _update_llm_progress(llm_done, cve_id)
 
         for item in modified_data:
             cve = item["cve"]
+            cve_id = cve.get("id") or "Unknown CVE"
             vendor_field = (
                 safe_get(cve, "vendorProject")
                 or safe_get(cve, "sourceIdentifier")
@@ -645,29 +650,29 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     normalized = [p.lower() for p in products]
                     if all(p in EXCLUDED_SOFTWARE for p in normalized):
                         llm_done += 1
-                        _update_llm_progress(llm_done)
+                        _update_llm_progress(llm_done, cve_id)
                         continue
                 entry = normalize_cve(cve, vendor, kev_ids)
                 entry = _llm_refine_cve(entry, cve)
                 entry["modified_only"] = True
                 results[cve["id"]] = entry
             llm_done += 1
-            _update_llm_progress(llm_done)
+            _update_llm_progress(llm_done, cve_id)
 
         progress_bar(
-            3, PROGRESS_TOTAL_STEPS, prefix=f"Structured: {len(results)} vendor CVEs"
+            3, PROGRESS_TOTAL_STEPS, prefix=f"CVE: {len(results)} vendor CVEs"
         )
 
         for feed_cve in rss_hits:
             cve_id = feed_cve["cve"]
             if cve_id in results:
                 llm_done += 1
-                _update_llm_progress(llm_done)
+                _update_llm_progress(llm_done, cve_id)
                 continue
             cve_obj = fetch_nvd_single(cve_id)
             if not cve_obj:
                 llm_done += 1
-                _update_llm_progress(llm_done)
+                _update_llm_progress(llm_done, cve_id)
                 continue
             vendor_field = (
                 safe_get(cve_obj, "vendorProject")
@@ -685,7 +690,7 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     normalized = [p.lower() for p in products]
                     if all(p in EXCLUDED_SOFTWARE for p in normalized):
                         llm_done += 1
-                        _update_llm_progress(llm_done)
+                        _update_llm_progress(llm_done, cve_id)
                         continue
                 entry = normalize_cve(
                     cve_obj, vendor, kev_ids, from_article=True, source=feed_cve["link"]
@@ -705,9 +710,11 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
 
                 results[cve_id] = entry
             llm_done += 1
-            _update_llm_progress(llm_done)
+            _update_llm_progress(llm_done, cve_id)
 
         _update_llm_progress(llm_done)
+        llm_state["current"] = llm_total
+        llm_state["status"] = f"{llm_total}/{llm_total} {_format_eta(0)}"
         stop_live_progress(llm_animator[0], llm_animator[1], wait=True)
         llm_animator = None
 
@@ -745,31 +752,31 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
             elif INTERESTING_MIN <= s < CRITICAL_THRESHOLD:
                 interesting.append(r)
 
-        progress_bar(4, PROGRESS_TOTAL_STEPS, prefix="Structured: Categorized")
+        progress_bar(4, PROGRESS_TOTAL_STEPS, prefix="CVE: categorized")
 
         date_stamp = datetime.now().strftime("%Y%m%d")
         ndjson_path = os.path.join(OUTPUT_DIR, f"StructuredCVEData_{date_stamp}.ndjson")
         try:
-            progress_bar(0, 1, prefix="Write NDJSON")
+            progress_bar(0, 1, prefix="Write CVE NDJSON")
         except Exception:
             pass
         write_jsonl(ndjson_path, records)
         try:
-            progress_bar(1, 1, prefix="Write NDJSON")
+            progress_bar(1, 1, prefix="Write CVE NDJSON")
         except Exception:
             pass
 
         try:
-            progress_bar(0, 1, prefix="Write Markdown")
+            progress_bar(0, 1, prefix="Write CVE Markdown")
         except Exception:
             pass
         generate_markdown(critical, interesting, modified_cves, hours, OUTPUT_DIR)
         try:
-            progress_bar(1, 1, prefix="Write Markdown")
+            progress_bar(1, 1, prefix="Write CVE Markdown")
         except Exception:
             pass
 
-        progress_bar(6, PROGRESS_TOTAL_STEPS, prefix="Structured: done")
+        progress_bar(6, PROGRESS_TOTAL_STEPS, prefix="CVE: done")
 
     finally:
         if llm_animator:

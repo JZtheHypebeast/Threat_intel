@@ -189,12 +189,12 @@ CONFIG = {
     "GEOFEED_RSS_FEEDS": json.loads(os.getenv("TI_GEOFEED_RSS_FEEDS", "null"))
     or [
         # --- Google News (baseline aggregation) ---
-        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+%22United+States%22)+(war+OR+military+OR+escalation+OR+ultimatum+OR+retaliation)+when:7d&hl=en-US&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=(Venezuela+AND+%22United+States%22)+(sanctions+OR+embargo+OR+asset+freeze+OR+designation+OR+secondary+sanctions)+when:14d&hl=en-US&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=(Venezuela+AND+%22United+States%22)+(navy+OR+warship+OR+destroyer+OR+%22carrier+strike+group%22+OR+deployment+OR+military+posture)+when:14d&hl=en-US&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+%22United+States%22)+(airspace+OR+NOTAM+OR+no-fly+OR+intercept+OR+fighter+OR+drone)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(war+OR+military+OR+escalation+OR+ultimatum+OR+retaliation)+when:7d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(sanctions+OR+embargo+OR+asset+freeze+OR+designation+OR+secondary+sanctions)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(navy+OR+warship+OR+destroyer+OR+%22carrier+strike+group%22+OR+deployment+OR+military+posture)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(airspace+OR+NOTAM+OR+no-fly+OR+intercept+OR+fighter+OR+drone)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Guyana+OR+Venezuela)+(Essequibo+OR+Esequibo+OR+border+OR+incursion+OR+clash+OR+mobilization)+when:30d&hl=en-US&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=(Guyana+OR+Suriname)+(offshore+OR+oil+OR+rig+OR+platform+OR+FPSO+OR+%22Stabroek+Block%22)+(attack+OR+sabotage+OR+seized+OR+naval)+when:30d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Guyana+OR+Suriname+OR+Venezuela+OR+Colombia+OR+Aruba)+(offshore+OR+oil+OR+rig+OR+platform+OR+FPSO+OR+%22Stabroek+Block%22)+(attack+OR+sabotage+OR+seized+OR+naval)+when:30d&hl=en-US&gl=US&ceid=US:en",
 
         # --- AIR / FLIGHT / AVIATION (military & ISR) ---
         "https://theaviationist.com/feed/",
@@ -225,21 +225,24 @@ CONFIG = {
 
     "GEOFEED_WATCHLIST_LOCATIONS": json.loads(os.getenv("TI_GEOFEED_WATCHLIST_LOCATIONS", "null"))
     or [
-        # Core
-        "Venezuela", "Guyana", "Suriname", "United States",
-        "Colombia", "Brazil", "Trinidad and Tobago",
+        # Core focus countries
+        "Venezuela", "Guyana", "Suriname", "Colombia", "Aruba", "United States",
+        "USA", "U.S.",
 
         # Disputed area & spelling variants
         "Essequibo", "Esequibo", "Guayana Esequiba",
 
         # Key cities / political nodes
-        "Caracas", "Georgetown", "Paramaribo",
-        "Maracaibo", "Puerto La Cruz", "Barcelona (Venezuela)", "Maturín",
+        "Caracas", "Maracaibo", "Puerto La Cruz", "Maturín",
         "Ciudad Guayana", "Puerto Ordaz", "San Félix",
-        "Ciudad Bolívar", "Tumeremo",
+        "Ciudad Bolívar", "Georgetown", "Paramaribo",
+        "Bogota", "Cartagena", "Barranquilla",
+        "Oranjestad", "San Nicolas",
+        "Washington, DC", "Washington D.C.",
 
         # Border / region cues
-        "Guyana-Venezuela border", "Cuyuni", "Cuyuní", "Orinoco", "Orinoco River",
+        "Guyana-Venezuela border", "Colombia-Venezuela border",
+        "Cuyuni", "Cuyuní", "Orinoco", "Orinoco River",
         "Bolívar (state)", "Delta Amacuro", "Anzoátegui", "Zulia",
         "Barima-Waini", "Cuyuni-Mazaruni", "Potaro-Siparuni",
 

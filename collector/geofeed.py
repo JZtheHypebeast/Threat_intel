@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+import warnings
+try:
+    from urllib3.exceptions import NotOpenSSLWarning
+    warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
+except Exception:
+    pass
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*SWIG.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"fitz.*")
+
 import argparse
 import datetime as dt
 import hashlib
@@ -10,21 +19,30 @@ import re
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
-import warnings
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .progress import start_live_progress, stop_live_progress
+try:
+    from .reporting import _render_pdf
+except Exception:
+    try:
+        from reporting import _render_pdf  # type: ignore
+    except Exception:
+        _render_pdf = None  # type: ignore
 
 RESULTS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+ENV_GEOFEED_RSS_FEEDS = [
+    s.strip()
+    for s in os.getenv("GEOFEED_RSS_FEEDS", "").split(",")
+    if s.strip()
+]
 CFG: Optional[Dict[str, Any]] = None
 CONFIG_IMPORT_ERROR: Optional[Exception] = None
 
 try:
-    from urllib3.exceptions import NotOpenSSLWarning
-
-    warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
     from .config import CONFIG as CFG
     from .config import RESULTS_ROOT as _RESULTS_ROOT
 
@@ -81,7 +99,10 @@ def _http_get(url: str, timeout: int = 25) -> str:
     try:
         return raw.decode("utf-8", errors="replace")
     except Exception:
-        return raw.decode(errors="replace")
+        try:
+            return raw.decode("utf-8-sig", errors="replace")
+        except Exception:
+            return raw.decode("latin-1", errors="replace")
 
 
 def _strip_html(s: str) -> str:
@@ -216,33 +237,35 @@ def escalation_score(
     return score, reasons
 
 
-def extractive_summary(text: str, max_chars: int = 280) -> str:
-    if not text:
-        return ""
-    text = re.sub(r"\s+", " ", text).strip()
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 1].rstrip() + "…"
-
-
 # =========================
 # ===== Summaries =========
 # =========================
 
 
-def _ollama_generate_summary(
+def _ollama_situation_summary(
     host: str,
     model: str,
     title: str,
     text: str,
-    max_chars: int,
     timeout: int,
-) -> Optional[str]:
+) -> Optional[Dict[str, Any]]:
     try:
         prompt = (
-            "Summarize this news article for a geopolitical early-warning brief.\n"
-            "Return ONE paragraph, plain text. Include what happened, where, and who.\n"
-            f"Hard limit: {max_chars} characters.\n\n"
+            "You are a geopolitical early-warning analyst.\n"
+            "Read the article and return JSON ONLY with exactly these keys:\n"
+            "title, llm_summary, domain, event_type, state, change, countries_affected, "
+            "primary_actors, key_indicators, osint_indicators, drivers, risk, watch, "
+            "what_happened, domain_category.\n"
+            "Rules:\n"
+            "- Each value must be a short string; no lists.\n"
+            "- 'title' should be a concise, corrected headline.\n"
+            "- 'llm_summary' should be 1-2 sentences, factual, no speculation.\n"
+            "- 'domain' should be a short label (air, maritime, land, multi, unknown).\n"
+            "- 'event_type' should be a short, concrete label (e.g., border clash, sanctions, naval deployment).\n"
+            "- 'risk' must be one of: Low, Moderate, Elevated, Severe.\n"
+            "- 'domain_category' must be one of: air, maritime, land, multi, unknown.\n"
+            "- Use 'multi' only if two or more domains are clearly present.\n"
+            "- Do not add extra keys.\n\n"
             f"TITLE: {title}\n\n"
             f"TEXT: {text[:6000]}"
         )
@@ -260,7 +283,10 @@ def _ollama_generate_summary(
         s = (data.get("response") or "").strip()
         if not s:
             return None
-        return s[:max_chars].strip()
+        parsed = json.loads(s)
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
     except Exception:
         return None
 
@@ -270,17 +296,24 @@ def _ollama_generate_summary(
 # =========================
 
 
-def _write_ndjson(path: str, rows: List[Dict[str, Any]]) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-
-
 def _write_text(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+def _strip_markdown_inline(text: str) -> str:
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"__([^_]+)__", r"\1", text)
+    text = re.sub(r"_([^_]+)_", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    return text
+
+
+def _prepare_pdf_text(markdown_text: str) -> str:
+    lines = markdown_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    cleaned = [_strip_markdown_inline(line) for line in lines]
+    return "\n".join(cleaned)
 
 
 def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> str:
@@ -308,48 +341,85 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
         return parsed
 
     top = sorted(above, key=_published_key, reverse=True)[:25]
-    lines.append("## Top signals")
+    lines.append("## Entries by Domain")
     lines.append("")
-    for idx, r in enumerate(top, start=1):
-        title = (r.get("title", "") or "").strip()
-        url = (r.get("url", "") or "").strip()
-        score = float(r.get("score", 0.0))
-        if score >= 8.0:
-            severity = "High"
-        elif score >= 6.0:
-            severity = "Medium"
-        elif score >= 4.0:
-            severity = "Low"
-        else:
-            severity = "Info"
-        domain = r.get("domain") or "-"
-        event_type = r.get("event_type") or "-"
-        published = (r.get("published") or "").strip()
-        llm_summary = (r.get("LLM_summary") or "").strip()
+    lines.append("Domains: air (aviation/airspace), maritime (naval/shipping), land (ground/border), multi (more than one domain), unknown.")
+    lines.append("")
+    buckets = {"air": [], "maritime": [], "land": [], "multi": [], "unknown": []}
+    for r in top:
+        situation = r.get("situation") or {}
+        category = str(situation.get("domain_category") or "unknown").lower()
+        if category not in buckets:
+            category = "unknown"
+        buckets[category].append(r)
 
-        if url:
-            lines.append(f"{idx}. **[{title}]({url})**")
-        else:
-            lines.append(f"{idx}. **{title}**")
-        lines.append(f"   - Score: {score:.1f} ({severity}) | Domain: {domain} | Event: {event_type}")
-        if published:
-            lines.append(f"   - Published: {published}")
-        wl = r.get("watchlist") or {}
-        loc = wl.get("locations") or []
-        assets = wl.get("assets") or []
-        if loc or assets:
-            where_parts = []
-            if loc:
-                where_parts.append(", ".join(loc))
-            if assets:
-                where_parts.append(f"assets={', '.join(assets)}")
-            lines.append(f"   - Where/Who: {'; '.join(where_parts)}")
-        if llm_summary:
-            lines.append(f"   - What happened: {llm_summary}")
-        why = r.get("reasons") or []
-        if why:
-            lines.append(f"   - Why it matters: {', '.join(why)}")
+    idx = 1
+    for label in ("air", "maritime", "land", "multi", "unknown"):
+        group = buckets[label]
+        if not group:
+            continue
+        title_label = label.capitalize()
+        lines.append(f"### {title_label}")
         lines.append("")
+        for r in group:
+            situation = r.get("situation") or {}
+            title = (r.get("title", "") or "").strip()
+            url = (r.get("url", "") or "").strip()
+            score = float(r.get("score", 0.0))
+            if score >= 8.0:
+                severity = "High"
+            elif score >= 6.0:
+                severity = "Medium"
+            elif score >= 4.0:
+                severity = "Low"
+            else:
+                severity = "Info"
+            domain = situation.get("domain") or r.get("domain") or "-"
+            event_type = situation.get("event_type") or r.get("event_type") or "-"
+            published = (r.get("published") or "").strip()
+
+            if url:
+                lines.append(f"{idx}. **[{title}]({url})**")
+            else:
+                lines.append(f"{idx}. **{title}**")
+            lines.append(f"   - Score: {score:.1f} ({severity}) | Domain: {domain} | Event: {event_type}")
+            if published:
+                lines.append(f"   - Published: {published}")
+            lines.append(f"   - LLM Summary: {situation.get('llm_summary') or '-'}")
+            lines.append("")
+            lines.append("## Situation Summary")
+            lines.append("")
+            lines.append("**State:**")
+            lines.append(f"_{situation.get('state') or '-'}_")
+            lines.append("")
+            lines.append("**Change:**")
+            lines.append(f"_{situation.get('change') or '-'}_")
+            lines.append("")
+            lines.append("**What happened:**")
+            lines.append(f"_{situation.get('what_happened') or '-'}_")
+            lines.append("")
+            lines.append("**Countries Affected:**")
+            lines.append(f"_{situation.get('countries_affected') or '-'}_")
+            lines.append("")
+            lines.append("**Primary Actors:**")
+            lines.append(f"_{situation.get('primary_actors') or '-'}_")
+            lines.append("")
+            lines.append("**Key Indicators & Signals:**")
+            lines.append(f"_{situation.get('key_indicators') or '-'}_")
+            lines.append("")
+            lines.append("**OSINT Indicators:**")
+            lines.append(f"_{situation.get('osint_indicators') or '-'}_")
+            lines.append("")
+            lines.append("**Drivers:**")
+            lines.append(f"_{situation.get('drivers') or '-'}_")
+            lines.append("")
+            lines.append("**Risk:**")
+            lines.append(f"_{situation.get('risk') or '-'}_")
+            lines.append("")
+            lines.append("**Watch:**")
+            lines.append(f"_{situation.get('watch') or '-'}_")
+            lines.append("")
+            idx += 1
 
     return "\n".join(lines)
 
@@ -371,23 +441,35 @@ def _format_eta(seconds: float) -> str:
     return f"ETA {secs:02d}s"
 
 
+def _shorten_title(title: str, max_len: int = 60) -> str:
+    if not title:
+        return "-"
+    title = str(title).strip()
+    if len(title) <= max_len:
+        return title
+    return title[: max_len - 3].rstrip() + "..."
+
+
 def _update_progress(
     progress_state: Dict[str, Any],
     processed: int,
     total_expected: int,
     started_at: float,
+    item_title: Optional[str] = None,
 ) -> None:
     progress_state["current"] = processed
     if total_expected <= 0:
         return
     elapsed = time.time() - started_at
     remaining = max(total_expected - processed, 0) * (elapsed / max(processed, 1))
-    progress_state["status"] = f"{processed}/{total_expected} {_format_eta(remaining)}"
-
+    status = f"{processed}/{total_expected} {_format_eta(remaining)}"
+    if item_title:
+        status = f"{status} | {_shorten_title(item_title)}"
+    progress_state["status"] = status
 
 def build_argparser() -> argparse.ArgumentParser:
     cfg = _require_config()
-    p = argparse.ArgumentParser(description="GeoFeed collector (NDJSON + markdown summary).")
+    p = argparse.ArgumentParser(description="GeoFeed collector (markdown summary only).")
     p.add_argument("--hours", type=int, default=24)
     p.add_argument("--outdir", type=str, default="")
     p.add_argument(
@@ -399,18 +481,27 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=int, default=int(cfg["GEOFEED_REQUEST_TIMEOUT"]))
     p.add_argument("--max-items", type=int, default=int(cfg["GEOFEED_MAX_ITEMS_PER_FEED"]))
     p.add_argument("--min-score", type=float, default=None)
+    p.add_argument("--pdf", action="store_true", help="Also render the markdown summary as PDF")
     return p
 
 
 def _default_outdir(results_root: str) -> str:
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now()
     return os.path.join(results_root, "geofeed", now.strftime("%Y%m%d"), now.strftime("%H%M%S"))
 
 
-def run_geofeed(hours: int, outdir: str, results_root: str, timeout: int, max_items: int, min_score: Optional[float]) -> int:
+def run_geofeed(
+    hours: int,
+    outdir: str,
+    results_root: str,
+    timeout: int,
+    max_items: int,
+    min_score: Optional[float],
+    render_pdf: bool = False,
+) -> int:
     cfg = _require_config()
 
-    feeds = cfg.get("GEOFEED_RSS_FEEDS") or []
+    feeds = cfg.get("GEOFEED_RSS_FEEDS") or ENV_GEOFEED_RSS_FEEDS
     if not feeds:
         print("No GEOFEED_RSS_FEEDS configured.")
         return 0
@@ -433,14 +524,22 @@ def run_geofeed(hours: int, outdir: str, results_root: str, timeout: int, max_it
     use_ollama = bool(cfg.get("GEOFEED_USE_OLLAMA", False))
     ollama_model = str(cfg.get("GEOFEED_OLLAMA_MODEL", cfg.get("LLM_MODEL")))
     ollama_host = str(cfg.get("OLLAMA_HOST", "http://localhost:11434"))
-    summary_max_chars = int(cfg.get("GEOFEED_LLM_SUMMARY_MAX_CHARS", 280))
     add_llm_summary = bool(cfg.get("GEOFEED_ADD_LLM_SUMMARY", False))
 
     min_score_val = float(min_score if min_score is not None else cfg["GEOFEED_MIN_SCORE"])
 
     rows: List[Dict[str, Any]] = []
     seen_ids = set()
-    total_expected = int(max_items) * len(feeds)
+    feed_items: List[Tuple[str, List[FeedItem]]] = []
+    for feed_url in feeds:
+        try:
+            xml_text = _http_get(feed_url, timeout=timeout)
+            items = _parse_rss(xml_text)[:max_items]
+        except Exception:
+            items = []
+        feed_items.append((feed_url, items))
+
+    total_expected = sum(len(items) for _, items in feed_items)
     progress_state = {"current": 0, "status": ""}
     stop_evt, thread = start_live_progress(
         "GeoFeed", total_expected if total_expected > 0 else 1, progress_state
@@ -449,24 +548,22 @@ def run_geofeed(hours: int, outdir: str, results_root: str, timeout: int, max_it
     processed = 0
 
     try:
-        for feed_url in feeds:
-            try:
-                xml_text = _http_get(feed_url, timeout=timeout)
-                items = _parse_rss(xml_text)[:max_items]
-            except Exception:
-                items = []
-
+        for feed_url, items in feed_items:
             for it in items:
                 pub_dt = _parse_published(it.published)
                 if pub_dt is not None and pub_dt < cutoff:
                     processed += 1
-                    _update_progress(progress_state, processed, total_expected, started_at)
+                    _update_progress(
+                        progress_state, processed, total_expected, started_at, it.title
+                    )
                     continue
 
                 sid = _stable_id(it.title, it.url)
                 if sid in seen_ids:
                     processed += 1
-                    _update_progress(progress_state, processed, total_expected, started_at)
+                    _update_progress(
+                        progress_state, processed, total_expected, started_at, it.title
+                    )
                     continue
                 seen_ids.add(sid)
 
@@ -486,19 +583,15 @@ def run_geofeed(hours: int, outdir: str, results_root: str, timeout: int, max_it
                 loc_hits, asset_hits = find_watchlist_hits(blob, wl_locations, wl_assets)
                 below_threshold = score < min_score_val
 
-                llm_summary: Optional[str] = None
-                if add_llm_summary:
-                    if use_ollama:
-                        llm_summary = _ollama_generate_summary(
-                            host=ollama_host,
-                            model=ollama_model,
-                            title=it.title,
-                            text=page_text,
-                            max_chars=summary_max_chars,
-                            timeout=max(timeout, 45),
-                        )
-                    if not llm_summary:
-                        llm_summary = extractive_summary(page_text, max_chars=summary_max_chars) or None
+                situation: Optional[Dict[str, Any]] = None
+                if add_llm_summary and use_ollama:
+                    situation = _ollama_situation_summary(
+                        host=ollama_host,
+                        model=ollama_model,
+                        title=it.title,
+                        text=page_text,
+                        timeout=max(timeout, 45),
+                    )
 
                 now = dt.datetime.now(dt.timezone.utc)
                 rows.append(
@@ -515,12 +608,14 @@ def run_geofeed(hours: int, outdir: str, results_root: str, timeout: int, max_it
                         "reasons": reasons,
                         "watchlist": {"locations": loc_hits, "assets": asset_hits},
                         "source_feed": feed_url,
-                        "LLM_summary": llm_summary,
+                        "situation": situation,
                     }
                 )
 
                 processed += 1
-                _update_progress(progress_state, processed, total_expected, started_at)
+                _update_progress(
+                    progress_state, processed, total_expected, started_at, it.title
+                )
     finally:
         progress_state["current"] = total_expected if total_expected > 0 else processed
         progress_state["status"] = f"{processed}/{total_expected} {_format_eta(0)}"
@@ -528,14 +623,16 @@ def run_geofeed(hours: int, outdir: str, results_root: str, timeout: int, max_it
 
     rows = sorted(rows, key=lambda r: float(r.get("score", 0.0)), reverse=True)
 
-    run_date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d")
-    ndjson_path = os.path.join(outdir, "geofeed.ndjson")
+    run_date = dt.datetime.now().strftime("%Y%m%d")
     md_path = os.path.join(outdir, f"geofeed_summary_{run_date}.md")
+    pdf_path = os.path.join(outdir, f"geofeed_summary_{run_date}.pdf")
 
-    _write_ndjson(ndjson_path, rows)
-    _write_text(md_path, _make_summary(rows, hours=hours, min_score=min_score_val))
+    summary_text = _make_summary(rows, hours=hours, min_score=min_score_val)
+    _write_text(md_path, summary_text)
+    if render_pdf and _render_pdf is not None:
+        _render_pdf(summary_text, Path(pdf_path))
+        print(f"Wrote PDF -> {pdf_path}")
 
-    print(f"Wrote {len(rows)} items -> {ndjson_path}")
     print(f"Wrote summary -> {md_path}")
     return 0
 
@@ -549,6 +646,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         timeout=args.timeout,
         max_items=args.max_items,
         min_score=args.min_score,
+        render_pdf=args.pdf,
     )
 
 

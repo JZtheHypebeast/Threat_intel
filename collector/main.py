@@ -111,20 +111,39 @@ def _prompt_reporting_period() -> int:
     return 7
 
 
+def _prompt_yes_no(prompt: str, default: bool = False) -> bool:
+    suffix = " (Y/n): " if default else " (y/N): "
+    try:
+        raw = input(prompt + suffix).strip().lower()
+    except EOFError:
+        return default
+    if not raw:
+        return default
+    if raw in ("y", "yes"):
+        return True
+    if raw in ("n", "no"):
+        return False
+    logger.warning("Invalid selection; defaulting to %s", "yes" if default else "no")
+    return default
+
+
 def _has_geofeed() -> bool:
     pkg = __package__ or ""
     mod = f"{pkg}.geofeed" if pkg else "geofeed"
     return importlib.util.find_spec(mod) is not None
 
 
-def _run_geofeed(hours: int) -> None:
+def _run_geofeed(hours: int, render_pdf: bool = False) -> None:
     pkg = __package__ or ""
     mod = f"{pkg}.geofeed" if pkg else "geofeed"
     if importlib.util.find_spec(mod) is None:
         logger.warning("GeoFeed module not found (geofeed.py missing); skipping")
         return
     logger.info("Launching GeoFeed (standalone module)")
-    subprocess.run([sys.executable, "-m", mod, "--hours", str(hours)], check=False)
+    cmd = [sys.executable, "-m", mod, "--hours", str(hours)]
+    if render_pdf:
+        cmd.append("--pdf")
+    subprocess.run(cmd, check=False)
 
 # =========================
 # ======= Runner ==========
@@ -182,7 +201,8 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
 
         elif key == "geofeed":
             chosen_hours = _prompt_hours(hours)
-            _run_geofeed(chosen_hours)
+            render_pdf = _prompt_yes_no("Convert GeoFeed summary to PDF?", default=False)
+            _run_geofeed(chosen_hours, render_pdf=render_pdf)
 
         elif key == "reporting":
             logger.info("Building cumulative LLM-based report")

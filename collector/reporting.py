@@ -4,6 +4,7 @@ from __future__ import annotations
 # === Standard Library ====
 # =========================
 import json
+import re
 import logging
 import math
 import os
@@ -34,8 +35,6 @@ REPORT_FILE_PREFIX = "ManagementReport"
 # =========================
 # ======== Helpers ========
 # =========================
-
-
 def _reporting_output_dir() -> Path:
     out = CONFIG.get("OUTPUT_DIR_REPORTING") or (Path.cwd() / "results" / "reporting")
     p = Path(out)
@@ -115,7 +114,9 @@ def _ollama_json(prompt: str) -> Dict[str, Any]:
     obj = _extract_json_object(txt)
     return obj or {}
 
-
+# =========================
+# ======= Records =========
+# =========================
 def _parse_ndjson(path: Path) -> List[Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
     buf: List[str] = []
@@ -187,7 +188,9 @@ def _collect_llm_records(days: int) -> List[Dict[str, Any]]:
         )
     return out
 
-
+# =========================
+# ======== Scoring ========
+# =========================
 def _priority_score(rec: Dict[str, Any]) -> int:
     llm = rec.get("llm") or {}
     pri = llm.get("priority") or {}
@@ -229,7 +232,9 @@ def _compact_entry_line(rec: Dict[str, Any]) -> str:
     score = _priority_score(rec)
     return f"- score={score} | title={title} | actors={actors} | vendors={vendors} | tags={tags} | summary={summary}"
 
-
+# =========================
+# ======== Metrics ========
+# =========================
 def _compute_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     from collections import Counter
 
@@ -287,6 +292,9 @@ def _compute_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+# =========================
+# ======= LLM Prompts =====
+# =========================
 def _batch_prompt(days: int, batch_lines: List[str], batch_idx: int, batch_total: int) -> str:
     p: List[str] = []
     p.append("You are a threat intelligence analyst writing for non-technical executive management.")
@@ -334,6 +342,9 @@ def _final_prompt(days: int, metrics: Dict[str, Any], batch_summaries: List[Dict
     return "\n".join(p)
 
 
+# =========================
+# ====== Markdown =========
+# =========================
 def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[str, Any], generated_at: str) -> str:
     def slist(x: Any) -> List[str]:
         return [str(i).strip() for i in x] if isinstance(x, list) else []
@@ -478,7 +489,9 @@ def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[s
 
     return "\n".join(lines)
 
-
+# =========================
+# ===== PDF Rendering =====
+# =========================
 def _render_pdf(markdown_text: str, out_path: Path) -> None:
     try:
         import fitz
@@ -486,15 +499,48 @@ def _render_pdf(markdown_text: str, out_path: Path) -> None:
         logger.warning("PyMuPDF not available; cannot render PDF: %s", exc)
         return
 
+    def _strip_inline_md(s: str) -> str:
+        s = re.sub(r"`([^`]+)`", r"\1", s)
+        s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)
+        s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+        s = re.sub(r"_([^_]+)_", r"\1", s)
+        return s
+
+    def _draw_text(page, x, y, txt, fs, bold=False):
+        page.insert_text((x, y), txt, fontsize=fs, fontname="helv")
+        if bold:
+            page.insert_text((x + 0.6, y), txt, fontsize=fs, fontname="helv")
+
+    def _draw_link_lines(text, url, fs, indent=0):
+        nonlocal y
+        clean = _strip_inline_md(text).strip()
+        if not clean:
+            y += lh // 2
+            return
+        width = max(40, wrap_width - (indent // 2))
+        for w in textwrap.wrap(clean, width=width):
+            ensure_space(lh)
+            _draw_text(page, margin + indent, y, w, fs, bold=False)
+            if url:
+                text_w = fitz.get_text_length(w, fontname="helv", fontsize=fs)
+                rect = fitz.Rect(
+                    margin + indent,
+                    y - (fs * 0.8),
+                    margin + indent + text_w,
+                    y + 2,
+                )
+                page.insert_link({"from": rect, "uri": url, "kind": fitz.LINK_URI})
+            y += lh
+
     doc = fitz.open()
     lines = markdown_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
     margin = 44
-    font = "helv"
-    font_bold = "helv"
     fs = 11
     fs_h1 = 16
     fs_h2 = 13
+    fs_h3 = 12
+    fs_h4 = 11
     lh = 14
     wrap_width = int(CONFIG.get("REPORT_PDF_WRAP", 92))
 
@@ -511,52 +557,101 @@ def _render_pdf(markdown_text: str, out_path: Path) -> None:
         y = margin
         max_y = rect.height - margin
 
-    for raw in lines:
-        s = raw.rstrip()
-        if y > max_y:
+    def ensure_space(height):
+        nonlocal y
+        if y + height > max_y:
             new_page()
 
-        if not s:
+    def draw_rule():
+        nonlocal y
+        ensure_space(10)
+        page.draw_line((margin, y), (rect.width - margin, y), width=0.6)
+        y += 10
+
+    def draw_block(text, fs, bold=False, indent=0, extra_after=0):
+        nonlocal y
+        clean = _strip_inline_md(text).strip()
+        if not clean:
+            y += lh // 2
+            return
+        width = max(40, wrap_width - (indent // 2))
+        for w in textwrap.wrap(clean, width=width):
+            ensure_space(lh)
+            _draw_text(page, margin + indent, y, w, fs, bold=bold)
             y += lh
+        if extra_after:
+            y += extra_after
+
+    for raw in lines:
+        s = raw.rstrip()
+
+        if re.match(r"^###\s+\d+\.\s+", s) and (y > margin + 2):
+            new_page()
+
+        if not s.strip():
+            y += lh // 2
+            continue
+
+        if s.strip() == "---":
+            draw_rule()
+            continue
+
+        if s.lstrip().startswith(">"):
+            q = s.lstrip()[1:].lstrip()
+            draw_block(q, fs, indent=18)
             continue
 
         if s.startswith("# "):
-            txt = s[2:].strip()
-            page.insert_text((x, y), txt, fontsize=fs_h1, fontname=font_bold)
-            y += lh + 8
+            draw_block(s[2:], fs_h1, bold=True, extra_after=6)
             continue
-
         if s.startswith("## "):
-            txt = s[3:].strip()
-            page.insert_text((x, y), txt, fontsize=fs_h2, fontname=font_bold)
-            y += lh + 5
+            draw_block(s[3:], fs_h2, bold=True, extra_after=4)
+            continue
+        if s.startswith("### "):
+            draw_block(s[4:], fs_h3, bold=True, extra_after=2)
+            continue
+        if s.startswith("#### "):
+            draw_block(s[5:], fs_h4, bold=True, extra_after=2)
             continue
 
-        if s.startswith("- "):
-            wrapped = textwrap.wrap(s[2:], width=wrap_width)
-            if wrapped:
-                page.insert_text((x, y), "• " + wrapped[0], fontsize=fs, fontname=font)
-                y += lh
-                for w in wrapped[1:]:
-                    if y > max_y:
-                        new_page()
-                    page.insert_text((x + 18, y), w, fontsize=fs, fontname=font)
-                    y += lh
+        if s.startswith("Source:"):
+            src = s[len("Source:"):].strip()
+            url = src if src.startswith("http://") or src.startswith("https://") else ""
+            draw_block("Source:", fs, bold=True)
+            if url:
+                _draw_link_lines(url, url, fs, indent=0)
             else:
-                y += lh
+                draw_block("-", fs, bold=False)
             continue
 
-        wrapped = textwrap.wrap(s, width=wrap_width)
-        for w in wrapped:
-            if y > max_y:
-                new_page()
-            page.insert_text((x, y), w, fontsize=fs, fontname=font)
-            y += lh
+        m = re.match(r"^(\s*)([-*])\s+(.*)$", s)
+        if m:
+            indent_spaces = len(m.group(1))
+            bullet_text = m.group(3).strip()
+            base_indent = 14 + min(48, indent_spaces * 2)
+            ensure_space(lh)
+            _draw_text(page, margin + base_indent - 10, y, "•", fs)
+            draw_block(bullet_text, fs, indent=base_indent)
+            continue
 
+        label_match = re.match(r"^\*\*([^*]+)\*\*:?$", s.strip())
+        if label_match:
+            draw_block(label_match.group(1) + ":", fs, bold=True)
+            continue
+
+        if s.strip().endswith(":"):
+            draw_block(s.strip(), fs, bold=True)
+            continue
+
+        draw_block(s, fs)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(out_path)
     doc.close()
 
-
+# =========================
+# ===== Output Writer =====
+# =========================
 def _write_outputs(out_dir: Path, period_label: str, markdown_text: str, meta: Dict[str, Any]) -> Dict[str, str]:
     date_str = datetime.now().strftime("%Y%m%d")
     md_path = out_dir / f"{REPORT_FILE_PREFIX}_{period_label}_{date_str}.md"
@@ -568,7 +663,6 @@ def _write_outputs(out_dir: Path, period_label: str, markdown_text: str, meta: D
     _render_pdf(markdown_text, pdf_path)
 
     return {"markdown": str(md_path), "pdf": str(pdf_path), "json": str(json_path)}
-
 
 # =========================
 # ========= Runner ========
@@ -593,7 +687,7 @@ def run_reporting(period_days: int) -> Dict[str, Any]:
     selected = records[:max_entries]
     batch_total = max(1, math.ceil(len(selected) / batch_size))
 
-    total_steps = batch_total + 1  # batches + final exec summary
+    total_steps = batch_total + 1
     progress_state = {"current": 0, "status": ""}
     start_time = time.time()
     stop_evt, thread = start_live_progress("Reporting", total_steps, progress_state)
