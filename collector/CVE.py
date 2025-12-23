@@ -22,8 +22,6 @@ from .config import CONFIG, fetch_json, logger, mute_console, safe_get, write_js
 from .articles import _call_llm
 from .progress import animate_progress, progress_bar, start_live_progress, stop_live_progress
 
-CRITICAL_THRESHOLD = CONFIG["CRITICAL_THRESHOLD"]
-INTERESTING_MIN = CONFIG["INTERESTING_MIN"]
 VENDORS = CONFIG["VENDORS"]
 EXCLUDED_SOFTWARE = {v.lower() for v in CONFIG.get("EXCLUDED_SOFTWARE") or []}
 RSS_FEEDS = CONFIG["RSS_FEEDS"]
@@ -468,9 +466,22 @@ def generate_markdown(
             key=lambda r: _parse_dt(safe_get(r, "vulnerability.published")), reverse=True
         )
 
-        ordered = modified_group + new_group
+        new_scored = []
+        new_no_score = []
+        for r in new_group:
+            score = safe_get(r, "vulnerability.score.base")
+            if score is None:
+                r["unscored"] = True
+                new_no_score.append(r)
+            else:
+                new_scored.append(r)
 
-        lines.append(f"## Vendor: {vendor} (Total {len(group)})\n")
+        ordered = new_scored + modified_group + new_no_score
+
+        lines.append(
+            "## Vendor: "
+            f"{vendor} (Total {len(group)} | New {len(new_scored)} | Modified {len(modified_group)} | Unscored {len(new_no_score)})\n"
+        )
         for r in ordered:
             vuln = r.get("vulnerability", {})
             cve_id = vuln.get("id") or "Unknown CVE"
@@ -485,7 +496,9 @@ def generate_markdown(
                 or ""
             ).replace("\n", " ").strip()
             header = f"### [{cve_id}]({cve_link(cve_id)})"
-            if r.get("modified_only"):
+            if r.get("unscored"):
+                header += " (Unscored)"
+            elif r.get("modified_only"):
                 header += " (Modified)"
             lines.append(header)
             lines.append(f"- CVSS Base Score: {score if score is not None else 'N/A'}")
@@ -570,6 +583,16 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
         rss_hits = parse_rss_feeds()
 
         results = {}
+        stats = {
+            "published_total": len(published_data),
+            "modified_total": len(modified_data),
+            "rss_total": len(rss_hits),
+            "vendor_matched": 0,
+            "vendor_skipped": 0,
+            "excluded_software": 0,
+            "modified_flagged_from_published": 0,
+            "rss_added": 0,
+        }
         total_llm = len(published_data) + len(modified_data) + len(rss_hits)
         llm_done = 0
         llm_total = total_llm if total_llm else 1
@@ -603,10 +626,12 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     cve, patterns
                 ) or scan_text_fields_for_vendor(cve, patterns)
             if vendor and vendor.lower() not in EXCLUDED_SOFTWARE:
+                stats["vendor_matched"] += 1
                 products = collect_cpe_products(cve)
                 if products:
                     normalized = [p.lower() for p in products]
                     if all(p in EXCLUDED_SOFTWARE for p in normalized):
+                        stats["excluded_software"] += 1
                         llm_done += 1
                         _update_llm_progress(llm_done, cve_id)
                         continue
@@ -617,13 +642,30 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     try:
                         pub_dt = dtparser.parse(pub_str).astimezone(timezone.utc)
                         if pub_dt < start:
-                            entry["modified_only"] = True
+                            mod_str = entry.get("vulnerability", {}).get("last_modified")
+                            mod_dt = None
+                            if mod_str:
+                                try:
+                                    mod_dt = dtparser.parse(mod_str).astimezone(timezone.utc)
+                                except Exception:
+                                    mod_dt = None
+                            if mod_dt and mod_dt >= start:
+                                entry["modified_only"] = True
+                                stats["modified_flagged_from_published"] += 1
+                            else:
+                                llm_done += 1
+                                _update_llm_progress(llm_done, cve_id)
+                                continue
                     except Exception:
                         entry["modified_only"] = True
+                        stats["modified_flagged_from_published"] += 1
                 else:
                     entry["modified_only"] = True
+                    stats["modified_flagged_from_published"] += 1
 
                 results[cve["id"]] = entry
+            else:
+                stats["vendor_skipped"] += 1
             llm_done += 1
             _update_llm_progress(llm_done, cve_id)
 
@@ -645,10 +687,12 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 and vendor.lower() not in EXCLUDED_SOFTWARE
                 and cve["id"] not in results
             ):
+                stats["vendor_matched"] += 1
                 products = collect_cpe_products(cve)
                 if products:
                     normalized = [p.lower() for p in products]
                     if all(p in EXCLUDED_SOFTWARE for p in normalized):
+                        stats["excluded_software"] += 1
                         llm_done += 1
                         _update_llm_progress(llm_done, cve_id)
                         continue
@@ -656,6 +700,8 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 entry = _llm_refine_cve(entry, cve)
                 entry["modified_only"] = True
                 results[cve["id"]] = entry
+            else:
+                stats["vendor_skipped"] += 1
             llm_done += 1
             _update_llm_progress(llm_done, cve_id)
 
@@ -689,6 +735,7 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                 if products:
                     normalized = [p.lower() for p in products]
                     if all(p in EXCLUDED_SOFTWARE for p in normalized):
+                        stats["excluded_software"] += 1
                         llm_done += 1
                         _update_llm_progress(llm_done, cve_id)
                         continue
@@ -709,6 +756,7 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
                     entry["article_discovered"] = True
 
                 results[cve_id] = entry
+                stats["rss_added"] += 1
             llm_done += 1
             _update_llm_progress(llm_done, cve_id)
 
@@ -738,21 +786,27 @@ def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
             except Exception:
                 modified_cves.append(r)
 
-        critical, interesting = [], []
-        for r in new_cves:
-            s = safe_get(r, "vulnerability.score.base")
-            if not s:
-                continue
-            try:
-                s = float(s)
-            except Exception:
-                continue
-            if s >= CRITICAL_THRESHOLD:
-                critical.append(r)
-            elif INTERESTING_MIN <= s < CRITICAL_THRESHOLD:
-                interesting.append(r)
+        critical = list(new_cves)
+        interesting = []
 
         progress_bar(4, PROGRESS_TOTAL_STEPS, prefix="CVE: categorized")
+        logger.info(
+            "CVE filter stats: published=%s modified=%s rss=%s vendor_matched=%s vendor_skipped=%s excluded_software=%s modified_from_published=%s rss_added=%s",
+            stats["published_total"],
+            stats["modified_total"],
+            stats["rss_total"],
+            stats["vendor_matched"],
+            stats["vendor_skipped"],
+            stats["excluded_software"],
+            stats["modified_flagged_from_published"],
+            stats["rss_added"],
+        )
+        logger.info(
+            "CVE counts: total=%s new=%s modified=%s",
+            len(results),
+            len(new_cves),
+            len(modified_cves),
+        )
 
         date_stamp = datetime.now().strftime("%Y%m%d")
         ndjson_path = os.path.join(OUTPUT_DIR, f"StructuredCVEData_{date_stamp}.ndjson")

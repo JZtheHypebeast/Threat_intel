@@ -29,8 +29,8 @@ import requests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_ROOT = os.path.join(BASE_DIR, "results")
-STRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "structured")
-UNSTRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "unstructured")
+STRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "cve")
+UNSTRUCTURED_ROOT = os.path.join(RESULTS_ROOT, "articles")
 LLM_ROOT = os.path.join(RESULTS_ROOT, "llm")
 REPORTING_ROOT = os.path.join(RESULTS_ROOT, "reporting")
 PDF_ROOT = os.path.join(RESULTS_ROOT, "pdf")

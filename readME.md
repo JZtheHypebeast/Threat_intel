@@ -90,11 +90,11 @@ python3 -m collector.main --reporting 7
 
 Notes:
 - Ensure `OLLAMA_HOST` and `OLLAMA_MODEL`/`LLM_MODEL` (default `llama3.1`) are set if the Ollama service is remote or uses a non-default model.
-- Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/` with categories: `structured/`, `pdf/`, `llmrawtext/`, `llm/`, `reporting/`, and `geofeed/`.
+- Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/` with categories: `cve/`, `articles/`, `pdf/`, `llmrawtext/`, `llm/`, `reporting/`, and `geofeed/`.
 
 Notes:
 - Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/`.
-  Categories: `structured/`, `pdf/`, `llmrawtext/` (raw articles), `llm/`, and `reporting/`.
+  Categories: `cve/`, `articles/`, `pdf/`, `llmrawtext/` (raw articles), `llm/`, and `reporting/`.
 - LLM pipeline writes full article bodies to `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json`
   so enrichment can consume them; NDJSON excludes raw bodies.
 - Structured CVE uses an internal LLM refinement per CVE to clean vendor and add affected software; if LLM is disabled the deterministic fields remain.
@@ -143,8 +143,8 @@ Important note about the interactive menu and `--tests`:
 
 - `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json` — raw article bodies
   produced by the LLM pipeline for enrichment.
-- `collector/results/structured/<date>/<time>/StructuredCVEData_<date>.ndjson` — structured CVE/KEV NDJSON.
-- `collector/results/structured/<date>/<time>/StructuredCVEReport_<date>.md` — structured CVE/KEV Markdown.
+- `collector/results/cve/<date>/<time>/StructuredCVEData_<date>.ndjson` — structured CVE/KEV NDJSON.
+- `collector/results/cve/<date>/<time>/StructuredCVEReport_<date>.md` — structured CVE/KEV Markdown.
 - `collector/results/pdf/<date>/<time>/UnstructuredPDFIntel_<date>.ndjson` —
   PDF extraction/enrichment output.
 - `collector/results/pdf/<date>/<time>/UnstructuredPDFReport_<date>.md` —
@@ -153,7 +153,7 @@ Important note about the interactive menu and `--tests`:
   LLM-enriched NDJSON (pretty-printed; no `raw_text`/`text` fields).
 - `collector/results/llm/<date>/<time>/LLM-UnstructuredReport_<date>.md` —
   LLM-enriched Markdown summary.
-- `collector/results/structured/<date>/<time>/StructuredCVEReport_<date>.md` —
+- `collector/results/cve/<date>/<time>/StructuredCVEReport_<date>.md` —
   structured CVE/KEV Markdown.
 - `collector/results/reporting/<date>/<time>/LLM-CumulativeReport_*` —
   cumulative reports (markdown/json/pdf) built from recent LLM outputs.

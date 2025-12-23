@@ -105,13 +105,53 @@ def _http_get(url: str, timeout: int = 25) -> str:
             return raw.decode("latin-1", errors="replace")
 
 
+DEFAULT_GEOFEED_BOILERPLATE = [
+    "cookie",
+    "privacy",
+    "terms",
+    "subscribe",
+    "newsletter",
+    "sign up",
+    "register",
+    "all rights reserved",
+    "advert",
+    "promo",
+    "accept cookies",
+]
+
+
 def _strip_html(s: str) -> str:
+    s = re.sub(r"(?i)</(p|div|li|br|h[1-6])\s*>", "\n", s)
     s = re.sub(r"<script[\s\S]*?</script>", " ", s, flags=re.I)
     s = re.sub(r"<style[\s\S]*?</style>", " ", s, flags=re.I)
     s = re.sub(r"<[^>]+>", " ", s)
     s = html.unescape(s)
-    s = re.sub(r"\s+", " ", s).strip()
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = re.sub(r"[ \t]+\n", "\n", s)
     return s
+
+
+def _dehyphenate(text: str) -> str:
+    return re.sub(r"(\w)-\s+(\w)", r"\1\2", text)
+
+
+def _sanitize_text(
+    html_text: str, boilerplate_keywords: List[str], min_paragraph_words: int
+) -> str:
+    raw = _strip_html(html_text)
+    raw = _dehyphenate(raw)
+    lines = [ln.strip() for ln in raw.split("\n")]
+    cleaned: List[str] = []
+    for ln in lines:
+        if not ln:
+            continue
+        low = ln.lower()
+        if any(k in low for k in boilerplate_keywords):
+            continue
+        if len(ln.split()) < min_paragraph_words:
+            continue
+        cleaned.append(ln)
+    return "\n\n".join(cleaned)
 
 
 def _parse_rss(xml_text: str) -> List[FeedItem]:
@@ -300,6 +340,13 @@ def _write_text(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+def _write_jsonl(path: str, rows: List[Dict[str, Any]]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=True) + "\n")
 
 
 def _strip_markdown_inline(text: str) -> str:
@@ -516,6 +563,9 @@ def run_geofeed(
 
     wl_locations = cfg.get("GEOFEED_WATCHLIST_LOCATIONS") or []
     wl_assets = cfg.get("GEOFEED_WATCHLIST_ASSETS") or []
+    boilerplate_keywords = cfg.get("GEOFEED_BOILERPLATE_KEYWORDS") or DEFAULT_GEOFEED_BOILERPLATE
+    min_paragraph_words = int(cfg.get("GEOFEED_MIN_PARAGRAPH_WORDS", 20))
+    min_total_words = int(cfg.get("GEOFEED_MIN_TOTAL_WORDS", 80))
 
     weights = cfg.get("GEOFEED_SIGNAL_WEIGHTS") or {}
     amplifiers = cfg.get("GEOFEED_AMPLIFIERS") or {}
@@ -529,6 +579,7 @@ def run_geofeed(
     min_score_val = float(min_score if min_score is not None else cfg["GEOFEED_MIN_SCORE"])
 
     rows: List[Dict[str, Any]] = []
+    rawtext_rows: List[Dict[str, Any]] = []
     seen_ids = set()
     feed_items: List[Tuple[str, List[FeedItem]]] = []
     for feed_url in feeds:
@@ -572,9 +623,31 @@ def run_geofeed(
                 page_text = ""
                 try:
                     page_html = _http_get(url, timeout=timeout)
-                    page_text = _strip_html(page_html)
+                    page_text = _sanitize_text(
+                        page_html,
+                        boilerplate_keywords=boilerplate_keywords,
+                        min_paragraph_words=min_paragraph_words,
+                    )
                 except Exception:
+                    page_text = _sanitize_text(
+                        it.summary or "",
+                        boilerplate_keywords=boilerplate_keywords,
+                        min_paragraph_words=min_paragraph_words,
+                    )
+                if len(page_text.split()) < min_total_words:
                     page_text = _strip_html(it.summary or "")
+
+                rawtext_rows.append(
+                    {
+                        "id": sid,
+                        "title": it.title,
+                        "url": url,
+                        "published": it.published,
+                        "source_feed": feed_url,
+                        "word_count": len(page_text.split()),
+                        "raw_text": page_text,
+                    }
+                )
 
                 blob = f"{it.title}\n\n{page_text}"
                 domain = classify_domain(blob)
@@ -626,13 +699,16 @@ def run_geofeed(
     run_date = dt.datetime.now().strftime("%Y%m%d")
     md_path = os.path.join(outdir, f"geofeed_summary_{run_date}.md")
     pdf_path = os.path.join(outdir, f"geofeed_summary_{run_date}.pdf")
+    rawtext_path = os.path.join(outdir, f"rawtext4geofeed_{run_date}.jsonl")
 
     summary_text = _make_summary(rows, hours=hours, min_score=min_score_val)
+    _write_jsonl(rawtext_path, rawtext_rows)
     _write_text(md_path, summary_text)
     if render_pdf and _render_pdf is not None:
         _render_pdf(summary_text, Path(pdf_path))
         print(f"Wrote PDF -> {pdf_path}")
 
+    print(f"Wrote rawtext -> {rawtext_path}")
     print(f"Wrote summary -> {md_path}")
     return 0
 

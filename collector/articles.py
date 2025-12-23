@@ -70,10 +70,10 @@ def _ollama_host() -> str:
 
 
 def _get_output_dir() -> Path:
-    out = CONFIG.get("OUTPUT_DIR_LLM")
+    out = CONFIG.get("OUTPUT_DIR_UNSTRUCTURED") or CONFIG.get("OUTPUT_DIR_LLM")
     if out:
         path = Path(out)
-        logger.debug("LLM output dir from CONFIG: %s", path)
+        logger.debug("Articles output dir from CONFIG: %s", path)
         return path
     base = Path(__file__).resolve().parent
     results_root = base / "results"
@@ -85,8 +85,8 @@ def _get_output_dir() -> Path:
 
 def _find_latest_rawtext_any(base_dir: Path) -> Optional[Path]:
     """
-    Locate the newest rawtext-*.json anywhere under the rawtext results root.
-    Assumes layout: <...>/results/llmrawtext/<YYYYMMDD>/<HHMMSS>/rawtext-<date>.json
+    Locate the newest rawtext-*.json anywhere under a results root.
+    Assumes layout: <...>/results/<category>/<YYYYMMDD>/<HHMMSS>/rawtext-<date>.json
     """
     if not base_dir.exists():
         logger.debug("Rawtext base dir does not exist: %s", base_dir)
@@ -421,8 +421,8 @@ def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
     date_tag = datetime.now().strftime("%Y%m%d")
     raw_dir = (
         CONFIG.get("OUTPUT_DIR_LLM_RAW")
-        or CONFIG.get("OUTPUT_DIR_LLM")
         or CONFIG.get("OUTPUT_DIR_UNSTRUCTURED")
+        or CONFIG.get("OUTPUT_DIR_LLM")
         or OUTPUT_DIR
     )
     os.makedirs(raw_dir, exist_ok=True)
@@ -1044,11 +1044,15 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
 def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     output_dir = _get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
-    llm_root = Path(CONFIG.get("OUTPUT_DIR_LLM_RAW") or output_dir)
-    try:
-        llm_root = llm_root.parents[1]
-    except Exception:
-        llm_root = llm_root.parent
+    raw_root_cfg = CONFIG.get("OUTPUT_DIR_LLM_RAW")
+    if raw_root_cfg:
+        llm_root = Path(raw_root_cfg)
+        try:
+            llm_root = llm_root.parents[1]
+        except Exception:
+            llm_root = llm_root.parent
+    else:
+        llm_root = Path(__file__).resolve().parent / "results" / "llmrawtext"
     logger.debug("Searching for latest rawtext under %s", llm_root)
     raw_path = _find_latest_rawtext_any(llm_root)
     if raw_path is None:
