@@ -585,6 +585,11 @@ def _render_pdf(markdown_text: str, out_path: Path) -> None:
     for raw in lines:
         s = raw.rstrip()
 
+        if s.strip() == "[[PAGE_BREAK]]":
+            if y > margin + 2:
+                new_page()
+            continue
+
         if re.match(r"^###\s+\d+\.\s+", s) and (y > margin + 2):
             new_page()
 

@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import html
 import json
+import logging
 import os
 import re
 import time
@@ -41,6 +42,7 @@ ENV_GEOFEED_RSS_FEEDS = [
 ]
 CFG: Optional[Dict[str, Any]] = None
 CONFIG_IMPORT_ERROR: Optional[Exception] = None
+logger = logging.getLogger(__name__)
 
 try:
     from .config import CONFIG as CFG
@@ -288,28 +290,134 @@ def _ollama_situation_summary(
     title: str,
     text: str,
     timeout: int,
-) -> Optional[Dict[str, Any]]:
+) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     try:
         prompt = (
-            "You are a geopolitical early-warning analyst.\n"
-            "Read the article and return JSON ONLY with exactly these keys:\n"
-            "title, llm_summary, domain, event_type, state, change, countries_affected, "
-            "primary_actors, key_indicators, osint_indicators, drivers, risk, watch, "
-            "what_happened, domain_category.\n"
-            "Rules:\n"
-            "- Each value must be a short string; no lists.\n"
-            "- 'title' should be a concise, corrected headline.\n"
-            "- 'llm_summary' should be 1-2 sentences, factual, no speculation.\n"
-            "- 'domain' should be a short label (air, maritime, land, multi, unknown).\n"
-            "- 'event_type' should be a short, concrete label (e.g., border clash, sanctions, naval deployment).\n"
-            "- 'risk' must be one of: Low, Moderate, Elevated, Severe.\n"
-            "- 'domain_category' must be one of: air, maritime, land, multi, unknown.\n"
-            "- Use 'multi' only if two or more domains are clearly present.\n"
-            "- Do not add extra keys.\n\n"
+            "SYSTEM:\n"
+            "You are a strict information extraction engine for a central bank in Aruba.\n"
+            "You MUST use ONLY the provided TEXT as your source. Do NOT use outside knowledge.\n"
+            "For ALL fields EXCEPT 'risk', 'change', and 'impact', do NOT infer, assume, speculate, or add context.\n"
+            "If a detail is not explicitly stated in TEXT, write exactly: Not specified.\n\n"
+
+            "TASK:\n"
+            "Read the article TEXT and return JSON ONLY (a single object) with EXACTLY these keys and no others:\n"
+            "title, llm_summary, domain, event_type, state, change, countries_involved, "
+            "primary_actors, key_indicators, osint_indicators, drivers, impact, risk, "
+            "what_happened, domain_category.\n\n"
+
+            "OUTPUT RULES (STRICT):\n"
+            "- Output must be valid JSON and NOTHING ELSE.\n"
+            "- Use EXACTLY the keys above. Do not add/remove/rename keys.\n"
+            "- Each value must be a SHORT STRING. No arrays, no nested objects.\n"
+            "- Use comma-separated values for multiple items inside a single string.\n"
+            "- Keep wording close to TEXT; avoid generic filler.\n\n"
+
+            "HALLUCINATION CONTROL:\n"
+            "- For every field except 'risk' and 'change': ONLY extract what is explicitly stated in TEXT.\n"
+            "- Do NOT add impacts, motivations, or implications unless TEXT explicitly says them.\n"
+            "- Do NOT add countries/actors not named in TEXT.\n\n"
+
+            "ALLOWED WIGGLE ROOM (ONLY FOR risk, change, and impact):\n"
+            "A) risk (Aruba FI impact):\n"
+            "- You may assess risk to Aruba's financial institutions based on facts stated in TEXT.\n"
+            "- risk MUST be exactly one of: Low, Moderate, Elevated, High.\n"
+            "- You may consider ONLY these channels IF supported by TEXT facts:\n"
+            "  1) Sanctions/compliance exposure (shipping, oil trading, designated entities)\n"
+            "  2) Correspondent banking / payment disruption risk\n"
+            "  3) Market risk: oil price shock / volatility explicitly mentioned\n"
+            "  4) Shipping/insurance/freight disruption explicitly mentioned\n"
+            "- If TEXT contains no facts that connect to any channel above, set risk to Low.\n"
+            "- Do NOT include any explanation or reasoning in the JSON.\n\n"
+
+            "B) change (Trend for Markdown):\n"
+            "- change MUST be exactly one of: New, Stable, ↗ Escalating, ↘ De-escalating.\n"
+            "- Infer change ONLY from progression explicitly described in TEXT\n"
+            "  (e.g., 'more', 'additional', 'expanded', 'first time', 'slowed', 'easing', 'resumed').\n"
+            "- If TEXT describes a new action/measure with no comparison, use New.\n"
+            "- If TEXT indicates intensification/expansion, use ↗ Escalating.\n"
+            "- If TEXT indicates easing/rollback/normalization, use ↘ De-escalating.\n"
+            "- If TEXT indicates no meaningful change, use Stable.\n\n"
+
+            "FIELD RULES (STRICT EXTRACTION FOR ALL EXCEPT risk/change):\n"
+            "1) title:\n"
+            "- A concise, corrected headline describing the event, based only on TEXT.\n\n"
+
+            "2) llm_summary:\n"
+            "- 2-3 sentences MAX.\n"
+            "- Factual extraction only. No implications unless explicitly stated.\n\n"
+
+            "3) what_happened:\n"
+            "- 3-4 sentences MAX, factual only, past tense.\n\n"
+
+            "4) primary_actors:\n"
+            "- Only actors explicitly named in TEXT who take action or are directly involved.\n"
+            "- Comma-separated if multiple.\n\n"
+
+            "5) countries_involved:\n"
+            "- Only countries explicitly named in TEXT.\n"
+            "- Comma-separated if multiple.\n\n"
+
+            "6) key_indicators (Key Signals):\n"
+            "- 1-3 bullet lines as ONE string using this exact format:\n"
+            "  - <indicator>\n"
+            "  - <indicator>\n"
+            "- Each indicator MUST be explicitly described in TEXT.\n"
+            "- If none, Not specified.\n\n"
+
+            "7) drivers (Why it started):\n"
+            "- ONLY if TEXT explicitly states drivers/causes/motivation.\n"
+            "- Write 1-3 bullet lines as ONE string using this exact format:\n"
+            "  - <impact>\n"
+            "  - <impact>\n"
+            "- If no explicit impacts are stated, Not specified.\n\n"
+
+            "8) impact (Why it matters to Aruba FI):\n"
+            "- You MAY infer plausible Aruba FI relevance using ONLY facts in TEXT.\n"
+            "- Limit to these channels: sanctions/compliance exposure, payment disruption, market/oil shock, shipping/insurance disruption.\n"
+            "- Keep it factual and grounded in TEXT; no speculation beyond these channels.\n"
+            "- Write 1-3 bullet lines as ONE string using this exact format:\n"
+            "  - <impact>\n"
+            "  - <impact>\n"
+            "- If no explicit impacts are stated, Not specified.\n\n"
+
+            "9) osint_indicators:\n"
+            "- Only sources/methods explicitly mentioned in TEXT (e.g., AIS/ship-tracking, satellite imagery, official statement).\n"
+            "- If none, Not specified.\n\n"
+
+            "10) state:\n"
+            "- Use one of: active, ongoing, planned, resolved, neutral, unknown.\n"
+            "- Choose only if TEXT indicates status; otherwise unknown.\n\n"
+
+            "11) domain_category and domain:\n"
+            "- domain_category MUST be exactly one of: air, maritime, land, multi, unknown.\n"
+            "- domain MUST match domain_category.\n"
+            "- Choose based ONLY on what TEXT describes.\n"
+            "- Use these cues:\n"
+            "  air: air force, aircraft, fighter, drone, airspace, intercept, NOTAM\n"
+            "  maritime: navy, warship, vessel, tanker, shipping, port, maritime, coast guard\n"
+            "  land: army, ground forces, border, incursion, mobilization, troops\n"
+            "  multi: two or more domains explicitly present\n"
+            "  unknown: none of the above\n\n"
+
+            "12) event_type:\n"
+            "- Short concrete label based ONLY on TEXT (e.g., sanctions, blockade, naval interdiction, border clash).\n"
+            "- If unclear, Not specified.\n\n"
+
+            "FINAL REMINDER:\n"
+            "- Return JSON only.\n\n"
+
             f"TITLE: {title}\n\n"
-            f"TEXT: {text[:6000]}"
+            f"TEXT:\n{text[:6000]}"
         )
-        payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+        payload = json.dumps(
+            {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+                "options": {"temperature": 0},
+            }
+        ).encode("utf-8")
         url = host.rstrip("/") + "/api/generate"
         req = urllib.request.Request(
             url,
@@ -322,19 +430,130 @@ def _ollama_situation_summary(
         data = json.loads(raw)
         s = (data.get("response") or "").strip()
         if not s:
-            return None
-        parsed = json.loads(s)
-        if not isinstance(parsed, dict):
-            return None
-        return parsed
-    except Exception:
-        return None
+            return None, raw, "empty_response"
+        def _cleanup_json(candidate: str) -> str:
+            cleaned = candidate.replace("\r\n", "\n").replace("\r", "\n").strip()
+            cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+            return cleaned
 
+        try:
+            parsed = json.loads(_cleanup_json(s))
+        except Exception:
+            start = s.find("{")
+            if start >= 0:
+                try:
+                    parsed, _ = json.JSONDecoder().raw_decode(_cleanup_json(s[start:]))
+                except Exception:
+                    parsed = None
+            else:
+                parsed = None
+        if not isinstance(parsed, dict):
+            return None, raw, "invalid_json"
+        if "What_happened" in parsed and "what_happened" not in parsed:
+            parsed["what_happened"] = parsed.pop("What_happened")
+        return parsed, raw, None
+    except Exception:
+        return None, None, "request_failed"
+
+
+# =========================
+# == LLM Output Validation =
+# =========================
+
+_EXPECTED_SITUATION_KEYS = {
+    "title",
+    "llm_summary",
+    "domain",
+    "event_type",
+    "state",
+    "change",
+    "countries_involved",
+    "primary_actors",
+    "key_indicators",
+    "osint_indicators",
+    "drivers",
+    "impact",
+    "risk",
+    "what_happened",
+    "domain_category",
+}
+
+_ALLOWED_RISK = {"Low", "Moderate", "Elevated", "High", "Not specified"}
+_ALLOWED_CHANGE = {"New", "Stable", "↗ Escalating", "↘ De-escalating", "Not specified"}
+_ALLOWED_DOMAIN = {"air", "maritime", "land", "multi", "unknown"}
+
+
+def _norm_text(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "")).strip().lower()
+
+
+def _split_csv(s: str) -> List[str]:
+    return [p.strip() for p in (s or "").split(",") if p.strip()]
+
+
+def _validate_situation(
+    situation: Dict[str, Any],
+    article_text: str,
+) -> Optional[Dict[str, Any]]:
+    """Normalize/validate LLM output and log issues."""
+    try:
+        if not isinstance(situation, dict):
+            logger.warning("GeoFeed LLM validation failed: situation is not a dict")
+            return None
+        missing = sorted(_EXPECTED_SITUATION_KEYS - set(situation.keys()))
+        extra = sorted(set(situation.keys()) - _EXPECTED_SITUATION_KEYS)
+        if missing or extra:
+            logger.warning(
+                "GeoFeed LLM validation: key mismatch missing=%s extra=%s",
+                missing,
+                extra,
+            )
+
+        normalized: Dict[str, str] = {}
+        for k in _EXPECTED_SITUATION_KEYS:
+            v = situation.get(k, "Not specified")
+            normalized[k] = str(v).strip() if v is not None else "Not specified"
+
+        if not normalized.get("what_happened") or normalized.get("what_happened") == "Not specified":
+            if normalized.get("llm_summary") and normalized.get("llm_summary") != "Not specified":
+                normalized["what_happened"] = normalized["llm_summary"]
+                logger.warning("GeoFeed LLM validation: filled what_happened from llm_summary")
+
+        if normalized.get("risk") not in _ALLOWED_RISK:
+            logger.warning("GeoFeed LLM validation: invalid risk=%s", normalized.get("risk"))
+            normalized["risk"] = "Not specified"
+        if normalized.get("change") not in _ALLOWED_CHANGE:
+            logger.warning("GeoFeed LLM validation: invalid change=%s", normalized.get("change"))
+            normalized["change"] = "Not specified"
+
+        domain_cat = (normalized.get("domain_category") or "").lower()
+        domain = (normalized.get("domain") or "").lower()
+        if domain_cat not in _ALLOWED_DOMAIN:
+            logger.warning("GeoFeed LLM validation: invalid domain_category=%s", domain_cat)
+            domain_cat = "unknown"
+        normalized["domain_category"] = domain_cat
+        normalized["domain"] = domain_cat
+        if domain and domain != domain_cat:
+            logger.warning(
+                "GeoFeed LLM validation: domain mismatch domain=%s domain_category=%s",
+                domain,
+                domain_cat,
+            )
+
+        for k in ("key_indicators", "drivers", "impact"):
+            val = (normalized.get(k) or "").strip()
+            if val and val != "Not specified" and not val.lstrip().startswith("- "):
+                normalized[k] = f"- {val}"
+                logger.warning("GeoFeed LLM validation: normalized bullets for %s", k)
+
+        return normalized
+    except Exception:
+        logger.exception("GeoFeed LLM validation failed: unexpected error")
+        return None
 
 # =========================
 # ====== Output ===========
 # =========================
-
 
 def _write_text(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -363,6 +582,72 @@ def _prepare_pdf_text(markdown_text: str) -> str:
     return "\n".join(cleaned)
 
 
+def _make_summary_json(rows: List[Dict[str, Any]], hours: int, min_score: float) -> Dict[str, Any]:
+    def _published_key(row: Dict[str, Any]) -> dt.datetime:
+        parsed = _parse_published((row.get("published") or "").strip())
+        if parsed is None:
+            return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+        return parsed
+
+    def _fmt_date(val: str) -> str:
+        parsed = _parse_published(val)
+        if parsed is None:
+            return "-"
+        return parsed.strftime("%d %b %Y")
+
+    def _trend_label(change: str) -> str:
+        c = (change or "").strip().lower()
+        if not c:
+            return "New"
+        if "escalat" in c or "increase" in c or "rising" in c:
+            return "↗ Escalating"
+        if "de-escalat" in c or "deescalat" in c or "decrease" in c or "easing" in c:
+            return "↘ De-escalating"
+        if "stable" in c or "steady" in c or "unchanged" in c:
+            return "Stable"
+        return "New"
+
+    above = [r for r in rows if float(r.get("score", 0.0)) >= float(min_score)]
+    top = sorted(above, key=_published_key, reverse=True)[:25]
+    entries: List[Dict[str, Any]] = []
+    for r in top:
+        situation = r.get("situation") or {}
+        title = (situation.get("title") or r.get("title") or "Untitled").strip()
+        entry = {
+            "title": title,
+            "risk": (situation.get("risk") or "Low").title(),
+            "trend": _trend_label(situation.get("change") or ""),
+            "date": _fmt_date((r.get("published") or "").strip()),
+            "primary_actors": situation.get("primary_actors") or "-",
+            "countries_involved": situation.get("countries_involved") or "-",
+            "summary": situation.get("llm_summary") or situation.get("what_happened") or "-",
+            "why_it_matters": [
+                f"Drivers: {situation.get('drivers') or '-'}",
+                f"Impact: {situation.get('impact') or '-'}",
+                f"Risk Level: {situation.get('risk') or '-'}",
+            ],
+            "key_signals": [
+                situation.get("key_indicators") or "-",
+                situation.get("osint_indicators") or "-",
+            ],
+            "source": r.get("url") or "",
+        }
+        if (
+            entry.get("summary") == "-"
+            and entry.get("primary_actors") == "-"
+            and entry.get("countries_involved") == "-"
+        ):
+            continue
+        entries.append(entry)
+
+    return {
+        "window_hours": hours,
+        "generated_at": f"{dt.datetime.utcnow().isoformat()}Z",
+        "min_score": min_score,
+        "entries": entries,
+    }
+
+
 def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> str:
     lines = ["# GeoFeed Summary", ""]
     lines.append(f"Window: last {hours} hours")
@@ -387,86 +672,86 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
             return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
         return parsed
 
+    def _fmt_date(val: str) -> str:
+        parsed = _parse_published(val)
+        if parsed is None:
+            return "-"
+        return parsed.strftime("%d %b %Y")
+
+    def _trend_label(change: str) -> str:
+        c = (change or "").strip().lower()
+        if not c:
+            return "New"
+        if "escalat" in c or "increase" in c or "rising" in c:
+            return "↗ Escalating"
+        if "de-escalat" in c or "deescalat" in c or "decrease" in c or "easing" in c:
+            return "↘ De-escalating"
+        if "stable" in c or "steady" in c or "unchanged" in c:
+            return "Stable"
+        return "New"
+
     top = sorted(above, key=_published_key, reverse=True)[:25]
-    lines.append("## Entries by Domain")
-    lines.append("")
-    lines.append("Domains: air (aviation/airspace), maritime (naval/shipping), land (ground/border), multi (more than one domain), unknown.")
-    lines.append("")
-    buckets = {"air": [], "maritime": [], "land": [], "multi": [], "unknown": []}
+    groups = {"maritime": [], "land": [], "air": [], "multi": [], "unknown": []}
     for r in top:
         situation = r.get("situation") or {}
         category = str(situation.get("domain_category") or "unknown").lower()
-        if category not in buckets:
+        if category not in groups:
             category = "unknown"
-        buckets[category].append(r)
+        groups[category].append(r)
 
-    idx = 1
-    for label in ("air", "maritime", "land", "multi", "unknown"):
-        group = buckets[label]
+    order = ["maritime", "land", "air", "multi", "unknown"]
+    first_entry = True
+    entry_num = 1
+    for label in order:
+        group = groups[label]
         if not group:
             continue
-        title_label = label.capitalize()
-        lines.append(f"### {title_label}")
+        lines.append(f"## {label.capitalize()}")
         lines.append("")
         for r in group:
+            if not first_entry:
+                lines.append("[[PAGE_BREAK]]")
+                lines.append("")
+            first_entry = False
             situation = r.get("situation") or {}
-            title = (r.get("title", "") or "").strip()
-            url = (r.get("url", "") or "").strip()
-            score = float(r.get("score", 0.0))
-            if score >= 8.0:
-                severity = "High"
-            elif score >= 6.0:
-                severity = "Medium"
-            elif score >= 4.0:
-                severity = "Low"
-            else:
-                severity = "Info"
-            domain = situation.get("domain") or r.get("domain") or "-"
-            event_type = situation.get("event_type") or r.get("event_type") or "-"
-            published = (r.get("published") or "").strip()
+            title = (situation.get("title") or r.get("title") or "Untitled").strip()
+            risk = (situation.get("risk") or "Low").title()
+            trend = _trend_label(situation.get("change") or "")
+            date = _fmt_date((r.get("published") or "").strip())
+            actors = situation.get("primary_actors") or "-"
+            countries_involved = situation.get("countries_involved") or "-"
+            summary = situation.get("llm_summary") or situation.get("what_happened") or "-"
+            if summary == "-" and actors == "-" and countries_involved == "-":
+                continue
+            drivers = situation.get("drivers") or "-"
+            impact = situation.get("impact") or "-"
+            key_signals = situation.get("key_indicators") or situation.get("osint_indicators") or "-"
 
+            url = (r.get("url") or "").strip()
             if url:
-                lines.append(f"{idx}. **[{title}]({url})**")
+                lines.append(f"### {entry_num}. [{title}]({url})")
             else:
-                lines.append(f"{idx}. **{title}**")
-            lines.append(f"   - Score: {score:.1f} ({severity}) | Domain: {domain} | Event: {event_type}")
-            if published:
-                lines.append(f"   - Published: {published}")
-            lines.append(f"   - LLM Summary: {situation.get('llm_summary') or '-'}")
+                lines.append(f"### {entry_num}. {title}")
+            lines.append(
+                f"**Risk:** {risk} | **Trend:** {trend} | **Date:** {date}"
+            )
             lines.append("")
-            lines.append("## Situation Summary")
+            lines.append(f"**Primary Actors:** {actors}  ")
+            lines.append(f"**Countries Involved:** {countries_involved}")
             lines.append("")
-            lines.append("**State:**")
-            lines.append(f"_{situation.get('state') or '-'}_")
+            lines.append("**Summary**")
+            lines.append(summary)
             lines.append("")
-            lines.append("**Change:**")
-            lines.append(f"_{situation.get('change') or '-'}_")
+            lines.append("**Why It Matters**")
+            lines.append(f"Drivers: {drivers}")
+            lines.append(f"Impact: {impact}")
+            lines.append(f"Risk Level: {situation.get('risk') or '-'}")
             lines.append("")
-            lines.append("**What happened:**")
-            lines.append(f"_{situation.get('what_happened') or '-'}_")
+            lines.append("**Key Signals**")
+            lines.append(f"Key Indicators: {situation.get('key_indicators') or '-'}")
+            lines.append(f"OSINT Indicators: {situation.get('osint_indicators') or '-'}")
             lines.append("")
-            lines.append("**Countries Affected:**")
-            lines.append(f"_{situation.get('countries_affected') or '-'}_")
-            lines.append("")
-            lines.append("**Primary Actors:**")
-            lines.append(f"_{situation.get('primary_actors') or '-'}_")
-            lines.append("")
-            lines.append("**Key Indicators & Signals:**")
-            lines.append(f"_{situation.get('key_indicators') or '-'}_")
-            lines.append("")
-            lines.append("**OSINT Indicators:**")
-            lines.append(f"_{situation.get('osint_indicators') or '-'}_")
-            lines.append("")
-            lines.append("**Drivers:**")
-            lines.append(f"_{situation.get('drivers') or '-'}_")
-            lines.append("")
-            lines.append("**Risk:**")
-            lines.append(f"_{situation.get('risk') or '-'}_")
-            lines.append("")
-            lines.append("**Watch:**")
-            lines.append(f"_{situation.get('watch') or '-'}_")
-            lines.append("")
-            idx += 1
+            entry_num += 1
 
     return "\n".join(lines)
 
@@ -575,11 +860,14 @@ def run_geofeed(
     ollama_model = str(cfg.get("GEOFEED_OLLAMA_MODEL", cfg.get("LLM_MODEL")))
     ollama_host = str(cfg.get("OLLAMA_HOST", "http://localhost:11434"))
     add_llm_summary = bool(cfg.get("GEOFEED_ADD_LLM_SUMMARY", False))
+    skip_validation = os.getenv("GEOFEED_SKIP_VALIDATE", "").lower() in ("1", "true", "yes")
+    validate_llm = bool(cfg.get("GEOFEED_VALIDATE_LLM", True)) and not skip_validation
 
     min_score_val = float(min_score if min_score is not None else cfg["GEOFEED_MIN_SCORE"])
 
     rows: List[Dict[str, Any]] = []
     rawtext_rows: List[Dict[str, Any]] = []
+    llm_failures: List[Dict[str, Any]] = []
     seen_ids = set()
     feed_items: List[Tuple[str, List[FeedItem]]] = []
     for feed_url in feeds:
@@ -658,13 +946,37 @@ def run_geofeed(
 
                 situation: Optional[Dict[str, Any]] = None
                 if add_llm_summary and use_ollama:
-                    situation = _ollama_situation_summary(
+                    situation, raw_resp, err = _ollama_situation_summary(
                         host=ollama_host,
                         model=ollama_model,
                         title=it.title,
                         text=page_text,
                         timeout=max(timeout, 45),
                     )
+                    if situation is None:
+                        logger.warning(
+                            "GeoFeed LLM returned empty/invalid response for title=%s error=%s raw=%s",
+                            it.title,
+                            err,
+                            (raw_resp or "")[:1200],
+                        )
+                        llm_failures.append(
+                            {
+                                "title": it.title,
+                                "url": url,
+                                "published": it.published,
+                                "source_feed": feed_url,
+                                "error": err or "unknown",
+                                "raw_response": raw_resp or "",
+                            }
+                        )
+                    elif not validate_llm:
+                        logger.warning(
+                            "GeoFeed LLM validation bypassed for title=%s",
+                            it.title,
+                        )
+                    else:
+                        situation = _validate_situation(situation, page_text) or None
 
                 now = dt.datetime.now(dt.timezone.utc)
                 rows.append(
@@ -700,9 +1012,16 @@ def run_geofeed(
     md_path = os.path.join(outdir, f"geofeed_summary_{run_date}.md")
     pdf_path = os.path.join(outdir, f"geofeed_summary_{run_date}.pdf")
     rawtext_path = os.path.join(outdir, f"rawtext4geofeed_{run_date}.jsonl")
+    llm_fail_path = os.path.join(outdir, f"geofeed_llm_failures_{run_date}.jsonl")
+    json_path = os.path.join(outdir, f"geofeed_summary_{run_date}.json")
 
     summary_text = _make_summary(rows, hours=hours, min_score=min_score_val)
+    summary_json = _make_summary_json(rows, hours=hours, min_score=min_score_val)
     _write_jsonl(rawtext_path, rawtext_rows)
+    if llm_failures:
+        _write_jsonl(llm_fail_path, llm_failures)
+        print(f"Wrote LLM failures -> {llm_fail_path}")
+    _write_text(json_path, json.dumps(summary_json, ensure_ascii=True, indent=2))
     _write_text(md_path, summary_text)
     if render_pdf and _render_pdf is not None:
         _render_pdf(summary_text, Path(pdf_path))
