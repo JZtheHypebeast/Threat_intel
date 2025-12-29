@@ -189,6 +189,11 @@ CONFIG = {
     "GEOFEED_RSS_FEEDS": json.loads(os.getenv("TI_GEOFEED_RSS_FEEDS", "null"))
     or [
         # --- Google News (baseline aggregation) ---
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Aruba+OR+Caribbean)+(sanctions+OR+OFAC+OR+airspace+OR+NOTAM+OR+closure+OR+deployment+OR+ultimatum+OR+retaliation)+when:7d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Aruba+OR+Caribbean)+(sanctions+OR+OFAC+OR+treasury+OR+designation+OR+secondary+sanctions)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Aruba+OR+Caribbean)+(military+OR+deployment+OR+navy+OR+air+force+OR+fighter+OR+drone+OR+intercept+OR+airspace)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Caribbean+Sea+OR+Gulf+of+Venezuela)+(shipping+OR+tanker+OR+shadow+fleet+OR+insurance+OR+freight+OR+port)+when:14d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Venezuela+OR+Caribbean)+(oil+OR+LNG+OR+refinery+OR+pipeline+OR+fuel)+(sanctions+OR+export+OR+shipping)+when:30d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(war+OR+military+OR+escalation+OR+ultimatum+OR+retaliation)+when:7d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(sanctions+OR+embargo+OR+asset+freeze+OR+designation+OR+secondary+sanctions)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(navy+OR+warship+OR+destroyer+OR+%22carrier+strike+group%22+OR+deployment+OR+military+posture)+when:14d&hl=en-US&gl=US&ceid=US:en",
@@ -409,6 +414,49 @@ CONFIG = {
 
         # Market chatter
         "stocks": 2, "markets": 2, "earnings": 3,
+    },
+
+    "GEOFEED_EXCLUDE_KEYWORDS": json.loads(os.getenv("TI_GEOFEED_EXCLUDE_KEYWORDS", "null"))
+    or [
+        "movie",
+        "movies",
+        "film",
+        "films",
+        "tv",
+        "television",
+        "series",
+        "trailer",
+        "box office",
+        "holiday special",
+        "just for fun",
+        "year-end",
+    ],
+
+    "GEOFEED_PROXIMITY_WEIGHTS": json.loads(os.getenv("TI_GEOFEED_PROXIMITY_WEIGHTS", "null"))
+    or {
+        "aruba": 2.5,
+        "oranjestad": 2.0,
+        "san nicolas": 2.0,
+        "caribbean": 1.5,
+        "caribbean sea": 1.5,
+        "gulf of venezuela": 2.0,
+        "venezuela": 1.5,
+        "puerto rico": 1.0,
+        "curacao": 1.0,
+        "bonaire": 0.8,
+        "suriname": 0.8,
+        "guyana": 0.8,
+        "colombia": 0.6,
+        "maracaibo": 1.0,
+        "caracas": 0.8,
+    },
+
+    "GEOFEED_DECISION_THRESHOLDS": json.loads(os.getenv("TI_GEOFEED_DECISION_THRESHOLDS", "null"))
+    or {
+        "action_required_risk": ["High"],
+        "prepare_risk": ["Elevated", "High"],
+        "prepare_score": 6.0,
+        "action_required_score": 8.0,
     },
 }
 

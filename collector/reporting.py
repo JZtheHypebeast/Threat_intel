@@ -582,16 +582,19 @@ def _render_pdf(markdown_text: str, out_path: Path) -> None:
         if extra_after:
             y += extra_after
 
+    skip_heading_pagebreak = False
     for raw in lines:
         s = raw.rstrip()
 
         if s.strip() == "[[PAGE_BREAK]]":
             if y > margin + 2:
                 new_page()
+            skip_heading_pagebreak = True
             continue
 
-        if re.match(r"^###\s+\d+\.\s+", s) and (y > margin + 2):
+        if re.match(r"^###\s+\d+\.\s+", s) and (y > margin + 2) and not skip_heading_pagebreak:
             new_page()
+        skip_heading_pagebreak = False
 
         if not s.strip():
             y += lh // 2

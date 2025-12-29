@@ -233,12 +233,143 @@ def find_watchlist_hits(text: str, locations: List[str], assets: List[str]) -> T
     return loc_hits[:12], asset_hits[:12]
 
 
+def _aruba_relevance_from_hits(
+    text: str,
+    location_hits: List[str],
+    asset_hits: List[str],
+) -> Dict[str, Any]:
+    t = (text or "").lower()
+    exposures: List[str] = []
+    if any(k in t for k in ["sanction", "ofac", "designat", "asset freeze", "secondary sanction"]):
+        exposures.extend(["financial", "payments"])
+    if any(k in t for k in ["oil", "lng", "gas", "refinery", "pipeline", "fuel", "diesel"]):
+        exposures.append("energy")
+    if any(k in t for k in ["payment", "bank", "wire", "correspondent", "swift", "account freeze", "de-risk"]):
+        exposures.extend(["payments", "financial"])
+    if any(k in t for k in ["shipping", "tanker", "port", "harbor", "freight", "insurance", "ais", "shadow fleet"]):
+        exposures.append("shipping")
+    if any(k in t for k in ["airspace", "notam", "flight", "airport", "intercept", "fighter", "drone", "air base"]):
+        exposures.append("aviation")
+
+    seen = set()
+    exposures = [x for x in exposures if not (x in seen or seen.add(x))]
+
+    loc_l = [x.lower() for x in (location_hits or [])]
+    is_aruba_explicit = any(x in loc_l for x in ["aruba", "oranjestad", "san nicolas"])
+    is_ve_us = ("venezuela" in t) and any(
+        k in t for k in ["united states", "u.s.", "usa", "pentagon", "white house", "ofac", "treasury"]
+    )
+    operational = any(k in t for k in ["airspace closed", "airspace closure", "notam", "strike", "airstrike", "missile", "intercept", "deployment"])
+
+    if is_aruba_explicit and operational:
+        horizon = "immediate"
+    elif is_aruba_explicit or is_ve_us:
+        horizon = "near-term"
+    else:
+        horizon = "contingent"
+
+    if is_aruba_explicit:
+        confidence = "high"
+    elif ("caribbean" in t or "caribbean sea" in t or "gulf of venezuela" in t) and ("venezuela" in t):
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    return {
+        "exposure_type": exposures or ["unspecified"],
+        "time_horizon": horizon,
+        "confidence": confidence,
+        "location_hits": location_hits or [],
+        "asset_hits": asset_hits or [],
+    }
+
+
+def _decision_label(risk: str, score: float, thresholds: Dict[str, Any]) -> str:
+    r = (risk or "").strip().title()
+    try:
+        s = float(score or 0.0)
+    except Exception:
+        s = 0.0
+
+    action_risk = set([x.title() for x in (thresholds.get("action_required_risk") or [])])
+    prepare_risk = set([x.title() for x in (thresholds.get("prepare_risk") or [])])
+    prepare_score = float(thresholds.get("prepare_score") or 6.0)
+    action_score = float(thresholds.get("action_required_score") or 8.0)
+
+    if r in action_risk or s >= action_score:
+        return "Action Required"
+    if r in prepare_risk or s >= prepare_score:
+        return "Prepare"
+    return "Monitor"
+
+
+def _format_aruba_relevance(ar: Dict[str, Any]) -> str:
+    if not isinstance(ar, dict):
+        return "-"
+    exposures = ar.get("exposure_type") or []
+    if isinstance(exposures, str):
+        exposures = [exposures]
+    exposures = [str(x) for x in exposures if x]
+    exposures = exposures[:5]
+    horizon = (ar.get("time_horizon") or "-").strip()
+    conf = (ar.get("confidence") or "-").strip()
+    if exposures:
+        return f"{', '.join(exposures)} ({horizon}, {conf})"
+    return f"- ({horizon}, {conf})"
+
+
 def classify_domain(text: str) -> str:
     t = text.lower()
-    if any(k in t for k in ["sanction", "embargo", "ultimatum", "border", "airspace", "intercept", "navy", "military"]):
-        return "geopolitics"
-    if any(k in t for k in ["oil", "gas", "pipeline", "refinery", "offshore", "rig", "fpso"]):
-        return "energy"
+    air = any(
+        k in t
+        for k in [
+            "air force",
+            "airspace",
+            "airbase",
+            "aviation",
+            "fighter",
+            "jet",
+            "drone",
+            "uav",
+            "notam",
+            "intercept",
+        ]
+    )
+    maritime = any(
+        k in t
+        for k in [
+            "navy",
+            "warship",
+            "tanker",
+            "shipping",
+            "port",
+            "maritime",
+            "coast guard",
+            "fleet",
+            "submarine",
+            "vessel",
+        ]
+    )
+    land = any(
+        k in t
+        for k in [
+            "army",
+            "troops",
+            "ground forces",
+            "border",
+            "incursion",
+            "mobilization",
+            "battalion",
+        ]
+    )
+    if sum([air, maritime, land]) >= 2:
+        return "multi"
+    if air:
+        return "air"
+    if maritime:
+        return "maritime"
+    if land:
+        return "land"
     return "unknown"
 
 
@@ -343,11 +474,11 @@ def _ollama_situation_summary(
             "- A concise, corrected headline describing the event, based only on TEXT.\n\n"
 
             "2) llm_summary:\n"
-            "- 2-3 sentences MAX.\n"
+            "- 4-5 sentences MAX.\n"
             "- Factual extraction only. No implications unless explicitly stated.\n\n"
 
             "3) what_happened:\n"
-            "- 3-4 sentences MAX, factual only, past tense.\n\n"
+            "- 5-6 sentences MAX, factual only, past tense.\n\n"
 
             "4) primary_actors:\n"
             "- Only actors explicitly named in TEXT who take action or are directly involved.\n"
@@ -355,6 +486,7 @@ def _ollama_situation_summary(
 
             "5) countries_involved:\n"
             "- Only countries explicitly named in TEXT.\n"
+            "- DO NOT infer. DO NOT add countries not explicitly named.\n"
             "- Comma-separated if multiple.\n\n"
 
             "6) key_indicators (Key Signals):\n"
@@ -419,6 +551,12 @@ def _ollama_situation_summary(
             }
         ).encode("utf-8")
         url = host.rstrip("/") + "/api/generate"
+
+        def _cleanup_json(candidate: str) -> str:
+            cleaned = candidate.replace("\r\n", "\n").replace("\r", "\n").strip()
+            cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+            return cleaned
+
         req = urllib.request.Request(
             url,
             data=payload,
@@ -431,11 +569,6 @@ def _ollama_situation_summary(
         s = (data.get("response") or "").strip()
         if not s:
             return None, raw, "empty_response"
-        def _cleanup_json(candidate: str) -> str:
-            cleaned = candidate.replace("\r\n", "\n").replace("\r", "\n").strip()
-            cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
-            return cleaned
-
         try:
             parsed = json.loads(_cleanup_json(s))
         except Exception:
@@ -452,8 +585,8 @@ def _ollama_situation_summary(
         if "What_happened" in parsed and "what_happened" not in parsed:
             parsed["what_happened"] = parsed.pop("What_happened")
         return parsed, raw, None
-    except Exception:
-        return None, None, "request_failed"
+    except Exception as exc:
+        return None, None, f"request_failed:{type(exc).__name__}"
 
 
 # =========================
@@ -529,8 +662,17 @@ def _validate_situation(
         domain_cat = (normalized.get("domain_category") or "").lower()
         domain = (normalized.get("domain") or "").lower()
         if domain_cat not in _ALLOWED_DOMAIN:
-            logger.warning("GeoFeed LLM validation: invalid domain_category=%s", domain_cat)
-            domain_cat = "unknown"
+            inferred = classify_domain(article_text)
+            logger.warning(
+                "GeoFeed LLM validation: invalid domain_category=%s inferred=%s",
+                domain_cat,
+                inferred,
+            )
+            domain_cat = inferred
+        if domain not in _ALLOWED_DOMAIN and domain:
+            inferred = classify_domain(domain)
+            if inferred != "unknown":
+                domain_cat = inferred
         normalized["domain_category"] = domain_cat
         normalized["domain"] = domain_cat
         if domain and domain != domain_cat:
@@ -621,6 +763,8 @@ def _make_summary_json(rows: List[Dict[str, Any]], hours: int, min_score: float)
             "primary_actors": situation.get("primary_actors") or "-",
             "countries_involved": situation.get("countries_involved") or "-",
             "summary": situation.get("llm_summary") or situation.get("what_happened") or "-",
+            "decision": situation.get("decision") or r.get("decision") or "-",
+            "aruba_relevance": situation.get("aruba_relevance") or r.get("aruba_relevance") or {},
             "why_it_matters": [
                 f"Drivers: {situation.get('drivers') or '-'}",
                 f"Impact: {situation.get('impact') or '-'}",
@@ -700,19 +844,14 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
         groups[category].append(r)
 
     order = ["maritime", "land", "air", "multi", "unknown"]
-    first_entry = True
+    blocks: List[str] = []
     entry_num = 1
     for label in order:
         group = groups[label]
         if not group:
             continue
-        lines.append(f"## {label.capitalize()}")
-        lines.append("")
+        group_blocks: List[str] = []
         for r in group:
-            if not first_entry:
-                lines.append("[[PAGE_BREAK]]")
-                lines.append("")
-            first_entry = False
             situation = r.get("situation") or {}
             title = (situation.get("title") or r.get("title") or "Untitled").strip()
             risk = (situation.get("risk") or "Low").title()
@@ -725,33 +864,46 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
                 continue
             drivers = situation.get("drivers") or "-"
             impact = situation.get("impact") or "-"
-            key_signals = situation.get("key_indicators") or situation.get("osint_indicators") or "-"
+            decision = situation.get("decision") or r.get("decision") or "-"
+            aruba_rel = situation.get("aruba_relevance") or r.get("aruba_relevance") or {}
 
+            entry_lines: List[str] = []
             url = (r.get("url") or "").strip()
             if url:
-                lines.append(f"### {entry_num}. [{title}]({url})")
+                entry_lines.append(f"### {entry_num}. [{title}]({url})")
             else:
-                lines.append(f"### {entry_num}. {title}")
-            lines.append(
+                entry_lines.append(f"### {entry_num}. {title}")
+            entry_lines.append(
                 f"**Risk:** {risk} | **Trend:** {trend} | **Date:** {date}"
             )
-            lines.append("")
-            lines.append(f"**Primary Actors:** {actors}  ")
-            lines.append(f"**Countries Involved:** {countries_involved}")
-            lines.append("")
-            lines.append("**Summary**")
-            lines.append(summary)
-            lines.append("")
-            lines.append("**Why It Matters**")
-            lines.append(f"Drivers: {drivers}")
-            lines.append(f"Impact: {impact}")
-            lines.append(f"Risk Level: {situation.get('risk') or '-'}")
-            lines.append("")
-            lines.append("**Key Signals**")
-            lines.append(f"Key Indicators: {situation.get('key_indicators') or '-'}")
-            lines.append(f"OSINT Indicators: {situation.get('osint_indicators') or '-'}")
-            lines.append("")
+            entry_lines.append(f"**Decision:** {decision}")
+            entry_lines.append(f"**Aruba Relevance:** {_format_aruba_relevance(aruba_rel)}")
+            entry_lines.append("")
+            entry_lines.append(f"**Primary Actors:** {actors}  ")
+            entry_lines.append(f"**Countries Involved:** {countries_involved}")
+            entry_lines.append("")
+            entry_lines.append("**Summary**")
+            entry_lines.append(summary)
+            entry_lines.append("")
+            entry_lines.append("**Why It Matters**")
+            entry_lines.append(f"Drivers: {drivers}")
+            entry_lines.append(f"Impact: {impact}")
+            entry_lines.append(f"Risk Level: {situation.get('risk') or '-'}")
+            entry_lines.append("")
+            entry_lines.append("**Key Signals**")
+            entry_lines.append(f"Key Indicators: {situation.get('key_indicators') or '-'}")
+            entry_lines.append(f"OSINT Indicators: {situation.get('osint_indicators') or '-'}")
+
+            group_blocks.append("\n".join(entry_lines))
             entry_num += 1
+
+        if not group_blocks:
+            continue
+        group_blocks[0] = "\n".join([f"## {label.capitalize()}", "", group_blocks[0]])
+        blocks.extend(group_blocks)
+
+    if blocks:
+        lines.extend(("\n\n[[PAGE_BREAK]]\n\n").join(blocks).splitlines())
 
     return "\n".join(lines)
 
@@ -925,6 +1077,16 @@ def run_geofeed(
                 if len(page_text.split()) < min_total_words:
                     page_text = _strip_html(it.summary or "")
 
+                exclude_keywords = cfg.get("GEOFEED_EXCLUDE_KEYWORDS") or []
+                if exclude_keywords:
+                    haystack = f"{it.title}\n{it.summary}\n{page_text}".lower()
+                    if any(k.lower() in haystack for k in exclude_keywords):
+                        processed += 1
+                        _update_progress(
+                            progress_state, processed, total_expected, started_at, it.title
+                        )
+                        continue
+
                 rawtext_rows.append(
                     {
                         "id": sid,
@@ -942,6 +1104,20 @@ def run_geofeed(
                 event_type = infer_event_type(blob)
                 score, reasons = escalation_score(blob, weights=weights, amplifiers=amplifiers, dampeners=dampeners)
                 loc_hits, asset_hits = find_watchlist_hits(blob, wl_locations, wl_assets)
+
+                proximity_weights = cfg.get("GEOFEED_PROXIMITY_WEIGHTS") or {}
+                prox_bonus = 0.0
+                for hit in loc_hits:
+                    w = proximity_weights.get(str(hit).lower())
+                    if w is not None:
+                        try:
+                            prox_bonus += float(w)
+                            reasons.append(f"proximity:{hit}")
+                        except Exception:
+                            pass
+                if prox_bonus:
+                    score = float(score) + float(prox_bonus)
+
                 below_threshold = score < min_score_val
 
                 situation: Optional[Dict[str, Any]] = None
@@ -951,7 +1127,7 @@ def run_geofeed(
                         model=ollama_model,
                         title=it.title,
                         text=page_text,
-                        timeout=max(timeout, 45),
+                        timeout=45,
                     )
                     if situation is None:
                         logger.warning(
@@ -978,7 +1154,16 @@ def run_geofeed(
                     else:
                         situation = _validate_situation(situation, page_text) or None
 
+                aruba_relevance = _aruba_relevance_from_hits(blob, loc_hits, asset_hits)
+                thresholds = cfg.get("GEOFEED_DECISION_THRESHOLDS") or {}
+                risk_val = (situation or {}).get("risk") if isinstance(situation, dict) else "Low"
+                decision = _decision_label(risk_val, score, thresholds)
+
                 now = dt.datetime.now(dt.timezone.utc)
+                if isinstance(situation, dict):
+                    situation["aruba_relevance"] = aruba_relevance
+                    situation["decision"] = decision
+
                 rows.append(
                     {
                         "id": sid,
@@ -992,6 +1177,8 @@ def run_geofeed(
                         "below_threshold": bool(below_threshold),
                         "reasons": reasons,
                         "watchlist": {"locations": loc_hits, "assets": asset_hits},
+                        "aruba_relevance": aruba_relevance,
+                        "decision": decision,
                         "source_feed": feed_url,
                         "situation": situation,
                     }
