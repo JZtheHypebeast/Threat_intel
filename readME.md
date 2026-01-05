@@ -19,7 +19,7 @@ configuration, and useful helper scripts.
 A quick view of the repository layout and important files/folders:
 
 - `readME.md` — this file (usage and configuration guide).
-- `requirements.txt` — runtime and dev dependencies.
+- `requirements.txt` — runtime dependencies plus `pytest` for tests.
 - `.venv/` — optional virtualenv (not checked in by default).
 - `collector/` — main application package; contains the collector and pipeline code, e.g.:
   - `collector/__init__.py`
@@ -42,7 +42,13 @@ Use this section as a quick reference for where to look when making changes.
 
 ## Quick Start
 
-### Ubuntu Server install (collector + Ollama 3.1)
+### Prereqs
+
+- Python 3.10+ (uses `str | None` type hints).
+- `pip`, `venv`, `git`.
+- Optional: Ollama for LLM enrichment; ReportLab for PDF rendering in reporting.
+
+### Ubuntu Server install (collector + optional Ollama)
 
 1) Install system dependencies and Python venv:
 ```bash
@@ -60,29 +66,30 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-3) Install Ollama and pull llama3.1 (on the server):
+3) (Optional) Install Ollama and pull a model (local LLM):
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 sudo systemctl enable --now ollama
-# Verify service
 curl http://localhost:11434/api/version
-# Pull model
 ollama pull llama3.1
 ```
 
 4) Run pipelines:
 ```bash
+# Interactive menu
+python3 -m collector.main
+
 # Structured CVE (24h window)
-python3 -m collector.main --structured --hours 24
+python3 -m collector.main --cve --hours 24
 
 # LLM enrichment (fetches rawtext + runs LLM)
-python3 -m collector.main --llm --hours 24
+python3 -m collector.main --articles --hours 24
 
-# PDF extraction (defaults to data/PDF)
-python3 -m collector.main --unstructured-pdf
+# PDF extraction (interactive menu defaults to data/PDF)
+python3 -m collector.main --unstructured-pdf data/PDF
 
 # GeoFeed (geopolitical scanner)
-python3 -m collector.geofeed --hours 24
+python3 -m collector.main --geofeed --hours 24
 
 # Cumulative reporting (e.g., last 7 days)
 python3 -m collector.main --reporting 7
@@ -90,11 +97,9 @@ python3 -m collector.main --reporting 7
 
 Notes:
 - Ensure `OLLAMA_HOST` and `OLLAMA_MODEL`/`LLM_MODEL` (default `llama3.1`) are set if the Ollama service is remote or uses a non-default model.
+- For best PDF extraction, PyMuPDF (`fitz`) is used; if it is unavailable the pipeline falls back to `pypdf` with lower fidelity.
+- For PDF report output in reporting, install ReportLab: `pip install reportlab`.
 - Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/` with categories: `cve/`, `articles/`, `pdf/`, `llmrawtext/`, `llm/`, `reporting/`, and `geofeed/`.
-
-Notes:
-- Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/`.
-  Categories: `cve/`, `articles/`, `pdf/`, `llmrawtext/` (raw articles), `llm/`, and `reporting/`.
 - LLM pipeline writes full article bodies to `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json`
   so enrichment can consume them; NDJSON excludes raw bodies.
 - Structured CVE uses an internal LLM refinement per CVE to clean vendor and add affected software; if LLM is disabled the deterministic fields remain.
@@ -116,21 +121,24 @@ Notes:
 ## CLI flags and menu
 
 Flags (non-interactive):
-- `--structured` — run structured CVE/KEV collection.
-- `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path (defaults to `data/PDF` if omitted in the menu).
-- `--llm` — fetch rawtext + run LLM enrichment for the given hours.
+- `--cve` — run structured CVE/KEV collection.
+- `--articles` — fetch RSS articles + run LLM enrichment.
+- `--geofeed` — run the GeoFeed geopolitical scanner (requires `collector/geofeed.py`).
+- `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path.
 - `--reporting <days>` — build a cumulative LLM-based report over 2/7/14/30 days.
 - `--tests` — run unit tests using the active Python interpreter.
 - `--hours <N>` — look-back window in hours for RSS items.
 - `--no-banner` — suppress ASCII banner at program start.
+- `--no-history` — placeholder (currently does not change CVE behavior).
 
 Interactive menu commands mirror the above:
-- `structured` — structured CVE/KEV collection.
-- `pdf <PATH>` — run PDF extraction on the given path (defaults to `data/PDF` if omitted).
-- `llm` — prompt for hours, fetch rawtext, then run LLM enrichment.
+- `cve` — structured CVE/KEV collection.
+- `articles` — prompt for hours, fetch rawtext, then run LLM enrichment.
+- `geofeed` — run GeoFeed (prompt for hours; PDF rendering prompt).
+- `pdf` — run PDF extraction on `data/PDF` by default.
 - `reporting` — build cumulative report (prompt for 2/7/14/30 days).
 - `tests` — run pytest.
-- `all` — structured + llm in sequence.
+- `all` — CVE + articles in sequence.
 - `hours <N>` — adjust the default look-back for fetch/structured in the session.
 
 Important note about the interactive menu and `--tests`:
@@ -138,6 +146,10 @@ Important note about the interactive menu and `--tests`:
   Python interpreter that launched the collector (for example
   `sys.executable -m pytest`). This ensures tests run consistently inside a
   virtual environment.
+
+GeoFeed standalone CLI (extra options):
+- `python3 -m collector.geofeed --hours 24 --pdf`
+- Flags: `--outdir`, `--results-root`, `--timeout`, `--max-items`, `--min-score`, `--pdf`
 
 ## Outputs and file conventions
 
@@ -155,7 +167,7 @@ Important note about the interactive menu and `--tests`:
   LLM-enriched Markdown summary.
 - `collector/results/cve/<date>/<time>/StructuredCVEReport_<date>.md` —
   structured CVE/KEV Markdown.
-- `collector/results/reporting/<date>/<time>/LLM-CumulativeReport_*` —
+- `collector/results/reporting/<date>/<time>/ManagementReport_<Nd>_<date>.*` —
   cumulative reports (markdown/json/pdf) built from recent LLM outputs.
 - `collector/results/geofeed/<date>/<time>/geofeed.ndjson` —
   GeoFeed scored NDJSON.
@@ -165,23 +177,107 @@ Important note about the interactive menu and `--tests`:
 NDJSON records intentionally exclude the full article bodies; they are kept
 in `rawtext-<date>.json` to simplify downstream indexing and reduce NDJSON size.
 
-## Configuration (env vars / CONFIG keys)
+## Configuration
 
 All runtime configuration is provided via the `CONFIG` mapping in
-`collector/config.py`. Common knobs (env var override shown in parentheses):
+`collector/config.py`. Most settings can be overridden via environment
+variables (usually prefixed `TI_`). JSON strings are required for lists/objects.
+Changes take effect on the next run.
 
-- `RSS_FEEDS` (`TI_RSS_FEEDS`) — list of RSS feed URLs.
-- `VENDORS` (`TI_VENDORS`) — vendor names used for CVE grouping/heuristics.
-- Output dirs (auto-set per run): `OUTPUT_DIR_STRUCTURED`, `OUTPUT_DIR_LLM`, `OUTPUT_DIR_LLM_RAW`, `OUTPUT_DIR_PDF`, `OUTPUT_DIR_REPORTING`.
-- Logging / UA: `LOG_FILE`, `USER_AGENT` (`TI_USER_AGENT`).
-- HTTP: `HTTP_RETRIES_TOTAL`, `HTTP_BACKOFF_FACTOR`, `HTTP_STATUS_FORCELIST`, `HTTP_POOL_CONNECTIONS`, `HTTP_POOL_MAXSIZE`, `REQUEST_TIMEOUT`, `BOILERPLATE_KEYWORDS`, `HTML_STRIP_ELEMENTS`, `ENABLE_UA_ROTATION`, `FALLBACK_USER_AGENTS`.
-- CVE feeds: `NVD_API_BASE`, `CISA_KEV_URL`, `COMMUNITY_KEV_URL`, `CVE_REGEX`, `CRITICAL_THRESHOLD`, `INTERESTING_MIN`.
-- PDF: `PDF_MAX_PAGES`, `SUMMARY_MAX_SENTENCES`, `SUMMARY_MAX_CHARS`.
-- LLM / Ollama: `LLM_ENABLED`, `OLLAMA_HOST`, `LLM_MODEL` (`OLLAMA_MODEL`), `LLM_REQUEST_TIMEOUT`, `LLM_TEMPERATURE`.
-- Reporting: `OUTPUT_DIR_REPORTING` for cumulative reports.
-- SIEM: `SIEM_ENABLED`, `SIEM_TYPE`, `ELASTIC_*` settings, `SIEM_DRY_RUN`.
+Example overrides:
+```bash
+export TI_RSS_FEEDS='["https://example.com/rss"]'
+export TI_LLM_ENABLED=false
+export TI_HTTP_STATUS_FORCELIST='[429,500,502,503]'
+```
 
-Refer to `collector/config.py` for exact defaults and optional keys.
+### Core inputs (RSS/CVE)
+- `TI_RSS_FEEDS` (`RSS_FEEDS`) — JSON list of RSS feeds used by articles and CVE RSS.
+- `TI_VENDORS` (`VENDORS`) — JSON list of vendor names used for CVE grouping.
+- `TI_EXCLUDED_SOFTWARE` (`EXCLUDED_SOFTWARE`) — JSON list of software names to ignore in CVE parsing.
+- `TI_NVD_API_BASE` (`NVD_API_BASE`) — NVD CVE API base URL.
+- `TI_CISA_KEV_URL` (`CISA_KEV_URL`) — CISA KEV feed URL.
+- `TI_COMMUNITY_KEV_URL` (`COMMUNITY_KEV_URL`) — community KEV feed URL.
+- `TI_CVE_REGEX` (`CVE_REGEX`) — regex for CVE detection in text.
+
+### Output paths and logging
+- `LOG_FILE` (CONFIG only) — log file path; set in `collector/config.py`.
+- `OUTPUT_DIR_STRUCTURED`, `OUTPUT_DIR_UNSTRUCTURED`, `OUTPUT_DIR_LLM`,
+  `OUTPUT_DIR_LLM_RAW`, `OUTPUT_DIR_REPORTING`, `OUTPUT_DIR_PDF` (CONFIG only) — output directories per run.
+- `TI_RESULTS_ROOT` — GeoFeed results root for `collector.geofeed` (overridable via `--results-root`).
+- `COLLECTOR_NO_BANNER` — set to `true`/`1` to suppress the ASCII banner.
+
+### HTTP fetch, parsing, and sanitization
+- `TI_USER_AGENT` (`USER_AGENT`) — User-Agent for NVD/KEV and as a fallback for article fetching.
+- `HTTP_USER_AGENT` (CONFIG only) — overrides the User-Agent used by the article fetcher.
+- `TI_REQUEST_TIMEOUT` (`REQUEST_TIMEOUT`) — default HTTP timeout (seconds).
+- `HTTP_CONNECT_TIMEOUT`, `HTTP_READ_TIMEOUT` (CONFIG only) — connect/read timeouts for article fetches.
+- `HTTP_MAX_CONTENT_LENGTH` (CONFIG only) — max bytes to read per article.
+- `TI_HTTP_RETRIES_TOTAL`, `TI_HTTP_BACKOFF_FACTOR`, `TI_HTTP_STATUS_FORCELIST`,
+  `TI_HTTP_POOL_CONNECTIONS`, `TI_HTTP_POOL_MAXSIZE` — retry and pooling controls.
+- `TI_INCLUDE_ENTRIES_WITHOUT_DATE` — include RSS items without a published date.
+- `TI_BOILERPLATE_KEYWORDS` — JSON list of keywords to strip from fetched text.
+- `PROXIES` (CONFIG only) — requests proxy mapping for article fetches.
+
+### LLM / Ollama
+- `TI_LLM_ENABLED` (`LLM_ENABLED`) — enable/disable LLM calls.
+- `TI_OLLAMA_HOST` (`OLLAMA_HOST`) or `OLLAMA_HOST` — Ollama base URL.
+- `TI_LLM_MODEL` (`LLM_MODEL`) or `OLLAMA_MODEL` — Ollama model name.
+- `TI_LLM_REQUEST_TIMEOUT` (`LLM_REQUEST_TIMEOUT`) — LLM request timeout (seconds).
+- `TI_LLM_TEMPERATURE` (`LLM_TEMPERATURE`) — temperature for LLM calls.
+- `LLM_HOST` (CONFIG only) — reporting uses this if set; otherwise falls back to `OLLAMA_HOST`.
+
+### PDF pipeline
+- `ENABLE_SUMMARIZATION` — when `true`, add `summary_text` in PDF NDJSON outputs.
+- `MAX_WORKERS` (`TI_MAX_WORKERS`) — thread pool size for RSS fetching and PDF analysis.
+
+### SIEM delivery (Elastic)
+- `TI_SIEM_ENABLED` (`SIEM_ENABLED`) — enable Elastic bulk delivery (used in PDF pipeline).
+- `TI_SIEM_TYPE` (`SIEM_TYPE`) — currently only `elastic`.
+- `TI_ELASTIC_ENDPOINT`, `TI_ELASTIC_INDEX` — target Elastic endpoint/index.
+- `TI_ELASTIC_API_KEY` or `TI_ELASTIC_USER`/`TI_ELASTIC_PASS` — authentication.
+- `TI_SIEM_BATCH_SIZE`, `TI_SIEM_MAX_RETRIES`, `TI_SIEM_TIMEOUT`, `TI_SIEM_DRY_RUN` — delivery behavior.
+
+### Reporting
+- `REPORT_MAX_ENTRIES` (CONFIG only) — max LLM records to summarize (default 30).
+- `REPORT_BATCH_SIZE` (CONFIG only) — batch size for intermediate LLM prompts (default 6).
+
+### GeoFeed
+- `TI_GEOFEED_RSS_FEEDS` (`GEOFEED_RSS_FEEDS`) — JSON list of GeoFeed RSS URLs.
+- `GEOFEED_RSS_FEEDS` (env only) — comma-separated RSS URLs (legacy fallback).
+- `TI_GEOFEED_MIN_SCORE` — minimum score threshold for inclusion.
+- `TI_GEOFEED_MAX_ITEMS_PER_FEED` — max items to read per feed.
+- `TI_GEOFEED_REQUEST_TIMEOUT` — per-request timeout (seconds).
+- `TI_GEOFEED_USE_OLLAMA` — enable GeoFeed LLM summarization.
+- `TI_GEOFEED_OLLAMA_MODEL` — model used by GeoFeed LLM prompts.
+- `TI_GEOFEED_ADD_LLM_SUMMARY` — include LLM summary in output.
+- `TI_GEOFEED_LLM_SUMMARY_MAX_CHARS` — cap LLM summary length.
+- `TI_GEOFEED_WATCHLIST_LOCATIONS` — JSON list of location watchlist terms.
+- `TI_GEOFEED_WATCHLIST_ASSETS` — JSON list of asset watchlist terms.
+- `TI_GEOFEED_SIGNAL_WEIGHTS` — JSON object of scoring weights for signals.
+- `TI_GEOFEED_AMPLIFIERS` — JSON object for amplification keywords.
+- `TI_GEOFEED_DAMPENERS` — JSON object for dampening keywords.
+- `TI_GEOFEED_EXCLUDE_KEYWORDS` — JSON list of phrases to exclude.
+- `TI_GEOFEED_PROXIMITY_WEIGHTS` — JSON object for proximity scoring.
+- `TI_GEOFEED_DECISION_THRESHOLDS` — JSON object for decision thresholds.
+- `GEOFEED_BOILERPLATE_KEYWORDS` (CONFIG only) — keywords stripped from GeoFeed article text.
+- `GEOFEED_MIN_PARAGRAPH_WORDS`, `GEOFEED_MIN_TOTAL_WORDS` (CONFIG only) — minimum text length thresholds.
+- `GEOFEED_VALIDATE_LLM` (CONFIG only) — enable/disable GeoFeed LLM output validation.
+- `GEOFEED_SKIP_VALIDATE` (env only) — force-skip GeoFeed LLM validation.
+
+### Defined but currently unused (reserved)
+- `ENABLE_SCORING`, `EXPORT_NAVIGATOR`, `ARCHIVE_TTL_DAYS`
+- `MIN_SENTENCE_WORDS`, `MIN_PARAGRAPH_WORDS`
+- `HTML_PARSER`, `HTML_MAX_LEN`, `HTML_STRIP_ELEMENTS`
+- `PDFTOTEXT_TIMEOUT`, `PDF_MAX_PAGES`, `SUMMARY_MAX_SENTENCES`, `SUMMARY_MAX_CHARS`
+- `EXCERPT_RADIUS`, `TOP_FINDING_MIN_WORDS`, `TOP_FINDING_MAX_WORDS`
+- `PROVENANCE_KEYWORDS`, `PROVENANCE_STRIP_PATTERNS`
+- `ENABLE_UA_ROTATION`, `FALLBACK_USER_AGENTS`
+- `ENABLER_KEYWORDS`, `CRITICAL_THRESHOLD`, `INTERESTING_MIN`, `INTERESTING_MAX`
+- `GEOFEED_ENABLED`
+
+Refer to `collector/config.py` for exact defaults, and edit that file for any
+CONFIG-only settings.
 
 ## Tests & development
 
