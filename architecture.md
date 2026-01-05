@@ -1,9 +1,5 @@
 # Collector diagrams
 
-These diagrams are authored in **Mermaid**, which renders natively on GitHub in Markdown.
-
-> Tip: If the README gets long, keep this file in `docs/` and link to it from `README.md`.
-
 ---
 
 ## Architecture overview
