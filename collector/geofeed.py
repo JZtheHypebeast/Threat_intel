@@ -220,70 +220,6 @@ def _stable_id(title: str, url: str) -> str:
     return h[:24]
 
 
-def find_watchlist_hits(text: str, locations: List[str], assets: List[str]) -> Tuple[List[str], List[str]]:
-    t = text.lower()
-    loc_hits = []
-    asset_hits = []
-    for x in locations:
-        if x and x.lower() in t:
-            loc_hits.append(x)
-    for x in assets:
-        if x and x.lower() in t:
-            asset_hits.append(x)
-    return loc_hits[:12], asset_hits[:12]
-
-
-def _aruba_relevance_from_hits(
-    text: str,
-    location_hits: List[str],
-    asset_hits: List[str],
-) -> Dict[str, Any]:
-    t = (text or "").lower()
-    exposures: List[str] = []
-    if any(k in t for k in ["sanction", "ofac", "designat", "asset freeze", "secondary sanction"]):
-        exposures.extend(["financial", "payments"])
-    if any(k in t for k in ["oil", "lng", "gas", "refinery", "pipeline", "fuel", "diesel"]):
-        exposures.append("energy")
-    if any(k in t for k in ["payment", "bank", "wire", "correspondent", "swift", "account freeze", "de-risk"]):
-        exposures.extend(["payments", "financial"])
-    if any(k in t for k in ["shipping", "tanker", "port", "harbor", "freight", "insurance", "ais", "shadow fleet"]):
-        exposures.append("shipping")
-    if any(k in t for k in ["airspace", "notam", "flight", "airport", "intercept", "fighter", "drone", "air base"]):
-        exposures.append("aviation")
-
-    seen = set()
-    exposures = [x for x in exposures if not (x in seen or seen.add(x))]
-
-    loc_l = [x.lower() for x in (location_hits or [])]
-    is_aruba_explicit = any(x in loc_l for x in ["aruba", "oranjestad", "san nicolas"])
-    is_ve_us = ("venezuela" in t) and any(
-        k in t for k in ["united states", "u.s.", "usa", "pentagon", "white house", "ofac", "treasury"]
-    )
-    operational = any(k in t for k in ["airspace closed", "airspace closure", "notam", "strike", "airstrike", "missile", "intercept", "deployment"])
-
-    if is_aruba_explicit and operational:
-        horizon = "immediate"
-    elif is_aruba_explicit or is_ve_us:
-        horizon = "near-term"
-    else:
-        horizon = "contingent"
-
-    if is_aruba_explicit:
-        confidence = "high"
-    elif ("caribbean" in t or "caribbean sea" in t or "gulf of venezuela" in t) and ("venezuela" in t):
-        confidence = "medium"
-    else:
-        confidence = "low"
-
-    return {
-        "exposure_type": exposures or ["unspecified"],
-        "time_horizon": horizon,
-        "confidence": confidence,
-        "location_hits": location_hits or [],
-        "asset_hits": asset_hits or [],
-    }
-
-
 def _decision_label(risk: str, score: float, thresholds: Dict[str, Any]) -> str:
     r = (risk or "").strip().title()
     try:
@@ -301,21 +237,6 @@ def _decision_label(risk: str, score: float, thresholds: Dict[str, Any]) -> str:
     if r in prepare_risk or s >= prepare_score:
         return "Prepare"
     return "Monitor"
-
-
-def _format_aruba_relevance(ar: Dict[str, Any]) -> str:
-    if not isinstance(ar, dict):
-        return "-"
-    exposures = ar.get("exposure_type") or []
-    if isinstance(exposures, str):
-        exposures = [exposures]
-    exposures = [str(x) for x in exposures if x]
-    exposures = exposures[:5]
-    horizon = (ar.get("time_horizon") or "-").strip()
-    conf = (ar.get("confidence") or "-").strip()
-    if exposures:
-        return f"{', '.join(exposures)} ({horizon}, {conf})"
-    return f"- ({horizon}, {conf})"
 
 
 def classify_domain(text: str) -> str:
@@ -409,11 +330,9 @@ def escalation_score(
     reasons = list(dict.fromkeys(reasons))[:8]
     return score, reasons
 
-
 # =========================
 # ===== Summaries =========
 # =========================
-
 
 def _ollama_situation_summary(
     host: str,
@@ -424,103 +343,118 @@ def _ollama_situation_summary(
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     try:
         prompt = (
-            "SYSTEM:\n"
-            "You are a strict information extraction engine for a central bank in Aruba.\n"
-            "You MUST use ONLY the provided TEXT as your source. Do NOT use outside knowledge.\n"
-            "For ALL fields EXCEPT 'risk', 'change', and 'impact', do NOT infer, assume, speculate, or add context.\n"
-            "If a detail is not explicitly stated in TEXT, write exactly: Not specified.\n\n"
+            "You are a geopolitical risk analyst generating an executive-friendly structured summary.\n"
+            "You MUST follow these rules:\n"
+            "- Use ONLY information explicitly present in TEXT.\n"
+            "- Do NOT introduce assumptions, invented actors, invented locations, or speculative impacts.\n"
+            "- If information is not explicitly stated in TEXT, output exactly: Not specified\n"
+            "- Return a single valid JSON object and nothing else.\n"
+            "- Do not wrap JSON in markdown.\n\n"
 
-            "TASK:\n"
-            "Read the article TEXT and return JSON ONLY (a single object) with EXACTLY these keys and no others:\n"
-            "title, llm_summary, domain, event_type, state, change, countries_involved, "
-            "primary_actors, key_indicators, osint_indicators, drivers, impact, risk, "
-            "what_happened, domain_category.\n\n"
+            "OUTPUT JSON SCHEMA (exact keys):\n"
+            "{\n"
+            "  \"risk_level\": \"Low|Moderate|Elevated|High|Not specified\",\n"
+            "  \"trend\": \"New|Stable|Escalating|De-escalating|Not specified\",\n"
+            "  \"decision\": \"Monitor|Prepare|Action Required|Not specified\",\n"
+            "  \"primary_actors\": \"<string or Not specified>\",\n"
+            "  \"countries_involved\": \"<comma-separated list or Not specified>\",\n"
+            "  \"summary\": \"<2-3 sentences or Not specified>\",\n"
+            "  \"aruba_relevance_summary\": \"<2-3 sentences or Not specified>\",\n"
+            "  \"situation\": {\n"
+            "    \"key_indicators\": \"<bullet lines as one string or Not specified>\",\n"
+            "    \"drivers\": \"<bullet lines as one string or Not specified>\",\n"
+            "    \"impact\": \"<bullet lines as one string or Not specified>\",\n"
+            "    \"osint_indicators\": \"<string or Not specified>\",\n"
+            "    \"state\": \"active|ongoing|planned|resolved|neutral|unknown\",\n"
+            "    \"domain_category\": \"air|maritime|land|multi|unknown\",\n"
+            "    \"domain\": \"air|maritime|land|multi|unknown\",\n"
+            "    \"event_type\": \"<short label or Not specified>\",\n"
+            "  }\n"
+            "}\n\n"
 
-            "OUTPUT RULES (STRICT):\n"
-            "- Output must be valid JSON and NOTHING ELSE.\n"
-            "- Use EXACTLY the keys above. Do not add/remove/rename keys.\n"
-            "- Each value must be a SHORT STRING. No arrays, no nested objects.\n"
-            "- Use comma-separated values for multiple items inside a single string.\n"
-            "- Keep wording close to TEXT; avoid generic filler.\n\n"
+            "INSTRUCTIONS (follow in order):\n"
+            "1) risk_level:\n"
+            "- Low: minor event, limited escalation signals.\n"
+            "- Moderate: meaningful event but limited spillover.\n"
+            "- Elevated: credible escalation signal or regional spillover risk.\n"
+            "- High: imminent/active conflict or severe disruption.\n"
+            "- Choose based ONLY on TEXT.\n\n"
 
-            "HALLUCINATION CONTROL:\n"
-            "- For every field except 'risk' and 'change': ONLY extract what is explicitly stated in TEXT.\n"
-            "- Do NOT add impacts, motivations, or implications unless TEXT explicitly says them.\n"
-            "- Do NOT add countries/actors not named in TEXT.\n\n"
+            "2) trend:\n"
+            "- New: first report or new development in TEXT.\n"
+            "- Stable: continuing without clear change.\n"
+            "- Escalating: TEXT explicitly indicates escalation (e.g., 'escalated', 'expanded', 'strikes', 'blockade widened').\n"
+            "- De-escalating: TEXT explicitly indicates reduction/ceasefire/rollback.\n"
+            "- Otherwise Not specified.\n\n"
 
-            "ALLOWED WIGGLE ROOM (ONLY FOR risk, change, and impact):\n"
-            "A) risk (Aruba FI impact):\n"
-            "- You may assess risk to Aruba's financial institutions based on facts stated in TEXT.\n"
-            "- risk MUST be exactly one of: Low, Moderate, Elevated, High.\n"
-            "- You may consider ONLY these channels IF supported by TEXT facts:\n"
-            "  1) Sanctions/compliance exposure (shipping, oil trading, designated entities)\n"
-            "  2) Correspondent banking / payment disruption risk\n"
-            "  3) Market risk: oil price shock / volatility explicitly mentioned\n"
-            "  4) Shipping/insurance/freight disruption explicitly mentioned\n"
-            "- If TEXT contains no facts that connect to any channel above, set risk to Low.\n"
-            "- Do NOT include any explanation or reasoning in the JSON.\n\n"
-
-            "B) change (Trend for Markdown):\n"
-            "- change MUST be exactly one of: New, Stable, ↗ Escalating, ↘ De-escalating.\n"
-            "- Infer change ONLY from progression explicitly described in TEXT\n"
-            "  (e.g., 'more', 'additional', 'expanded', 'first time', 'slowed', 'easing', 'resumed').\n"
-            "- If TEXT describes a new action/measure with no comparison, use New.\n"
-            "- If TEXT indicates intensification/expansion, use ↗ Escalating.\n"
-            "- If TEXT indicates easing/rollback/normalization, use ↘ De-escalating.\n"
-            "- If TEXT indicates no meaningful change, use Stable.\n\n"
-
-            "FIELD RULES (STRICT EXTRACTION FOR ALL EXCEPT risk/change):\n"
-            "1) title:\n"
-            "- A concise, corrected headline describing the event, based only on TEXT.\n\n"
-
-            "2) llm_summary:\n"
-            "- 4-5 sentences MAX.\n"
-            "- Factual extraction only. No implications unless explicitly stated.\n\n"
-
-            "3) what_happened:\n"
-            "- 5-6 sentences MAX, factual only, past tense.\n\n"
+            "3) decision:\n"
+            "- Monitor: routine awareness.\n"
+            "- Prepare: plausible impact path requiring readiness.\n"
+            "- Action Required: immediate operational/compliance action is explicitly suggested by TEXT.\n"
+            "- If TEXT does not justify an action posture, use Monitor.\n\n"
 
             "4) primary_actors:\n"
-            "- Only actors explicitly named in TEXT who take action or are directly involved.\n"
-            "- Comma-separated if multiple.\n\n"
+            "- 1-3 main actors as a comma-separated string.\n"
+            "- Must be explicitly named in TEXT.\n"
+            "- If unclear, Not specified.\n\n"
 
             "5) countries_involved:\n"
-            "- Only countries explicitly named in TEXT.\n"
+            "- Comma-separated list of countries explicitly named in TEXT.\n"
             "- DO NOT infer. DO NOT add countries not explicitly named.\n"
-            "- Comma-separated if multiple.\n\n"
+            "- If none, Not specified.\n\n"
 
-            "6) key_indicators (Key Signals):\n"
+            "6) summary:\n"
+            "- 5-6 sentences, factual.\n"
+            "- No speculation.\n"
+            "- Must reflect the core event described in TEXT.\n\n"
+
+            "6b) aruba_relevance_summary:\n"
+            "- 2-3 sentences on whether and how this matters to Aruba's financial institutions.\n"
+            "- You MAY infer relevance, but ground it in facts explicitly stated in TEXT.\n"
+            "- If there is no credible relevance supported by TEXT, output: Not specified.\n\n"
+
+            "7) key_indicators (Key Signals):\n"
             "- 1-3 bullet lines as ONE string using this exact format:\n"
             "  - <indicator>\n"
             "  - <indicator>\n"
             "- Each indicator MUST be explicitly described in TEXT.\n"
             "- If none, Not specified.\n\n"
 
-            "7) drivers (Why it started):\n"
+            "8) drivers (Why it started):\n"
             "- ONLY if TEXT explicitly states drivers/causes/motivation.\n"
             "- Write 1-3 bullet lines as ONE string using this exact format:\n"
-            "  - <impact>\n"
-            "  - <impact>\n"
-            "- If no explicit impacts are stated, Not specified.\n\n"
+            "  - <driver>\n"
+            "  - <driver>\n"
+            "- If none, Not specified.\n\n"
 
-            "8) impact (Why it matters to Aruba FI):\n"
-            "- You MAY infer plausible Aruba FI relevance using ONLY facts in TEXT.\n"
-            "- Limit to these channels: sanctions/compliance exposure, payment disruption, market/oil shock, shipping/insurance disruption.\n"
-            "- Keep it factual and grounded in TEXT; no speculation beyond these channels.\n"
-            "- Write 1-3 bullet lines as ONE string using this exact format:\n"
-            "  - <impact>\n"
-            "  - <impact>\n"
-            "- If no explicit impacts are stated, Not specified.\n\n"
+            "9) impact (Why it matters — evidence required):\n"
+            "- VERY IMPORTANT: Do NOT add finance-related impact unless TEXT explicitly supports it.\n"
+            "- Allowed channels (use these exact labels ONLY when supported by TEXT):\n"
+            "  - Sanctions/compliance exposure\n"
+            "  - Payment disruption\n"
+            "  - Market/oil shock\n"
+            "  - Shipping/insurance disruption\n"
+            "- If TEXT does NOT explicitly mention sanctions/OFAC/Treasury/sanctions enforcement/asset freezes/banking/payments/SWIFT,\n"
+            "  then you MUST NOT write 'Sanctions/compliance exposure' or 'Payment disruption'.\n"
+            "- If TEXT does NOT explicitly mention prices/production/output/supply/oil/gas/energy markets,\n"
+            "  then you MUST NOT write 'Market/oil shock'.\n"
+            "- If TEXT does NOT explicitly mention shipping/ports/blocks/interdiction/insurance/routing,\n"
+            "  then you MUST NOT write 'Shipping/insurance disruption'.\n"
+            "- Every bullet MUST include an evidence phrase copied from TEXT in parentheses.\n"
+            "  Example format:\n"
+            "  - Shipping/insurance disruption: higher routing risk (evidence: \"naval blockade\")\n"
+            "- Write 1-3 bullet lines as ONE string.\n"
+            "- If you cannot cite evidence from TEXT for any channel, output exactly: Not specified.\n\n"
 
-            "9) osint_indicators:\n"
+            "10) osint_indicators:\n"
             "- Only sources/methods explicitly mentioned in TEXT (e.g., AIS/ship-tracking, satellite imagery, official statement).\n"
             "- If none, Not specified.\n\n"
 
-            "10) state:\n"
+            "11) state:\n"
             "- Use one of: active, ongoing, planned, resolved, neutral, unknown.\n"
             "- Choose only if TEXT indicates status; otherwise unknown.\n\n"
 
-            "11) domain_category and domain:\n"
+            "12) domain_category and domain:\n"
             "- domain_category MUST be exactly one of: air, maritime, land, multi, unknown.\n"
             "- domain MUST match domain_category.\n"
             "- Choose based ONLY on what TEXT describes.\n"
@@ -531,7 +465,7 @@ def _ollama_situation_summary(
             "  multi: two or more domains explicitly present\n"
             "  unknown: none of the above\n\n"
 
-            "12) event_type:\n"
+            "13) event_type:\n"
             "- Short concrete label based ONLY on TEXT (e.g., sanctions, blockade, naval interdiction, border clash).\n"
             "- If unclear, Not specified.\n\n"
 
@@ -602,6 +536,7 @@ _EXPECTED_SITUATION_KEYS = {
     "change",
     "countries_involved",
     "primary_actors",
+    "aruba_relevance_summary",
     "key_indicators",
     "osint_indicators",
     "drivers",
@@ -622,6 +557,56 @@ def _norm_text(s: str) -> str:
 
 def _split_csv(s: str) -> List[str]:
     return [p.strip() for p in (s or "").split(",") if p.strip()]
+
+
+def _map_trend(value: str) -> str:
+    v = (value or "").strip()
+    if not v:
+        return "Not specified"
+    low = v.lower()
+    if "escalat" in low and "de-" not in low:
+        return "↗ Escalating"
+    if "de-escalat" in low or "deescalat" in low or "de-escal" in low:
+        return "↘ De-escalating"
+    if "stable" in low or "steady" in low or "unchanged" in low:
+        return "Stable"
+    if low == "new":
+        return "New"
+    if v in _ALLOWED_CHANGE:
+        return v
+    return "Not specified"
+
+
+def _flatten_llm_output(raw: Dict[str, Any], title_fallback: str) -> Dict[str, Any]:
+    """Normalize nested LLM output into the flat schema expected by validators."""
+    if not isinstance(raw, dict):
+        return {}
+
+    if "situation" not in raw and "risk_level" not in raw and "trend" not in raw:
+        return raw
+
+    situation = raw.get("situation") or {}
+    if not isinstance(situation, dict):
+        situation = {}
+
+    flat: Dict[str, Any] = {}
+    flat["title"] = raw.get("title") or title_fallback or "Not specified"
+    flat["llm_summary"] = raw.get("summary") or raw.get("llm_summary") or "Not specified"
+    flat["primary_actors"] = raw.get("primary_actors") or "Not specified"
+    flat["countries_involved"] = raw.get("countries_involved") or "Not specified"
+    flat["risk"] = raw.get("risk_level") or raw.get("risk") or "Not specified"
+    flat["change"] = _map_trend(raw.get("trend") or raw.get("change") or "")
+    flat["aruba_relevance_summary"] = raw.get("aruba_relevance_summary") or "Not specified"
+    flat["what_happened"] = raw.get("what_happened") or flat["llm_summary"] or "Not specified"
+    flat["key_indicators"] = situation.get("key_indicators") or "Not specified"
+    flat["drivers"] = situation.get("drivers") or "Not specified"
+    flat["impact"] = situation.get("impact") or "Not specified"
+    flat["osint_indicators"] = situation.get("osint_indicators") or "Not specified"
+    flat["state"] = situation.get("state") or "unknown"
+    flat["domain_category"] = situation.get("domain_category") or "unknown"
+    flat["domain"] = situation.get("domain") or flat["domain_category"]
+    flat["event_type"] = situation.get("event_type") or "Not specified"
+    return flat
 
 
 def _validate_situation(
@@ -764,7 +749,7 @@ def _make_summary_json(rows: List[Dict[str, Any]], hours: int, min_score: float)
             "countries_involved": situation.get("countries_involved") or "-",
             "summary": situation.get("llm_summary") or situation.get("what_happened") or "-",
             "decision": situation.get("decision") or r.get("decision") or "-",
-            "aruba_relevance": situation.get("aruba_relevance") or r.get("aruba_relevance") or {},
+            "aruba_relevance_summary": situation.get("aruba_relevance_summary") or "-",
             "why_it_matters": [
                 f"Drivers: {situation.get('drivers') or '-'}",
                 f"Impact: {situation.get('impact') or '-'}",
@@ -835,72 +820,54 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
         return "New"
 
     top = sorted(above, key=_published_key, reverse=True)[:25]
-    groups = {"maritime": [], "land": [], "air": [], "multi": [], "unknown": []}
-    for r in top:
-        situation = r.get("situation") or {}
-        category = str(situation.get("domain_category") or "unknown").lower()
-        if category not in groups:
-            category = "unknown"
-        groups[category].append(r)
-
-    order = ["maritime", "land", "air", "multi", "unknown"]
     blocks: List[str] = []
     entry_num = 1
-    for label in order:
-        group = groups[label]
-        if not group:
+    for r in top:
+        situation = r.get("situation") or {}
+        title = (situation.get("title") or r.get("title") or "Untitled").strip()
+        risk = (situation.get("risk") or "Low").title()
+        trend = _trend_label(situation.get("change") or "")
+        date = _fmt_date((r.get("published") or "").strip())
+        actors = situation.get("primary_actors") or "-"
+        countries_involved = situation.get("countries_involved") or "-"
+        summary = situation.get("llm_summary") or situation.get("what_happened") or "-"
+        if summary == "-" and actors == "-" and countries_involved == "-":
             continue
-        group_blocks: List[str] = []
-        for r in group:
-            situation = r.get("situation") or {}
-            title = (situation.get("title") or r.get("title") or "Untitled").strip()
-            risk = (situation.get("risk") or "Low").title()
-            trend = _trend_label(situation.get("change") or "")
-            date = _fmt_date((r.get("published") or "").strip())
-            actors = situation.get("primary_actors") or "-"
-            countries_involved = situation.get("countries_involved") or "-"
-            summary = situation.get("llm_summary") or situation.get("what_happened") or "-"
-            if summary == "-" and actors == "-" and countries_involved == "-":
-                continue
-            drivers = situation.get("drivers") or "-"
-            impact = situation.get("impact") or "-"
-            decision = situation.get("decision") or r.get("decision") or "-"
-            aruba_rel = situation.get("aruba_relevance") or r.get("aruba_relevance") or {}
+        drivers = situation.get("drivers") or "-"
+        impact = situation.get("impact") or "-"
+        decision = situation.get("decision") or r.get("decision") or "-"
+        aruba_relevance_summary = situation.get("aruba_relevance_summary") or "Not specified"
 
-            entry_lines: List[str] = []
-            url = (r.get("url") or "").strip()
-            if url:
-                entry_lines.append(f"### {entry_num}. [{title}]({url})")
-            else:
-                entry_lines.append(f"### {entry_num}. {title}")
-            entry_lines.append(
-                f"**Risk:** {risk} | **Trend:** {trend} | **Date:** {date}"
-            )
-            entry_lines.append(f"**Decision:** {decision}")
-            entry_lines.append(f"**Aruba Relevance:** {_format_aruba_relevance(aruba_rel)}")
-            entry_lines.append("")
-            entry_lines.append(f"**Primary Actors:** {actors}  ")
-            entry_lines.append(f"**Countries Involved:** {countries_involved}")
-            entry_lines.append("")
-            entry_lines.append("**Summary**")
-            entry_lines.append(summary)
-            entry_lines.append("")
-            entry_lines.append("**Why It Matters**")
-            entry_lines.append(f"Drivers: {drivers}")
-            entry_lines.append(f"Impact: {impact}")
-            entry_lines.append(f"Risk Level: {situation.get('risk') or '-'}")
-            entry_lines.append("")
-            entry_lines.append("**Key Signals**")
-            entry_lines.append(f"Key Indicators: {situation.get('key_indicators') or '-'}")
-            entry_lines.append(f"OSINT Indicators: {situation.get('osint_indicators') or '-'}")
+        entry_lines: List[str] = []
+        url = (r.get("url") or "").strip()
+        if url:
+            entry_lines.append(f"### {entry_num}. [{title}]({url})")
+        else:
+            entry_lines.append(f"### {entry_num}. {title}")
+        entry_lines.append(
+            f"**Risk:** {risk} | **Trend:** {trend} | **Date:** {date}"
+        )
+        entry_lines.append(f"**Decision:** {decision}")
+        entry_lines.append("**Aruba Relevance**")
+        entry_lines.append(aruba_relevance_summary)
+        entry_lines.append("")
+        entry_lines.append(f"**Primary Actors:** {actors}  ")
+        entry_lines.append(f"**Countries Involved:** {countries_involved}")
+        entry_lines.append("")
+        entry_lines.append("**Summary**")
+        entry_lines.append(summary)
+        entry_lines.append("")
+        entry_lines.append("**Why It Matters**")
+        entry_lines.append(f"Drivers: {drivers}")
+        entry_lines.append(f"Impact: {impact}")
+        entry_lines.append(f"Risk Level: {situation.get('risk') or '-'}")
+        entry_lines.append("")
+        entry_lines.append("**Key Signals**")
+        entry_lines.append(f"Key Indicators: {situation.get('key_indicators') or '-'}")
+        entry_lines.append(f"OSINT Indicators: {situation.get('osint_indicators') or '-'}")
 
-            group_blocks.append("\n".join(entry_lines))
-            entry_num += 1
-
-        if not group_blocks:
-            continue
-        group_blocks[0] = "\n".join([f"## {label.capitalize()}", "", group_blocks[0]])
-        blocks.extend(group_blocks)
+        blocks.append("\n".join(entry_lines))
+        entry_num += 1
 
     if blocks:
         lines.extend(("\n\n[[PAGE_BREAK]]\n\n").join(blocks).splitlines())
@@ -998,8 +965,6 @@ def run_geofeed(
 
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=int(hours))
 
-    wl_locations = cfg.get("GEOFEED_WATCHLIST_LOCATIONS") or []
-    wl_assets = cfg.get("GEOFEED_WATCHLIST_ASSETS") or []
     boilerplate_keywords = cfg.get("GEOFEED_BOILERPLATE_KEYWORDS") or DEFAULT_GEOFEED_BOILERPLATE
     min_paragraph_words = int(cfg.get("GEOFEED_MIN_PARAGRAPH_WORDS", 20))
     min_total_words = int(cfg.get("GEOFEED_MIN_TOTAL_WORDS", 80))
@@ -1103,20 +1068,6 @@ def run_geofeed(
                 domain = classify_domain(blob)
                 event_type = infer_event_type(blob)
                 score, reasons = escalation_score(blob, weights=weights, amplifiers=amplifiers, dampeners=dampeners)
-                loc_hits, asset_hits = find_watchlist_hits(blob, wl_locations, wl_assets)
-
-                proximity_weights = cfg.get("GEOFEED_PROXIMITY_WEIGHTS") or {}
-                prox_bonus = 0.0
-                for hit in loc_hits:
-                    w = proximity_weights.get(str(hit).lower())
-                    if w is not None:
-                        try:
-                            prox_bonus += float(w)
-                            reasons.append(f"proximity:{hit}")
-                        except Exception:
-                            pass
-                if prox_bonus:
-                    score = float(score) + float(prox_bonus)
 
                 below_threshold = score < min_score_val
 
@@ -1146,22 +1097,22 @@ def run_geofeed(
                                 "raw_response": raw_resp or "",
                             }
                         )
-                    elif not validate_llm:
-                        logger.warning(
-                            "GeoFeed LLM validation bypassed for title=%s",
-                            it.title,
-                        )
                     else:
-                        situation = _validate_situation(situation, page_text) or None
+                        situation = _flatten_llm_output(situation, it.title)
+                        if not validate_llm:
+                            logger.warning(
+                                "GeoFeed LLM validation bypassed for title=%s",
+                                it.title,
+                            )
+                        else:
+                            situation = _validate_situation(situation, page_text) or None
 
-                aruba_relevance = _aruba_relevance_from_hits(blob, loc_hits, asset_hits)
                 thresholds = cfg.get("GEOFEED_DECISION_THRESHOLDS") or {}
                 risk_val = (situation or {}).get("risk") if isinstance(situation, dict) else "Low"
                 decision = _decision_label(risk_val, score, thresholds)
 
                 now = dt.datetime.now(dt.timezone.utc)
                 if isinstance(situation, dict):
-                    situation["aruba_relevance"] = aruba_relevance
                     situation["decision"] = decision
 
                 rows.append(
@@ -1176,8 +1127,6 @@ def run_geofeed(
                         "score": round(float(score), 2),
                         "below_threshold": bool(below_threshold),
                         "reasons": reasons,
-                        "watchlist": {"locations": loc_hits, "assets": asset_hits},
-                        "aruba_relevance": aruba_relevance,
                         "decision": decision,
                         "source_feed": feed_url,
                         "situation": situation,

@@ -493,169 +493,239 @@ def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[s
 # ===== PDF Rendering =====
 # =========================
 def _render_pdf(markdown_text: str, out_path: Path) -> None:
+    """
+    Executive-friendly PDF renderer using ReportLab.
+
+    Supports:
+      - #, ##, ###, #### headings
+      - bullet lists (- or *)
+      - **bold**
+      - [text](url) links
+      - [[PAGE_BREAK]] marker forces new page
+    """
     try:
-        import fitz
+        from reportlab.lib.pagesizes import LETTER
+        from reportlab.lib.units import inch
+        from reportlab.lib import colors
+        from reportlab.platypus import (
+            SimpleDocTemplate,
+            Paragraph,
+            Spacer,
+            PageBreak,
+            ListFlowable,
+            ListItem,
+            KeepTogether,
+        )
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     except Exception as exc:
-        logger.warning("PyMuPDF not available; cannot render PDF: %s", exc)
+        logger.warning("ReportLab not available; cannot render PDF: %s", exc)
         return
 
-    def _strip_inline_md(s: str) -> str:
-        s = re.sub(r"`([^`]+)`", r"\1", s)
-        s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)
-        s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
-        s = re.sub(r"_([^_]+)_", r"\1", s)
+    styles = getSampleStyleSheet()
+    Body = ParagraphStyle(
+        "Body",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=10.5,
+        leading=14,
+        spaceAfter=6,
+    )
+    H1 = ParagraphStyle(
+        "H1",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        leading=22,
+        spaceBefore=6,
+        spaceAfter=10,
+    )
+    H2 = ParagraphStyle(
+        "H2",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=13.5,
+        leading=18,
+        spaceBefore=12,
+        spaceAfter=6,
+    )
+    H3 = ParagraphStyle(
+        "H3",
+        parent=styles["Heading3"],
+        fontName="Helvetica-Bold",
+        fontSize=11.5,
+        leading=15,
+        spaceBefore=10,
+        spaceAfter=4,
+    )
+    H4 = ParagraphStyle(
+        "H4",
+        parent=styles["Heading4"],
+        fontName="Helvetica-Bold",
+        fontSize=10.5,
+        leading=14,
+        spaceBefore=8,
+        spaceAfter=2,
+    )
+    Meta = ParagraphStyle(
+        "Meta",
+        parent=Body,
+        textColor=colors.grey,
+        fontSize=9.5,
+        leading=12,
+        spaceAfter=8,
+    )
+    Label = ParagraphStyle(
+        "Label",
+        parent=Body,
+        fontName="Helvetica-Bold",
+        spaceAfter=2,
+    )
+
+    def md_inline_to_rl(s: str) -> str:
+        s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        s = s.replace("↗ Escalating", "Escalating (up)")
+        s = s.replace("↘ De-escalating", "De-escalating (down)")
+        s = s.replace("↗", "up")
+        s = s.replace("↘", "down")
+        s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', s)
+        s = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", s)
+        s = re.sub(r"`([^`]+)`", r"<font face='Courier'>\1</font>", s)
+        s = re.sub(r"_([^_]+)_", r"<i>\1</i>", s)
         return s
 
-    def _draw_text(page, x, y, txt, fs, bold=False):
-        page.insert_text((x, y), txt, fontsize=fs, fontname="helv")
-        if bold:
-            page.insert_text((x + 0.6, y), txt, fontsize=fs, fontname="helv")
-
-    def _draw_link_lines(text, url, fs, indent=0):
-        nonlocal y
-        clean = _strip_inline_md(text).strip()
-        if not clean:
-            y += lh // 2
+    def add_para(flow, text, style=Body):
+        t = (text or "").strip()
+        if not t:
+            flow.append(Spacer(1, 6))
             return
-        width = max(40, wrap_width - (indent // 2))
-        for w in textwrap.wrap(clean, width=width):
-            ensure_space(lh)
-            _draw_text(page, margin + indent, y, w, fs, bold=False)
-            if url:
-                text_w = fitz.get_text_length(w, fontname="helv", fontsize=fs)
-                rect = fitz.Rect(
-                    margin + indent,
-                    y - (fs * 0.8),
-                    margin + indent + text_w,
-                    y + 2,
-                )
-                page.insert_link({"from": rect, "uri": url, "kind": fitz.LINK_URI})
-            y += lh
+        flow.append(Paragraph(md_inline_to_rl(t), style))
 
-    doc = fitz.open()
+    def parse_bullets(lines, start_idx):
+        items = []
+        i = start_idx
+        bullet_re = re.compile(r"^(\s*)([-*])\s+(.*)$")
+        while i < len(lines):
+            m = bullet_re.match(lines[i])
+            if not m:
+                break
+            indent_spaces = len(m.group(1))
+            txt = m.group(3).strip()
+            level = 0
+            if indent_spaces >= 4:
+                level = 1
+            if indent_spaces >= 8:
+                level = 2
+            items.append((level, txt))
+            i += 1
+        return items, i
+
+    def build_nested_list(items):
+        root = []
+        stack = [(0, root)]
+        for lvl, txt in items:
+            while stack and lvl < stack[-1][0]:
+                stack.pop()
+            if lvl > stack[-1][0]:
+                parent_list = stack[-1][1]
+                if not parent_list:
+                    lvl = stack[-1][0]
+                else:
+                    nested = []
+                    last_item = parent_list[-1]
+                    parent_list[-1] = KeepTogether(
+                        [last_item, ListFlowable(nested, bulletType="bullet", leftIndent=18)]
+                    )
+                    stack.append((lvl, nested))
+
+            cur_list = stack[-1][1]
+            cur_list.append(ListItem(Paragraph(md_inline_to_rl(txt), Body), leftIndent=12))
+
+        return ListFlowable(root, bulletType="bullet", leftIndent=18)
+
+    title_line = ""
+    for ln in markdown_text.splitlines():
+        if ln.startswith("# "):
+            title_line = ln[2:].strip()
+            break
+    if not title_line:
+        title_line = "GeoFeed Summary"
+
+    def on_page(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 9)
+        canvas.setFillGray(0.35)
+        canvas.drawString(doc.leftMargin, doc.pagesize[1] - 0.6 * inch, title_line)
+        canvas.setFillGray(0.5)
+        canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 0.5 * inch, f"Page {doc.page}")
+        canvas.restoreState()
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    doc = SimpleDocTemplate(
+        str(out_path),
+        pagesize=LETTER,
+        leftMargin=0.85 * inch,
+        rightMargin=0.85 * inch,
+        topMargin=0.9 * inch,
+        bottomMargin=0.8 * inch,
+        title=title_line,
+        author="GeoFeed",
+    )
+
+    flow = []
     lines = markdown_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-
-    margin = 44
-    fs = 11
-    fs_h1 = 16
-    fs_h2 = 13
-    fs_h3 = 12
-    fs_h4 = 11
-    lh = 14
-    wrap_width = int(CONFIG.get("REPORT_PDF_WRAP", 92))
-
-    page = doc.new_page()
-    rect = page.rect
-    x = margin
-    y = margin
-    max_y = rect.height - margin
-
-    def new_page():
-        nonlocal page, rect, y, max_y
-        page = doc.new_page()
-        rect = page.rect
-        y = margin
-        max_y = rect.height - margin
-
-    def ensure_space(height):
-        nonlocal y
-        if y + height > max_y:
-            new_page()
-
-    def draw_rule():
-        nonlocal y
-        ensure_space(10)
-        page.draw_line((margin, y), (rect.width - margin, y), width=0.6)
-        y += 10
-
-    def draw_block(text, fs, bold=False, indent=0, extra_after=0):
-        nonlocal y
-        clean = _strip_inline_md(text).strip()
-        if not clean:
-            y += lh // 2
-            return
-        width = max(40, wrap_width - (indent // 2))
-        for w in textwrap.wrap(clean, width=width):
-            ensure_space(lh)
-            _draw_text(page, margin + indent, y, w, fs, bold=bold)
-            y += lh
-        if extra_after:
-            y += extra_after
-
-    skip_heading_pagebreak = False
-    for raw in lines:
-        s = raw.rstrip()
-
-        if s.strip() == "[[PAGE_BREAK]]":
-            if y > margin + 2:
-                new_page()
-            skip_heading_pagebreak = True
-            continue
-
-        if re.match(r"^###\s+\d+\.\s+", s) and (y > margin + 2) and not skip_heading_pagebreak:
-            new_page()
-        skip_heading_pagebreak = False
+    i = 0
+    while i < len(lines):
+        s = lines[i].rstrip()
 
         if not s.strip():
-            y += lh // 2
+            flow.append(Spacer(1, 6))
+            i += 1
             continue
 
-        if s.strip() == "---":
-            draw_rule()
-            continue
-
-        if s.lstrip().startswith(">"):
-            q = s.lstrip()[1:].lstrip()
-            draw_block(q, fs, indent=18)
+        if s.strip() == "[[PAGE_BREAK]]":
+            flow.append(PageBreak())
+            i += 1
             continue
 
         if s.startswith("# "):
-            draw_block(s[2:], fs_h1, bold=True, extra_after=6)
+            add_para(flow, s[2:], H1)
+            i += 1
             continue
         if s.startswith("## "):
-            draw_block(s[3:], fs_h2, bold=True, extra_after=4)
+            add_para(flow, s[3:], H2)
+            i += 1
             continue
         if s.startswith("### "):
-            draw_block(s[4:], fs_h3, bold=True, extra_after=2)
+            add_para(flow, s[4:], H3)
+            i += 1
             continue
         if s.startswith("#### "):
-            draw_block(s[5:], fs_h4, bold=True, extra_after=2)
-            continue
-
-        if s.startswith("Source:"):
-            src = s[len("Source:"):].strip()
-            url = src if src.startswith("http://") or src.startswith("https://") else ""
-            draw_block("Source:", fs, bold=True)
-            if url:
-                _draw_link_lines(url, url, fs, indent=0)
-            else:
-                draw_block("-", fs, bold=False)
-            continue
-
-        m = re.match(r"^(\s*)([-*])\s+(.*)$", s)
-        if m:
-            indent_spaces = len(m.group(1))
-            bullet_text = m.group(3).strip()
-            base_indent = 14 + min(48, indent_spaces * 2)
-            ensure_space(lh)
-            _draw_text(page, margin + base_indent - 10, y, "•", fs)
-            draw_block(bullet_text, fs, indent=base_indent)
+            add_para(flow, s[5:], H4)
+            i += 1
             continue
 
         label_match = re.match(r"^\*\*([^*]+)\*\*:?$", s.strip())
         if label_match:
-            draw_block(label_match.group(1) + ":", fs, bold=True)
+            add_para(flow, label_match.group(1) + ":", Label)
+            i += 1
             continue
 
-        if s.strip().endswith(":"):
-            draw_block(s.strip(), fs, bold=True)
+        if re.match(r"^\s*[-*]\s+", s):
+            items, j = parse_bullets(lines, i)
+            if items:
+                flow.append(build_nested_list(items))
+                flow.append(Spacer(1, 6))
+            i = j
             continue
 
-        draw_block(s, fs)
+        if s.strip().startswith("_") and s.strip().endswith("_") and len(s.strip()) > 2:
+            add_para(flow, s.strip().strip("_"), Meta)
+        else:
+            add_para(flow, s, Body)
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(out_path)
-    doc.close()
+        i += 1
+
+    doc.build(flow, onFirstPage=on_page, onLaterPages=on_page)
 
 # =========================
 # ===== Output Writer =====
