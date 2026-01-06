@@ -17,6 +17,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -918,6 +920,50 @@ def _update_progress(
         status = f"{status} | {_shorten_title(item_title)}"
     progress_state["status"] = status
 
+
+def _send_geofeed_email(md_path: str, recipients: List[str], run_date: str) -> None:
+    if not recipients:
+        logger.info("GeoFeed email skipped: no recipients configured")
+        return
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            body = f.read()
+    except Exception as exc:
+        logger.warning("GeoFeed email skipped: failed to read report %s (%s)", md_path, exc)
+        return
+
+    subject = f"TIC - GeoFeed Summary {run_date}"
+    mail_bin = shutil.which("mail")
+    if mail_bin:
+        logger.info("GeoFeed email attempt via mail to %s", ", ".join(recipients))
+        try:
+            subprocess.run(
+                [mail_bin, "-s", subject, *recipients],
+                input=body,
+                text=True,
+                check=True,
+            )
+            logger.info("GeoFeed email sent via mail to %s", ", ".join(recipients))
+        except Exception as exc:
+            logger.warning("GeoFeed email failed via mail: %s", exc)
+        return
+
+    sendmail_bin = shutil.which("sendmail")
+    if sendmail_bin:
+        logger.info("GeoFeed email attempt via sendmail to %s", ", ".join(recipients))
+        try:
+            to_line = ", ".join(recipients)
+            headers = [f"To: {to_line}", f"Subject: {subject}"]
+            message = "\n".join(headers) + "\n\n" + body
+            subprocess.run([sendmail_bin, "-t"], input=message, text=True, check=True)
+            logger.info("GeoFeed email sent via sendmail to %s", to_line)
+        except Exception as exc:
+            logger.warning("GeoFeed email failed via sendmail: %s", exc)
+        return
+
+    logger.warning("GeoFeed email skipped: no mail/sendmail binary found")
+
+
 def build_argparser() -> argparse.ArgumentParser:
     cfg = _require_config()
     p = argparse.ArgumentParser(description="GeoFeed collector (markdown summary only).")
@@ -1165,6 +1211,7 @@ def run_geofeed(
 
     print(f"Wrote rawtext -> {rawtext_path}")
     print(f"Wrote summary -> {md_path}")
+    _send_geofeed_email(md_path, cfg.get("GEOFEED_EMAIL_RECIPIENTS") or [], run_date)
     return 0
 
 

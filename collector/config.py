@@ -173,6 +173,14 @@ CONFIG = {
 
     "GEOFEED_ENABLED": os.getenv("TI_GEOFEED_ENABLED", "false").lower() == "true",
 
+    "GEOFEED_EMAIL_RECIPIENTS": json.loads(
+        os.getenv("TI_GEOFEED_EMAIL_RECIPIENTS", "null")
+    )
+    or [
+        "m.kock@cbaruba.org",
+        "marc-jr@hotmail.com",
+    ],
+
     "GEOFEED_MIN_SCORE": float(os.getenv("TI_GEOFEED_MIN_SCORE", 3.0)),
 
     "GEOFEED_MAX_ITEMS_PER_FEED": int(os.getenv("TI_GEOFEED_MAX_ITEMS_PER_FEED", 60)),
