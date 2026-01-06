@@ -422,7 +422,14 @@ def generate_markdown(
     md_path = os.path.join(output_dir, f"StructuredCVEReport_{date_stamp}.md")
 
     total_modified = len(modified)
-    total_new = max(0, len((critical or [])) + len((interesting or [])) - total_modified)
+    def _is_scored(rec: Dict[str, Any]) -> bool:
+        return safe_get(rec, "vulnerability.score.base") is not None
+
+    total_new = sum(
+        1 for r in (critical or []) if _is_scored(r)
+    ) + sum(
+        1 for r in (interesting or []) if _is_scored(r)
+    )
 
     lines = [
         "# Structured CVE Intelligence Report\n",

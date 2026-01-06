@@ -510,7 +510,8 @@ if not CONFIG["VENDORS"]:
 
 if not CONFIG["EXCLUDED_SOFTWARE"]:
     CONFIG["EXCLUDED_SOFTWARE"] = [
-        "JOIN"
+        "JOIN",
+        "Grassroot"
     ]
 
 if not CONFIG["RSS_FEEDS"]:
