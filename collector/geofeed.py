@@ -361,10 +361,8 @@ def _ollama_situation_summary(
             "  \"primary_actors\": \"<string or Not specified>\",\n"
             "  \"countries_involved\": \"<comma-separated list or Not specified>\",\n"
             "  \"summary\": \"<2-3 sentences or Not specified>\",\n"
-            "  \"aruba_relevance_summary\": \"<2-3 sentences or Not specified>\",\n"
             "  \"situation\": {\n"
             "    \"key_indicators\": \"<bullet lines as one string or Not specified>\",\n"
-            "    \"drivers\": \"<bullet lines as one string or Not specified>\",\n"
             "    \"impact\": \"<bullet lines as one string or Not specified>\",\n"
             "    \"osint_indicators\": \"<string or Not specified>\",\n"
             "    \"state\": \"active|ongoing|planned|resolved|neutral|unknown\",\n"
@@ -410,11 +408,6 @@ def _ollama_situation_summary(
             "- No speculation.\n"
             "- Must reflect the core event described in TEXT.\n\n"
 
-            "6b) aruba_relevance_summary:\n"
-            "- 2-3 sentences on whether and how this matters to Aruba's financial institutions.\n"
-            "- You MAY infer relevance, but ground it in facts explicitly stated in TEXT.\n"
-            "- If there is no credible relevance supported by TEXT, output: Not specified.\n\n"
-
             "7) key_indicators (Key Signals):\n"
             "- 1-3 bullet lines as ONE string using this exact format:\n"
             "  - <indicator>\n"
@@ -422,14 +415,7 @@ def _ollama_situation_summary(
             "- Each indicator MUST be explicitly described in TEXT.\n"
             "- If none, Not specified.\n\n"
 
-            "8) drivers (Why it started):\n"
-            "- ONLY if TEXT explicitly states drivers/causes/motivation.\n"
-            "- Write 1-3 bullet lines as ONE string using this exact format:\n"
-            "  - <driver>\n"
-            "  - <driver>\n"
-            "- If none, Not specified.\n\n"
-
-            "9) impact (Why it matters — evidence required):\n"
+            "8) impact (Why it matters — evidence required):\n"
             "- VERY IMPORTANT: Do NOT add finance-related impact unless TEXT explicitly supports it.\n"
             "- Allowed channels (use these exact labels ONLY when supported by TEXT):\n"
             "  - Sanctions/compliance exposure\n"
@@ -448,15 +434,15 @@ def _ollama_situation_summary(
             "- Write 1-3 bullet lines as ONE string.\n"
             "- If you cannot cite evidence from TEXT for any channel, output exactly: Not specified.\n\n"
 
-            "10) osint_indicators:\n"
+            "9) osint_indicators:\n"
             "- Only sources/methods explicitly mentioned in TEXT (e.g., AIS/ship-tracking, satellite imagery, official statement).\n"
             "- If none, Not specified.\n\n"
 
-            "11) state:\n"
+            "10) state:\n"
             "- Use one of: active, ongoing, planned, resolved, neutral, unknown.\n"
             "- Choose only if TEXT indicates status; otherwise unknown.\n\n"
 
-            "12) domain_category and domain:\n"
+            "11) domain_category and domain:\n"
             "- domain_category MUST be exactly one of: air, maritime, land, multi, unknown.\n"
             "- domain MUST match domain_category.\n"
             "- Choose based ONLY on what TEXT describes.\n"
@@ -538,10 +524,8 @@ _EXPECTED_SITUATION_KEYS = {
     "change",
     "countries_involved",
     "primary_actors",
-    "aruba_relevance_summary",
     "key_indicators",
     "osint_indicators",
-    "drivers",
     "impact",
     "risk",
     "what_happened",
@@ -598,10 +582,8 @@ def _flatten_llm_output(raw: Dict[str, Any], title_fallback: str) -> Dict[str, A
     flat["countries_involved"] = raw.get("countries_involved") or "Not specified"
     flat["risk"] = raw.get("risk_level") or raw.get("risk") or "Not specified"
     flat["change"] = _map_trend(raw.get("trend") or raw.get("change") or "")
-    flat["aruba_relevance_summary"] = raw.get("aruba_relevance_summary") or "Not specified"
     flat["what_happened"] = raw.get("what_happened") or flat["llm_summary"] or "Not specified"
     flat["key_indicators"] = situation.get("key_indicators") or "Not specified"
-    flat["drivers"] = situation.get("drivers") or "Not specified"
     flat["impact"] = situation.get("impact") or "Not specified"
     flat["osint_indicators"] = situation.get("osint_indicators") or "Not specified"
     flat["state"] = situation.get("state") or "unknown"
@@ -669,7 +651,7 @@ def _validate_situation(
                 domain_cat,
             )
 
-        for k in ("key_indicators", "drivers", "impact"):
+        for k in ("key_indicators", "impact"):
             val = (normalized.get(k) or "").strip()
             if val and val != "Not specified" and not val.lstrip().startswith("- "):
                 normalized[k] = f"- {val}"
@@ -751,9 +733,7 @@ def _make_summary_json(rows: List[Dict[str, Any]], hours: int, min_score: float)
             "countries_involved": situation.get("countries_involved") or "-",
             "summary": situation.get("llm_summary") or situation.get("what_happened") or "-",
             "decision": situation.get("decision") or r.get("decision") or "-",
-            "aruba_relevance_summary": situation.get("aruba_relevance_summary") or "-",
             "why_it_matters": [
-                f"Drivers: {situation.get('drivers') or '-'}",
                 f"Impact: {situation.get('impact') or '-'}",
                 f"Risk Level: {situation.get('risk') or '-'}",
             ],
@@ -835,10 +815,8 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
         summary = situation.get("llm_summary") or situation.get("what_happened") or "-"
         if summary == "-" and actors == "-" and countries_involved == "-":
             continue
-        drivers = situation.get("drivers") or "-"
         impact = situation.get("impact") or "-"
         decision = situation.get("decision") or r.get("decision") or "-"
-        aruba_relevance_summary = situation.get("aruba_relevance_summary") or "Not specified"
 
         entry_lines: List[str] = []
         url = (r.get("url") or "").strip()
@@ -850,9 +828,6 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
             f"**Risk:** {risk} | **Trend:** {trend} | **Date:** {date}"
         )
         entry_lines.append(f"**Decision:** {decision}")
-        entry_lines.append("**Aruba Relevance**")
-        entry_lines.append(aruba_relevance_summary)
-        entry_lines.append("")
         entry_lines.append(f"**Primary Actors:** {actors}  ")
         entry_lines.append(f"**Countries Involved:** {countries_involved}")
         entry_lines.append("")
@@ -860,7 +835,6 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
         entry_lines.append(summary)
         entry_lines.append("")
         entry_lines.append("**Why It Matters**")
-        entry_lines.append(f"Drivers: {drivers}")
         entry_lines.append(f"Impact: {impact}")
         entry_lines.append(f"Risk Level: {situation.get('risk') or '-'}")
         entry_lines.append("")

@@ -7,6 +7,7 @@ import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # =========================
@@ -21,6 +22,13 @@ from dateutil import parser as dtparser
 from .config import CONFIG, fetch_json, logger, mute_console, safe_get, write_jsonl
 from .articles import _call_llm
 from .progress import animate_progress, progress_bar, start_live_progress, stop_live_progress
+try:
+    from .reporting import _render_pdf
+except Exception:
+    try:
+        from reporting import _render_pdf  # type: ignore
+    except Exception:
+        _render_pdf = None  # type: ignore
 
 VENDORS = CONFIG["VENDORS"]
 EXCLUDED_SOFTWARE = {v.lower() for v in CONFIG.get("EXCLUDED_SOFTWARE") or []}
@@ -461,8 +469,10 @@ def generate_markdown(
         except Exception:
             return datetime.min.replace(tzinfo=timezone.utc)
 
-    for vendor in sorted(vendor_groups.keys()):
+    for idx, vendor in enumerate(sorted(vendor_groups.keys())):
         group = vendor_groups[vendor]
+        if idx > 0:
+            lines.append("[[PAGE_BREAK]]\n")
         modified_group = [g for g in group if g.get("modified_only")]
         new_group = [g for g in group if not g.get("modified_only")]
 
@@ -508,12 +518,12 @@ def generate_markdown(
             elif r.get("modified_only"):
                 header += " (Modified)"
             lines.append(header)
-            lines.append(f"- CVSS Base Score: {score if score is not None else 'N/A'}")
-            lines.append(f"- Severity: {severity}")
-            lines.append(f"- Published: {published}")
-            lines.append(f"- Last Modified: {last_modified}")
-            lines.append(f"- Known Exploited (KEV): {known}")
-            lines.append(f"- Description: {desc if desc else 'N/A'}")
+            lines.append(f"- **CVSS Base Score:** {score if score is not None else 'N/A'}")
+            lines.append(f"- **Severity:** {severity}")
+            lines.append(f"- **Published:** {published}")
+            lines.append(f"- **Last Modified:** {last_modified}")
+            lines.append(f"- **Known Exploited (KEV):** {known}")
+            lines.append(f"- **Description:** {desc if desc else 'N/A'}")
 
             affected = vuln.get("affected_software") or []
             if affected:
@@ -521,13 +531,13 @@ def generate_markdown(
                     prod = sw.get("product", "Unknown product")
                     ver = sw.get("version")
                     suffix = f" version {ver}" if ver else ""
-                    lines.append(f"- Affected: {prod}{suffix}")
+                    lines.append(f"- **Affected:** {prod}{suffix}")
             else:
-                lines.append("- Affected: N/A")
+                lines.append("- **Affected:** N/A")
 
             mitigations = r.get("mitigations") or []
             if mitigations:
-                lines.append("- Mitigations:")
+                lines.append("- **Mitigations:**")
                 for m in mitigations:
                     if isinstance(m, dict):
                         txt = m.get("text") or m.get("mitigation") or ""
@@ -540,9 +550,15 @@ def generate_markdown(
     if not vendor_groups:
         lines.append("_No CVEs found in the selected window._\n")
 
+    report_text = "\n".join(lines)
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+        f.write(report_text)
     logger.info(f"Wrote Markdown report: {md_path}")
+
+    if _render_pdf is not None:
+        pdf_path = os.path.join(output_dir, f"StructuredCVEReport_{date_stamp}.pdf")
+        _render_pdf(report_text, Path(pdf_path))
+        logger.info("Wrote PDF report: %s", pdf_path)
     return md_path
 
 
