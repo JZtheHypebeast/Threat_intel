@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import warnings
+from typing import Optional
 
 # =========================
 # ====== Local App ========
@@ -127,13 +128,36 @@ def _prompt_yes_no(prompt: str, default: bool = False) -> bool:
     return default
 
 
+def _prompt_geofeed_compare() -> Optional[str]:
+    prompt = (
+        "Add GeoFeed comparison? "
+        "[n] none, [1] most recent, [2] last 2 days, [7] last 7 days (default n): "
+    )
+    try:
+        raw = input(prompt).strip().lower()
+    except EOFError:
+        return None
+    if not raw or raw in ("n", "no", "none"):
+        return None
+    if raw in ("1", "latest", "recent", "most", "most recent"):
+        return "latest"
+    if raw in ("2", "2d", "2days", "last2"):
+        return "2d"
+    if raw in ("7", "7d", "7days", "last7"):
+        return "7d"
+    logger.warning("Invalid selection; defaulting to no comparison")
+    return None
+
+
 def _has_geofeed() -> bool:
     pkg = __package__ or ""
     mod = f"{pkg}.geofeed" if pkg else "geofeed"
     return importlib.util.find_spec(mod) is not None
 
 
-def _run_geofeed(hours: int, render_pdf: bool = False) -> None:
+def _run_geofeed(
+    hours: int, render_pdf: bool = False, compare_mode: Optional[str] = None
+) -> None:
     pkg = __package__ or ""
     mod = f"{pkg}.geofeed" if pkg else "geofeed"
     if importlib.util.find_spec(mod) is None:
@@ -143,6 +167,8 @@ def _run_geofeed(hours: int, render_pdf: bool = False) -> None:
     cmd = [sys.executable, "-m", mod, "--hours", str(hours)]
     if render_pdf:
         cmd.append("--pdf")
+    if compare_mode:
+        cmd.extend(["--compare", compare_mode])
     subprocess.run(cmd, check=False)
 
 # =========================
@@ -202,7 +228,8 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
         elif key == "geofeed":
             chosen_hours = _prompt_hours(hours)
             render_pdf = _prompt_yes_no("Convert GeoFeed summary to PDF?", default=False)
-            _run_geofeed(chosen_hours, render_pdf=render_pdf)
+            compare_mode = _prompt_geofeed_compare()
+            _run_geofeed(chosen_hours, render_pdf=render_pdf, compare_mode=compare_mode)
 
         elif key == "reporting":
             logger.info("Building cumulative LLM-based report")
@@ -244,6 +271,7 @@ def main() -> None:
     parser.add_argument("--unstructured-pdf")
     parser.add_argument("--articles", action="store_true")
     parser.add_argument("--geofeed", action="store_true", help="Run GeoFeed geopolitical local-news scanner (if present)")
+    parser.add_argument("--geofeed-compare", choices=["latest", "2d", "7d"])
     parser.add_argument("--reporting", type=int, help="Build cumulative report over N days (2/7/14/30)")
     parser.add_argument("--no-history", action="store_true")
     parser.add_argument("-h", "--help", dest="show_help", action="store_true")
@@ -291,7 +319,7 @@ def main() -> None:
                 ran_any = True
 
             if args.geofeed:
-                _run_geofeed(hours)
+                _run_geofeed(hours, compare_mode=args.geofeed_compare)
                 ran_any = True
 
             if args.reporting:

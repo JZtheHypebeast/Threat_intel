@@ -245,13 +245,19 @@ export TI_HTTP_STATUS_FORCELIST='[429,500,502,503]'
 ### GeoFeed
 - `TI_GEOFEED_RSS_FEEDS` (`GEOFEED_RSS_FEEDS`) — JSON list of GeoFeed RSS URLs.
 - `GEOFEED_RSS_FEEDS` (env only) — comma-separated RSS URLs (legacy fallback).
-- `TI_GEOFEED_MIN_SCORE` — minimum score threshold for inclusion.
 - `TI_GEOFEED_MAX_ITEMS_PER_FEED` — max items to read per feed.
+- `TI_GEOFEED_SUMMARY_LIMIT` — max entries included in GeoFeed summary output.
 - `TI_GEOFEED_REQUEST_TIMEOUT` — per-request timeout (seconds).
 - `TI_GEOFEED_USE_OLLAMA` — enable GeoFeed LLM summarization.
 - `TI_GEOFEED_OLLAMA_MODEL` — model used by GeoFeed LLM prompts.
 - `TI_GEOFEED_ADD_LLM_SUMMARY` — include LLM summary in output.
 - `TI_GEOFEED_LLM_SUMMARY_MAX_CHARS` — cap LLM summary length.
+- `TI_GEOFEED_GEO_ONLY` — enable geo-only filtering for reports.
+- `TI_GEOFEED_MIN_GEO_TIER` — minimum tier to include (A, B, or C).
+- `TI_GEOFEED_INCLUDE_TIER_C_APPENDIX` — append filtered Tier C titles in an appendix section.
+- `TI_GEOFEED_COMPARISON_MAX_ITEMS` — cap entries sent to the comparison LLM.
+- `TI_GEOFEED_SALIENT_EVENT_TERMS` — JSON list of salient phrases to keep beyond window.
+- `TI_GEOFEED_SALIENT_LOOKBACK_HOURS` — extended lookback window for salient items.
 - `TI_GEOFEED_WATCHLIST_LOCATIONS` — JSON list of location watchlist terms.
 - `TI_GEOFEED_WATCHLIST_ASSETS` — JSON list of asset watchlist terms.
 - `TI_GEOFEED_SIGNAL_WEIGHTS` — JSON object of scoring weights for signals.

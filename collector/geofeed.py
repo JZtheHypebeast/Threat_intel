@@ -511,6 +511,220 @@ def _ollama_situation_summary(
         return None, None, f"request_failed:{type(exc).__name__}"
 
 
+def _ollama_geofeed_comparison(
+    host: str,
+    model: str,
+    current_entries: List[Dict[str, Any]],
+    baseline_entries: List[Dict[str, Any]],
+    label: str,
+    timeout: int,
+    strict: bool = False,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    try:
+        strict_block = ""
+        if strict:
+            strict_block = (
+                "STRICT OUTPUT MODE:\n"
+                "- Output MUST be a single JSON object with exactly one key: comparison_markdown.\n"
+                "- If you output any other key or any list/array, the result will be rejected.\n"
+                "- Do NOT include explanations, preambles, or extra text.\n\n"
+            )
+
+        cur_sig = _extract_exec_signals(current_entries or [])
+        base_sig = _extract_exec_signals(baseline_entries or [])
+
+        anchors: List[str] = []
+        if cur_sig["counts"]["maritime_seizure"] > 0:
+            anchors.append(
+                "Current entries include multiple maritime seizure/intercept/boarding signals in the Caribbean basin "
+                f"(count={cur_sig['counts']['maritime_seizure']}, baseline={base_sig['counts']['maritime_seizure']})."
+            )
+        if cur_sig["counts"]["war_powers_politics"] > 0:
+            anchors.append(
+                "Current entries include war-powers/authorization political signaling "
+                f"(count={cur_sig['counts']['war_powers_politics']}, baseline={base_sig['counts']['war_powers_politics']})."
+            )
+        if cur_sig["counts"]["kinetic_attack"] > 0:
+            anchors.append(
+                "Current entries include kinetic/strike language "
+                f"(count={cur_sig['counts']['kinetic_attack']}, baseline={base_sig['counts']['kinetic_attack']})."
+            )
+        if cur_sig["counts"]["sanctions_tariffs"] > 0:
+            anchors.append(
+                "Current entries include sanctions/tariff/compliance pressure signals "
+                f"(count={cur_sig['counts']['sanctions_tariffs']}, baseline={base_sig['counts']['sanctions_tariffs']})."
+            )
+        if not anchors:
+            anchors.append(
+                "No dominant escalation themes are strongly signaled in the current entries; describe stability vs baseline if applicable."
+            )
+
+        prompt = (
+            f"You are GeoFeed. Write an executive COMPARISON brief versus {label}.\n"
+            "You must synthesize across ALL entries. This is NOT an item-by-item list.\n\n"
+            "DATA RULES:\n"
+            "- Use ONLY CURRENT_ENTRIES and BASELINE_ENTRIES. Do NOT invent facts.\n"
+            "- You may treat title/summary/why_it_matters/key_signals as evidence even when conflict_indicators are missing.\n"
+            "- If something is not present, say 'not indicated in the entries'.\n\n"
+            f"CURRENT STATS: items={cur_sig['n_items']}, risk_mix={cur_sig['risk_counts']}, decisions={cur_sig['decision_counts']}\n"
+            f"BASELINE STATS: items={base_sig['n_items']}, risk_mix={base_sig['risk_counts']}, decisions={base_sig['decision_counts']}\n\n"
+            "ANCHOR FACTS (MUST BE REFLECTED IN THE BRIEF):\n"
+            + "\n".join([f"ANCHOR: {a}" for a in anchors])
+            + "\n\n"
+            "OUTPUT RULES (STRICT):\n"
+            "- Output JSON only (no surrounding text).\n"
+            "- JSON must have exactly one key: comparison_markdown\n"
+            "- comparison_markdown must be a single string.\n"
+            "- Encode newlines as \\n inside the JSON string.\n\n"
+            "STYLE (MATCH THIS EXACTLY):\n"
+            "- NO markdown tables; do NOT output '|'. The '|' character is forbidden anywhere.\n"
+            "- If you are about to write a table, write the same information as short sentences in the paragraphs.\n"
+            "- NO bullets; do NOT output '-', '*', or '•'.\n"
+            "- NO markdown headings; do NOT output lines starting with '#'.\n"
+            "- Do NOT start with 'Not specified' and do NOT use a 'Country / Country' header.\n"
+            f"- First line MUST be a thematic headline ending with ':' (example: 'Venezuela sanctions and maritime enforcement intensifies:').\n"
+            "- Then write 3–5 short paragraphs separated by blank lines.\n"
+            f"- Paragraph 1 MUST contain a sentence beginning exactly with: 'Compared with {label},' and describe the dominant shift.\n"
+            "- Include Aruba/Caribbean relevance explicitly in the final paragraph.\n"
+            "- Mention concrete signals (seizures/intercepts/war powers/sanctions) only if supported by the entries.\n\n"
+            f"{strict_block}\n\n"
+            "CURRENT_ENTRIES:\n"
+            f"{json.dumps(current_entries, ensure_ascii=True)}\n\n"
+            "BASELINE_ENTRIES:\n"
+            f"{json.dumps(baseline_entries, ensure_ascii=True)}\n"
+        )
+
+        payload = json.dumps(
+            {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "format": {
+                    "type": "object",
+                    "properties": {"comparison_markdown": {"type": "string"}},
+                    "required": ["comparison_markdown"],
+                    "additionalProperties": False,
+                },
+                "options": {"temperature": 0, "num_predict": 420},
+            }
+        ).encode("utf-8")
+
+        url = host.rstrip("/") + "/api/generate"
+
+        def _cleanup_json(candidate: str) -> str:
+            cleaned = candidate.replace("\r\n", "\n").replace("\r", "\n").strip()
+            cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+            return cleaned
+
+        def _escape_newlines_in_json_strings(txt: str) -> str:
+            out: List[str] = []
+            in_str = False
+            esc = False
+            for ch in txt:
+                if esc:
+                    out.append(ch)
+                    esc = False
+                    continue
+                if ch == "\\":
+                    out.append(ch)
+                    esc = True
+                    continue
+                if ch == '"':
+                    out.append(ch)
+                    in_str = not in_str
+                    continue
+                if ch == "\n" and in_str:
+                    out.append("\\n")
+                else:
+                    out.append(ch)
+            return "".join(out)
+
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "geofeed/1.0"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode("utf-8", errors="replace")
+
+        data = json.loads(raw)
+        s = (data.get("response") or "").strip()
+        if not s:
+            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
+            return fb, raw, "fallback_empty_response"
+
+        parsed: Optional[Dict[str, Any]] = None
+        try:
+            parsed = json.loads(_cleanup_json(s))
+        except Exception:
+            start = s.find("{")
+            if start >= 0:
+                candidate = _escape_newlines_in_json_strings(_cleanup_json(s[start:]))
+                try:
+                    parsed, _ = json.JSONDecoder().raw_decode(candidate)
+                except Exception:
+                    parsed = None
+            else:
+                parsed = None
+
+        if not isinstance(parsed, dict):
+            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
+            return fb, raw, "fallback_invalid_json"
+
+        inner = parsed.get("response")
+        if isinstance(inner, dict) and "comparison_markdown" in inner:
+            parsed = inner
+
+        if "comparison_markdown" not in parsed:
+            for k in (
+                "comparison",
+                "comparison_md",
+                "comparisonMarkdown",
+                "comparison_markdown_text",
+            ):
+                v = parsed.get(k)
+                if isinstance(v, str) and v.strip():
+                    parsed["comparison_markdown"] = v
+                    break
+
+        comparison = parsed.get("comparison_markdown")
+        if not isinstance(comparison, str) or not comparison.strip():
+            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
+            return fb, raw, "fallback_missing_comparison_markdown"
+
+        md = comparison.strip()
+        bad_start = md.lower().startswith("not specified") or ("/" in md.splitlines()[0])
+        has_anchor_requirement = cur_sig["counts"]["maritime_seizure"] > 0
+        anchor_missing = has_anchor_requirement and (
+            "seiz" not in md.lower()
+            and "intercept" not in md.lower()
+            and "tanker" not in md.lower()
+        )
+        too_generic = (
+            "not indicated in the entries" in md.lower()
+            and cur_sig["counts"]["maritime_seizure"] > 0
+        )
+
+        if _looks_like_markdown_table(md):
+            converted = _table_md_to_summary(md, label)
+            if isinstance(converted, str) and converted.strip():
+                return converted.strip(), raw, "fallback_from_table"
+            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
+            return fb, raw, "fallback_from_table"
+
+        if bad_start or anchor_missing or too_generic or ("|" in md) or not _looks_like_exec_brief(md, label):
+            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
+            return fb, raw, "fallback_format_or_content"
+
+        return md, raw, None
+    except Exception:
+        cur_sig = _extract_exec_signals(current_entries or [])
+        base_sig = _extract_exec_signals(baseline_entries or [])
+        fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
+        return fb, None, "fallback_exception"
+
+
 # =========================
 # == LLM Output Validation =
 # =========================
@@ -693,7 +907,9 @@ def _prepare_pdf_text(markdown_text: str) -> str:
     return "\n".join(cleaned)
 
 
-def _make_summary_json(rows: List[Dict[str, Any]], hours: int, min_score: float) -> Dict[str, Any]:
+def _make_summary_json(
+    rows: List[Dict[str, Any]], hours: int, summary_limit: int
+) -> Dict[str, Any]:
     def _published_key(row: Dict[str, Any]) -> dt.datetime:
         parsed = _parse_published((row.get("published") or "").strip())
         if parsed is None:
@@ -718,8 +934,7 @@ def _make_summary_json(rows: List[Dict[str, Any]], hours: int, min_score: float)
             return "Stable"
         return "New"
 
-    above = [r for r in rows if float(r.get("score", 0.0)) >= float(min_score)]
-    top = sorted(above, key=_published_key, reverse=True)[:25]
+    top = sorted(rows, key=_published_key, reverse=True)[:summary_limit]
     entries: List[Dict[str, Any]] = []
     for r in top:
         situation = r.get("situation") or {}
@@ -754,26 +969,29 @@ def _make_summary_json(rows: List[Dict[str, Any]], hours: int, min_score: float)
     return {
         "window_hours": hours,
         "generated_at": f"{dt.datetime.utcnow().isoformat()}Z",
-        "min_score": min_score,
         "entries": entries,
     }
 
 
-def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> str:
+def _make_summary(
+    rows: List[Dict[str, Any]],
+    hours: int,
+    summary_limit: int,
+    comparison_section: Optional[str] = None,
+) -> str:
     lines = ["# GeoFeed Summary", ""]
     lines.append(f"Window: last {hours} hours")
     lines.append(f"Generated: {dt.datetime.utcnow().isoformat()}Z")
-    lines.append(f"Collected: {len(rows)} items (showing score >= {min_score})")
+    lines.append(f"Collected: {len(rows)} items")
     lines.append("")
+    if comparison_section:
+        lines.append(comparison_section.strip())
+        lines.append("")
+        lines.append("[[PAGE_BREAK]]")
+        lines.append("")
 
     if not rows:
         lines.append("No items collected.")
-        lines.append("")
-        return "\n".join(lines)
-
-    above = [r for r in rows if float(r.get("score", 0.0)) >= float(min_score)]
-    if not above:
-        lines.append(f"No items met min_score={min_score}. (Collected {len(rows)} total.)")
         lines.append("")
         return "\n".join(lines)
 
@@ -801,7 +1019,7 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
             return "Stable"
         return "New"
 
-    top = sorted(above, key=_published_key, reverse=True)[:25]
+    top = sorted(rows, key=_published_key, reverse=True)[:summary_limit]
     blocks: List[str] = []
     entry_num = 1
     for r in top:
@@ -849,6 +1067,330 @@ def _make_summary(rows: List[Dict[str, Any]], hours: int, min_score: float) -> s
         lines.extend(("\n\n[[PAGE_BREAK]]\n\n").join(blocks).splitlines())
 
     return "\n".join(lines)
+
+
+def _normalize_summary_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    why = entry.get("why_it_matters") or []
+    key_signals = entry.get("key_signals") or []
+    impact = "-"
+    risk_level = "-"
+    if isinstance(why, list):
+        for line in why:
+            if isinstance(line, str) and line.startswith("Impact:"):
+                impact = line.replace("Impact:", "", 1).strip() or "-"
+            if isinstance(line, str) and line.startswith("Risk Level:"):
+                risk_level = line.replace("Risk Level:", "", 1).strip() or "-"
+    key_indicators = key_signals[0] if len(key_signals) > 0 else "-"
+    osint_indicators = key_signals[1] if len(key_signals) > 1 else "-"
+
+    return {
+        "title": entry.get("title") or "-",
+        "url": entry.get("url") or entry.get("source") or "",
+        "date": entry.get("date") or "-",
+        "risk": entry.get("risk") or "-",
+        "trend": entry.get("trend") or "-",
+        "decision": entry.get("decision") or "-",
+        "primary_actors": entry.get("primary_actors") or "-",
+        "countries_involved": entry.get("countries_involved") or "-",
+        "summary": entry.get("summary") or "-",
+        "why_it_matters": why if isinstance(why, list) else [],
+        "key_signals": key_signals if isinstance(key_signals, list) else [],
+        "impact": impact,
+        "risk_level": risk_level,
+        "key_indicators": key_indicators or "-",
+        "osint_indicators": osint_indicators or "-",
+    }
+
+
+def _compact_for_comparison(entry: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(entry, dict):
+        return {}
+    out = {
+        "title": entry.get("title"),
+        "url": entry.get("url"),
+        "date": entry.get("date"),
+        "summary": entry.get("summary"),
+        "why_it_matters": entry.get("why_it_matters"),
+        "key_signals": entry.get("key_signals"),
+        "risk": entry.get("risk"),
+        "trend": entry.get("trend"),
+        "decision": entry.get("decision"),
+        "countries_involved": entry.get("countries_involved"),
+        "primary_actors": entry.get("primary_actors"),
+    }
+    return {k: v for k, v in out.items() if v not in (None, "", [], {})}
+
+
+# --------------------------
+# Comparison format helpers
+# --------------------------
+
+def _looks_like_markdown_table(md: str) -> bool:
+    """
+    Detect common markdown table patterns:
+    - header line with pipes
+    - separator line with --- and pipes
+    """
+    if not isinstance(md, str) or not md.strip():
+        return False
+    lines = [ln.strip() for ln in md.splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return False
+
+    for i in range(len(lines) - 1):
+        a, b = lines[i], lines[i + 1]
+        if ("|" in a) and ("|" in b) and ("---" in b or ":---" in b or "---:" in b):
+            return True
+
+    for i in range(len(lines) - 1):
+        a, b = lines[i], lines[i + 1]
+        if (a.count("|") >= 2 or " | " in a) and (b.count("|") >= 2 and "---" in b):
+            return True
+
+    return False
+
+
+def _table_md_to_summary(md: str, label: str) -> str:
+    """
+    Best-effort conversion of a markdown table into the executive paragraph style.
+    This prevents comparison from being dropped entirely.
+    """
+    lines = [ln.strip() for ln in (md or "").splitlines() if ln.strip()]
+    rows: List[str] = []
+    for ln in lines:
+        if ("---" in ln) and ("|" in ln):
+            continue
+        if "|" in ln:
+            rows.append(ln)
+
+    if len(rows) < 2:
+        return (
+            f"Situation change brief (vs {label}):\n\n"
+            f"Compared with {label}, changes were detected but the model returned a table, so the output was converted to a narrative summary.\n\n"
+            "Maritime/conflict signals: review the source entries for any interdictions, seizures, or confirmed kinetic activity.\n\n"
+            "Risk/decision posture: see the updated risk/decision labels in the entries for specific shifts.\n\n"
+            "Aruba/Caribbean relevance: prioritize any routing, compliance, or enforcement developments tied to the Caribbean basin."
+        )
+
+    def split_row(r: str) -> List[str]:
+        r = r.strip().strip("|")
+        return [c.strip() for c in r.split("|")]
+
+    data_rows = [split_row(r) for r in rows[1:] if len(split_row(r)) >= 2]
+    sentences: List[str] = []
+    for r in data_rows[:6]:
+        a = r[0] if len(r) > 0 else ""
+        b = r[1] if len(r) > 1 else ""
+        c = r[2] if len(r) > 2 else ""
+        parts = [p for p in (a, b, c) if p]
+        if parts:
+            sentences.append("; ".join(parts))
+
+    key = sentences[0] if sentences else "Notable changes detected."
+    return (
+        f"{key} (vs {label}):\n\n"
+        f"Compared with {label}, the table output was converted to narrative form. Key deltas include: "
+        f"{sentences[0] if len(sentences) > 0 else 'Notable changes detected.'}\n\n"
+        f"Maritime/conflict signals: {sentences[1] if len(sentences) > 1 else 'no additional maritime/conflict deltas extracted from table output.'}\n\n"
+        f"Risk/decision posture: {sentences[2] if len(sentences) > 2 else 'risk/decision changes present; see entries for details.'}\n\n"
+        f"Aruba/Caribbean relevance: {sentences[3] if len(sentences) > 3 else 'assess indirect exposure via maritime routes and enforcement actions.'}"
+    )
+
+
+def _looks_like_exec_brief(md: str, label: str) -> bool:
+    if not isinstance(md, str) or not md.strip():
+        return False
+    lines = [ln.rstrip() for ln in md.splitlines() if ln.strip()]
+    if not lines:
+        return False
+    first = lines[0].strip()
+    if not first.endswith(":"):
+        return False
+    if any(ln.lstrip().startswith("#") for ln in lines):
+        return False
+    if any(ln.lstrip().startswith(("-", "*", "•")) for ln in lines):
+        return False
+    if "|" in md:
+        return False
+    if f"Compared with {label}," not in md:
+        return False
+    return True
+
+
+# ==========================
+# == Exec Compare Helpers ==
+# ==========================
+
+def _normtxt(x: Any) -> str:
+    try:
+        return str(x or "").strip()
+    except Exception:
+        return ""
+
+
+def _entry_text_for_compare(e: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    parts.append(_normtxt(e.get("title")))
+    parts.append(_normtxt(e.get("summary")))
+    wi = e.get("why_it_matters")
+    if isinstance(wi, list):
+        parts.extend(_normtxt(x) for x in wi[:4])
+    ks = e.get("key_signals")
+    if isinstance(ks, list):
+        parts.extend(_normtxt(x) for x in ks[:4])
+    return " | ".join([p for p in parts if p])
+
+
+def _count_hits(entries: List[Dict[str, Any]], needles: List[str]) -> int:
+    n = 0
+    for e in (entries or []):
+        t = _entry_text_for_compare(e).lower()
+        if any(k in t for k in needles):
+            n += 1
+    return n
+
+
+def _sample_titles(
+    entries: List[Dict[str, Any]], needles: List[str], limit: int = 2
+) -> List[str]:
+    out: List[str] = []
+    for e in (entries or []):
+        t = _entry_text_for_compare(e).lower()
+        if any(k in t for k in needles):
+            title = _normtxt(e.get("title"))
+            if title and title not in out:
+                out.append(title)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _extract_exec_signals(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    buckets = {
+        "maritime_seizure": [
+            "seiz",
+            "seized",
+            "intercept",
+            "board",
+            "boarding",
+            "tanker",
+            "coast guard",
+            "marines",
+        ],
+        "kinetic_attack": [
+            "attack",
+            "strike",
+            "bomb",
+            "missile",
+            "drone",
+            "second wave",
+            "airstrike",
+        ],
+        "war_powers_politics": [
+            "war powers",
+            "resolution",
+            "senate",
+            "congress",
+            "authorize",
+            "rein in",
+        ],
+        "sanctions_tariffs": [
+            "sanction",
+            "tariff",
+            "secondary",
+            "export control",
+            "compliance",
+            "pressure campaign",
+        ],
+        "shipping_trade": [
+            "shipping rates",
+            "container",
+            "imports",
+            "port",
+            "terminal",
+            "trade uncertainty",
+        ],
+    }
+
+    counts: Dict[str, int] = {}
+    examples: Dict[str, List[str]] = {}
+    for k, needles in buckets.items():
+        counts[k] = _count_hits(entries, needles)
+        examples[k] = _sample_titles(entries, needles, limit=2)
+
+    risk_counts = {"Elevated": 0, "Moderate": 0, "Low": 0}
+    decision_counts: Dict[str, int] = {}
+    for e in (entries or []):
+        r = _normtxt(e.get("risk"))
+        if r in risk_counts:
+            risk_counts[r] += 1
+        d = _normtxt(e.get("decision"))
+        if d:
+            decision_counts[d] = decision_counts.get(d, 0) + 1
+
+    return {
+        "n_items": len(entries or []),
+        "counts": counts,
+        "examples": examples,
+        "risk_counts": risk_counts,
+        "decision_counts": decision_counts,
+    }
+
+
+def _build_exec_compare_fallback(
+    label: str, cur_sig: Dict[str, Any], base_sig: Dict[str, Any]
+) -> str:
+    cur = cur_sig["counts"]
+    base = base_sig["counts"]
+
+    theme_order = [
+        "maritime_seizure",
+        "sanctions_tariffs",
+        "war_powers_politics",
+        "kinetic_attack",
+        "shipping_trade",
+    ]
+    theme_names = {
+        "maritime_seizure": "Caribbean tanker interdictions and seizure pressure",
+        "sanctions_tariffs": "Sanctions and tariff enforcement pressure",
+        "war_powers_politics": "U.S. political constraints and war powers signaling",
+        "kinetic_attack": "Kinetic activity and strike signaling",
+        "shipping_trade": "Trade and shipping market spillover",
+    }
+    dominant = max(theme_order, key=lambda k: int(cur.get(k, 0)))
+    headline = f"{theme_names.get(dominant, 'Geopolitical risk update')}:"
+
+    def _delta(k: str) -> str:
+        return f"{int(cur.get(k, 0))} vs {int(base.get(k, 0))}"
+
+    parts: List[str] = [headline]
+    parts.append(
+        f"Compared with {label}, the current set shows a higher concentration of operational maritime enforcement signals "
+        f"({_delta('maritime_seizure')}) alongside sanctions/tariff language ({_delta('sanctions_tariffs')}). "
+        f"Overall item volume is {cur_sig.get('n_items', 0)} vs {base_sig.get('n_items', 0)}."
+    )
+    if cur.get("maritime_seizure", 0) > 0:
+        parts.append(
+            "Maritime/conflict signals: multiple items reference tanker seizures/intercepts/boardings, suggesting elevated routing and insurance sensitivity in the Caribbean basin. "
+            "This is operational pressure rather than confirmed blockade language unless explicitly stated in the entries."
+        )
+    else:
+        parts.append(
+            "Maritime/conflict signals: no confirmed tanker seizures/intercepts or naval boardings are indicated in the current entries."
+        )
+    if cur.get("war_powers_politics", 0) > 0 or cur.get("kinetic_attack", 0) > 0:
+        parts.append(
+            "Political/kinetic posture: the entries include war-powers/authorization signaling and/or strike language, indicating a contested decision environment even if a sustained attack campaign is not confirmed."
+        )
+    else:
+        parts.append(
+            "Political/kinetic posture: no explicit war-powers constraints or confirmed kinetic activity are emphasized in the current entries."
+        )
+    parts.append(
+        "Aruba/Caribbean relevance: enforcement activity in Caribbean waters increases the odds of short-notice routing disruptions, detention risk, and knock-on compliance checks. "
+        "Primary watchpoints are additional interdictions, changes in legal/sanctions posture, and any verified escalation at sea."
+    )
+    return "\n\n".join(parts)
 
 
 # =========================
@@ -951,8 +1493,14 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument("--timeout", type=int, default=int(cfg["GEOFEED_REQUEST_TIMEOUT"]))
     p.add_argument("--max-items", type=int, default=int(cfg["GEOFEED_MAX_ITEMS_PER_FEED"]))
-    p.add_argument("--min-score", type=float, default=None)
     p.add_argument("--pdf", action="store_true", help="Also render the markdown summary as PDF")
+    p.add_argument(
+        "--compare",
+        type=str,
+        choices=["latest", "2d", "7d"],
+        default=None,
+        help="Add LLM comparison vs latest, last 2 days, or last 7 days",
+    )
     return p
 
 
@@ -961,14 +1509,71 @@ def _default_outdir(results_root: str) -> str:
     return os.path.join(results_root, "geofeed", now.strftime("%Y%m%d"), now.strftime("%H%M%S"))
 
 
+def _collect_geofeed_baseline_entries(
+    results_root: str,
+    current_outdir: str,
+    mode: str,
+    max_entries: int = 120,
+) -> Tuple[List[Dict[str, Any]], str]:
+    label = "most recent report" if mode == "latest" else f"last {mode.replace('d', '')} days"
+    root = Path(results_root) / "geofeed"
+    if not root.exists():
+        return [], label
+
+    now = dt.datetime.now(dt.timezone.utc)
+    cutoff = None
+    if mode in ("2d", "7d"):
+        cutoff = now - dt.timedelta(days=int(mode.replace("d", "")))
+
+    candidates: List[Tuple[dt.datetime, Path]] = []
+    for path in root.glob("**/geofeed_summary_*.json"):
+        if current_outdir and Path(current_outdir) in path.parents:
+            continue
+        try:
+            mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+        except Exception:
+            continue
+        if cutoff and mtime < cutoff:
+            continue
+        candidates.append((mtime, path))
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    if mode == "latest":
+        candidates = candidates[:1]
+
+    entries: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, path in candidates:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        items = data.get("entries") or []
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            norm = _normalize_summary_entry(item)
+            key = (norm.get("url") or norm.get("title") or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            entries.append(norm)
+            if len(entries) >= max_entries:
+                return entries, label
+
+    return entries, label
+
+
 def run_geofeed(
     hours: int,
     outdir: str,
     results_root: str,
     timeout: int,
     max_items: int,
-    min_score: Optional[float],
     render_pdf: bool = False,
+    compare_mode: Optional[str] = None,
 ) -> int:
     cfg = _require_config()
 
@@ -999,8 +1604,6 @@ def run_geofeed(
     add_llm_summary = bool(cfg.get("GEOFEED_ADD_LLM_SUMMARY", False))
     skip_validation = os.getenv("GEOFEED_SKIP_VALIDATE", "").lower() in ("1", "true", "yes")
     validate_llm = bool(cfg.get("GEOFEED_VALIDATE_LLM", True)) and not skip_validation
-
-    min_score_val = float(min_score if min_score is not None else cfg["GEOFEED_MIN_SCORE"])
 
     rows: List[Dict[str, Any]] = []
     rawtext_rows: List[Dict[str, Any]] = []
@@ -1089,7 +1692,7 @@ def run_geofeed(
                 event_type = infer_event_type(blob)
                 score, reasons = escalation_score(blob, weights=weights, amplifiers=amplifiers, dampeners=dampeners)
 
-                below_threshold = score < min_score_val
+                below_threshold = False
 
                 situation: Optional[Dict[str, Any]] = None
                 if add_llm_summary and use_ollama:
@@ -1102,8 +1705,9 @@ def run_geofeed(
                     )
                     if situation is None:
                         logger.warning(
-                            "GeoFeed LLM returned empty/invalid response for title=%s error=%s raw=%s",
+                            "GeoFeed LLM returned empty/invalid response for title=%s url=%s error=%s raw=%s",
                             it.title,
+                            url,
                             err,
                             (raw_resp or "")[:1200],
                         )
@@ -1169,14 +1773,73 @@ def run_geofeed(
     pdf_path = os.path.join(outdir, f"geofeed_summary_{run_date}.pdf")
     rawtext_path = os.path.join(outdir, f"rawtext4geofeed_{run_date}.jsonl")
     llm_fail_path = os.path.join(outdir, f"geofeed_llm_failures_{run_date}.jsonl")
+    comparison_fail_path = os.path.join(outdir, f"geofeed_comparison_failures_{run_date}.jsonl")
     json_path = os.path.join(outdir, f"geofeed_summary_{run_date}.json")
 
-    summary_text = _make_summary(rows, hours=hours, min_score=min_score_val)
-    summary_json = _make_summary_json(rows, hours=hours, min_score=min_score_val)
+    summary_limit = int(cfg.get("GEOFEED_SUMMARY_LIMIT", 35))
+    summary_text = _make_summary(rows, hours=hours, summary_limit=summary_limit)
+    summary_json = _make_summary_json(rows, hours=hours, summary_limit=summary_limit)
+
+    comparison_section = None
+    comparison_failures: List[Dict[str, Any]] = []
+    if compare_mode:
+        if not use_ollama:
+            logger.warning("GeoFeed comparison skipped: LLM disabled")
+        else:
+            baseline_entries, label = _collect_geofeed_baseline_entries(
+                results_root, outdir, compare_mode
+            )
+            if not baseline_entries:
+                logger.warning(
+                    "GeoFeed comparison skipped: no baseline reports found for %s",
+                    compare_mode,
+                )
+            else:
+                max_items = int(cfg.get("GEOFEED_COMPARISON_MAX_ITEMS", 18))
+                current_entries = [
+                    _compact_for_comparison(_normalize_summary_entry(e))
+                    for e in (summary_json.get("entries") or [])[:max_items]
+                ]
+                baseline_entries = [
+                    _compact_for_comparison(e) for e in baseline_entries[:max_items]
+                ]
+                compare_timeout = max(int(timeout), 90)
+                comparison_section, comp_raw, comp_err = _ollama_geofeed_comparison(
+                    host=ollama_host,
+                    model=ollama_model,
+                    current_entries=current_entries,
+                    baseline_entries=baseline_entries,
+                    label=label,
+                    timeout=compare_timeout,
+                )
+                if not comparison_section:
+                    comparison_failures.append(
+                        {
+                            "mode": compare_mode,
+                            "label": label,
+                            "current_entries": len(current_entries),
+                            "baseline_entries": len(baseline_entries),
+                            "error": comp_err or "unknown",
+                            "raw_response": comp_raw or "",
+                        }
+                    )
+                    logger.warning("GeoFeed comparison skipped: LLM returned no content")
+
+    if comparison_section:
+        summary_text = _make_summary(
+            rows,
+            hours=hours,
+            summary_limit=summary_limit,
+            comparison_section=comparison_section,
+        )
+        summary_json["comparison_markdown"] = comparison_section
     _write_jsonl(rawtext_path, rawtext_rows)
     if llm_failures:
         _write_jsonl(llm_fail_path, llm_failures)
         print(f"Wrote LLM failures -> {llm_fail_path}")
+    if comparison_failures:
+        _write_jsonl(comparison_fail_path, comparison_failures)
+        print(f"Wrote comparison failures -> {comparison_fail_path}")
     _write_text(json_path, json.dumps(summary_json, ensure_ascii=True, indent=2))
     _write_text(md_path, summary_text)
     if render_pdf and _render_pdf is not None:
@@ -1197,8 +1860,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         results_root=args.results_root,
         timeout=args.timeout,
         max_items=args.max_items,
-        min_score=args.min_score,
         render_pdf=args.pdf,
+        compare_mode=args.compare,
     )
 
 

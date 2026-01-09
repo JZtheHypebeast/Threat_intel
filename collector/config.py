@@ -181,10 +181,10 @@ CONFIG = {
         "marc-jr@hotmail.com",
     ],
 
-    "GEOFEED_MIN_SCORE": float(os.getenv("TI_GEOFEED_MIN_SCORE", 3.0)),
 
     "GEOFEED_MAX_ITEMS_PER_FEED": int(os.getenv("TI_GEOFEED_MAX_ITEMS_PER_FEED", 60)),
-    "GEOFEED_REQUEST_TIMEOUT": int(os.getenv("TI_GEOFEED_REQUEST_TIMEOUT", 25)),
+    "GEOFEED_SUMMARY_LIMIT": int(os.getenv("TI_GEOFEED_SUMMARY_LIMIT", 35)),
+    "GEOFEED_REQUEST_TIMEOUT": int(os.getenv("TI_GEOFEED_REQUEST_TIMEOUT", 30)),
 
     "GEOFEED_USE_OLLAMA": os.getenv("TI_GEOFEED_USE_OLLAMA", "true").lower() == "true",
     "GEOFEED_OLLAMA_MODEL": os.getenv(
@@ -193,6 +193,48 @@ CONFIG = {
     ),
     "GEOFEED_ADD_LLM_SUMMARY": os.getenv("TI_GEOFEED_ADD_LLM_SUMMARY", "true").lower() == "true",
     "GEOFEED_LLM_SUMMARY_MAX_CHARS": int(os.getenv("TI_GEOFEED_LLM_SUMMARY_MAX_CHARS", 280)),
+    "GEOFEED_SALIENT_EVENT_TERMS": json.loads(os.getenv("TI_GEOFEED_SALIENT_EVENT_TERMS", "null"))
+    or [
+        "president arrested",
+        "prime minister arrested",
+        "head of state arrested",
+        "president captured",
+        "prime minister captured",
+        "leader detained",
+        "head of government detained",
+        "leader removed",
+        "leader ousted",
+        "coup",
+        "military takeover",
+        "regime change",
+        "state of emergency",
+        "martial law declared",
+        "government collapse",
+        "invasion",
+        "ground offensive",
+        "air campaign",
+        "missile strike",
+        "decapitation strike",
+        "naval blockade",
+        "maritime blockade",
+        "shipping blockade",
+        "closure of strait",
+        "interdiction zone declared",
+        "withdraws from treaty",
+        "suspends treaty",
+        "breaks diplomatic relations",
+    ],
+    "GEOFEED_SALIENT_LOOKBACK_HOURS": int(
+        os.getenv("TI_GEOFEED_SALIENT_LOOKBACK_HOURS", "168")
+    ),
+    "GEOFEED_GEO_ONLY": os.getenv("TI_GEOFEED_GEO_ONLY", "true").lower()
+    in ("1", "true", "yes"),
+    "GEOFEED_MIN_GEO_TIER": os.getenv("TI_GEOFEED_MIN_GEO_TIER", "B").upper(),
+    "GEOFEED_INCLUDE_TIER_C_APPENDIX": os.getenv(
+        "TI_GEOFEED_INCLUDE_TIER_C_APPENDIX", "false"
+    ).lower()
+    in ("1", "true", "yes"),
+    "GEOFEED_COMPARISON_MAX_ITEMS": int(os.getenv("TI_GEOFEED_COMPARISON_MAX_ITEMS", "18")),
 
     "GEOFEED_RSS_FEEDS": json.loads(os.getenv("TI_GEOFEED_RSS_FEEDS", "null"))
     or [
@@ -202,6 +244,7 @@ CONFIG = {
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Aruba+OR+Caribbean)+(military+OR+deployment+OR+navy+OR+air+force+OR+fighter+OR+drone+OR+intercept+OR+airspace)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Caribbean+Sea+OR+Gulf+of+Venezuela)+(shipping+OR+tanker+OR+shadow+fleet+OR+insurance+OR+freight+OR+port)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Caribbean)+(oil+OR+LNG+OR+refinery+OR+pipeline+OR+fuel)+(sanctions+OR+export+OR+shipping)+when:30d&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(Maduro+OR+%22Venezuelan+president%22+OR+%22Venezuela%27s+president%22)+(captured+OR+arrested+OR+abducted+OR+extradited+OR+arraignment+OR+raid+OR+strike)+when:30d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(war+OR+military+OR+escalation+OR+ultimatum+OR+retaliation)+when:7d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(sanctions+OR+embargo+OR+asset+freeze+OR+designation+OR+secondary+sanctions)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Colombia+OR+Aruba+OR+%22United+States%22)+(navy+OR+warship+OR+destroyer+OR+%22carrier+strike+group%22+OR+deployment+OR+military+posture)+when:14d&hl=en-US&gl=US&ceid=US:en",
@@ -438,6 +481,33 @@ CONFIG = {
         "holiday special",
         "just for fun",
         "year-end",
+        "illinois",
+        "chicago",
+        "springfield",
+        "texas",
+        "california",
+        "new york",
+        "small business",
+        "businesses",
+        "local businesses",
+        "employers",
+        "grant",
+        "subsidy",
+        "funding",
+        "workforce",
+        "job training",
+        "insurance premium",
+        "healthcare",
+        "medicaid",
+        "obamacare",
+        "op-ed",
+        "opinion",
+        "editorial",
+        "column",
+        "analysis",
+        "explainer",
+        "sports",
+        "entertainment",
     ],
 
     "GEOFEED_PROXIMITY_WEIGHTS": json.loads(os.getenv("TI_GEOFEED_PROXIMITY_WEIGHTS", "null"))
