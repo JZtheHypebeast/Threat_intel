@@ -1,35 +1,35 @@
 from __future__ import annotations
 
-# =========================
-# === Standard Library ====
-# =========================
+
+
+
 import hashlib
 import json
 import time
 from typing import List
 
-# =========================
-# ===== Third-Party =======
-# =========================
+
+
+
 import requests
 
-# =========================
-# ====== Local App ========
-# =========================
+
+
+
 from .config import CONFIG, logger
 
-# =========================
-# ===== Module Config =====
-# =========================
+
+
+
 BULK_CONTENT_TYPE = "application/x-ndjson"
 DEFAULT_BATCH_SIZE = CONFIG.get("SIEM_BATCH_SIZE", 50)
 DEFAULT_MAX_RETRIES = CONFIG.get("SIEM_MAX_RETRIES", 3)
 DEFAULT_TIMEOUT = CONFIG.get("SIEM_TIMEOUT", 15)
 
 
-# =========================
-# ======== Helpers ========
-# =========================
+
+
+
 def _make_id(doc: dict) -> str:
 
     base = (
@@ -52,9 +52,9 @@ def _format_bulk_payload(docs: List[dict], index: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-# =========================
-# ========= Runner ========
-# =========================
+
+
+
 def send_batch_to_elastic(docs: List[dict]) -> bool:
 
     if not docs:

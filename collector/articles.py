@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-# =========================
-# === Standard Library ====
-# =========================
+
+
+
 import calendar
 import json
 import os
@@ -13,9 +13,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-# =========================
-# ===== Third-Party =======
-# =========================
+
+
+
 from bs4 import BeautifulSoup
 from dateutil import parser as dtparser
 import feedparser
@@ -23,23 +23,23 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# =========================
-# ====== Local App ========
-# =========================
+
+
+
 from .config import CONFIG, logger
 from .progress import progress_bar, start_live_progress, stop_live_progress
 
-# =========================
-# ===== Module Config =====
-# =========================
+
+
+
 RAWTEXT_LLM_PREFIX = "LLM-JSON_"
 LLM_MD_PREFIX = "LLM-UnstructuredReport_"
 RAW_TEXT_SNIPPET_MAX = 8000
 OLLAMA_DEFAULT_HOST = "http://localhost:11434"
 
-# =========================
-# ===== Fetch Config ======
-# =========================
+
+
+
 OUTPUT_DIR = CONFIG.get("OUTPUT_DIR_UNSTRUCTURED", "")
 DEFAULT_HOURS = 24
 WEEKLY_RECAP_MARKER = "weekly recap"
@@ -62,9 +62,9 @@ USER_AGENT = CONFIG.get("HTTP_USER_AGENT") or CONFIG.get(
 _SESSION: requests.Session | None = None
 
 
-# =========================
-# ======== Helpers ========
-# =========================
+
+
+
 def _ollama_host() -> str:
     return os.getenv("OLLAMA_HOST", CONFIG.get("OLLAMA_HOST", OLLAMA_DEFAULT_HOST)).rstrip("/")
 
@@ -84,10 +84,7 @@ def _get_output_dir() -> Path:
 
 
 def _find_latest_rawtext_any(base_dir: Path) -> Optional[Path]:
-    """
-    Locate the newest rawtext-*.json anywhere under a results root.
-    Assumes layout: <...>/results/<category>/<YYYYMMDD>/<HHMMSS>/rawtext-<date>.json
-    """
+
     if not base_dir.exists():
         logger.debug("Rawtext base dir does not exist: %s", base_dir)
         return None
@@ -100,9 +97,9 @@ def _find_latest_rawtext_any(base_dir: Path) -> Optional[Path]:
     return latest
 
 
-# =========================
-# ====== Formatting =======
-# =========================
+
+
+
 
 
 def _format_eta(seconds: float) -> str:
@@ -126,12 +123,12 @@ def _shorten_title(title: str, max_len: int = 60) -> str:
     return title[: max_len - 3].rstrip() + "..."
 
 
-# =========================
-# ===== Fetch/Rawtext =====
-# =========================
-# =========================
-# ======= HTTP I/O ========
-# =========================
+
+
+
+
+
+
 def _http_session() -> requests.Session:
     global _SESSION
     if _SESSION is not None:
@@ -236,9 +233,9 @@ def fetch_article_text(url: str, timeout: int = REQUEST_TIMEOUT) -> dict:
         return {"text": ""}
 
 
-# =========================
-# ======= IOC Utils =======
-# =========================
+
+
+
 def extract_iocs(text: str, source: str | None = None, title: str | None = None):
     if not text:
         return []
@@ -301,9 +298,9 @@ def generate_actionable_items(intel: dict) -> dict:
     return {"recommended_actions": actions, "mitigation_snippets": snippets}
 
 
-# =========================
-# ====== RSS Parsing ======
-# =========================
+
+
+
 def run_fetch_rawtext(hours: int = DEFAULT_HOURS) -> dict:
     feeds = CONFIG.get("RSS_FEEDS", []) or []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -455,12 +452,12 @@ def run_fetch(hours: int = DEFAULT_HOURS) -> dict:
     return run_fetch_rawtext(hours=hours)
 
 
-# =========================
-# ====== LLM Helpers ======
-# =========================
-# =========================
-# ===== Rawtext I/O =======
-# =========================
+
+
+
+
+
+
 def _load_rawtext_records(path: Path) -> List[Dict[str, Any]]:
     logger.info("Loading rawtext records from %s", path)
     text = path.read_text(encoding="utf-8").strip()
@@ -684,7 +681,7 @@ def _call_llm(prompt: str) -> Optional[Dict[str, Any]]:
 
 
 def _normalize_llm_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize LLM output keys to expected schema."""
+
     if not isinstance(payload, dict):
         return {}
     out = dict(payload)
@@ -1038,9 +1035,9 @@ def _build_markdown(records: List[Dict[str, Any]], input_file: Path) -> str:
 
     return "\n".join(lines)
 
-# =========================
-# ========= Runner ========
-# =========================
+
+
+
 def run_llm_rawtext(hours: Optional[int] = None) -> Dict[str, Any]:
     output_dir = _get_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-# =========================
-# === Standard Library ====
-# =========================
+
+
+
 import json
 import re
 import logging
@@ -14,27 +14,27 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# =========================
-# ===== Third-Party =======
-# =========================
+
+
+
 import requests
 
-# =========================
-# ====== Local App ========
-# =========================
+
+
+
 from .config import CONFIG
 from .progress import start_live_progress, stop_live_progress
 
 logger = logging.getLogger(__name__)
 
-# =========================
-# ===== Module Config =====
-# =========================
+
+
+
 REPORT_FILE_PREFIX = "ManagementReport"
 
-# =========================
-# ======== Helpers ========
-# =========================
+
+
+
 def _reporting_output_dir() -> Path:
     out = CONFIG.get("OUTPUT_DIR_REPORTING") or (Path.cwd() / "results" / "reporting")
     p = Path(out)
@@ -48,9 +48,9 @@ def _llm_root_dir() -> Path:
         return Path(out_cfg)
     return Path.cwd() / "results" / "llm"
 
-# =========================
-# ======= LLM I/O =========
-# =========================
+
+
+
 def _ollama_host() -> str:
     return str(CONFIG.get("LLM_HOST", os.getenv("OLLAMA_HOST", "http://localhost:11434"))).rstrip("/")
 
@@ -114,9 +114,9 @@ def _ollama_json(prompt: str) -> Dict[str, Any]:
     obj = _extract_json_object(txt)
     return obj or {}
 
-# =========================
-# ======= Records =========
-# =========================
+
+
+
 def _parse_ndjson(path: Path) -> List[Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
     buf: List[str] = []
@@ -188,9 +188,9 @@ def _collect_llm_records(days: int) -> List[Dict[str, Any]]:
         )
     return out
 
-# =========================
-# ======== Scoring ========
-# =========================
+
+
+
 def _priority_score(rec: Dict[str, Any]) -> int:
     llm = rec.get("llm") or {}
     pri = llm.get("priority") or {}
@@ -232,9 +232,9 @@ def _compact_entry_line(rec: Dict[str, Any]) -> str:
     score = _priority_score(rec)
     return f"- score={score} | title={title} | actors={actors} | vendors={vendors} | tags={tags} | summary={summary}"
 
-# =========================
-# ======== Metrics ========
-# =========================
+
+
+
 def _compute_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     from collections import Counter
 
@@ -292,9 +292,9 @@ def _compute_metrics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-# =========================
-# ======= LLM Prompts =====
-# =========================
+
+
+
 def _batch_prompt(days: int, batch_lines: List[str], batch_idx: int, batch_total: int) -> str:
     p: List[str] = []
     p.append("You are a threat intelligence analyst writing for non-technical executive management.")
@@ -342,9 +342,9 @@ def _final_prompt(days: int, metrics: Dict[str, Any], batch_summaries: List[Dict
     return "\n".join(p)
 
 
-# =========================
-# ====== Markdown =========
-# =========================
+
+
+
 def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[str, Any], generated_at: str) -> str:
     def slist(x: Any) -> List[str]:
         return [str(i).strip() for i in x] if isinstance(x, list) else []
@@ -489,20 +489,11 @@ def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[s
 
     return "\n".join(lines)
 
-# =========================
-# ===== PDF Rendering =====
-# =========================
-def _render_pdf(markdown_text: str, out_path: Path) -> None:
-    """
-    Executive-friendly PDF renderer using ReportLab.
 
-    Supports:
-      - #, ##, ###, #### headings
-      - bullet lists (- or *)
-      - **bold**
-      - [text](url) links
-      - [[PAGE_BREAK]] marker forces new page
-    """
+
+
+def _render_pdf(markdown_text: str, out_path: Path) -> None:
+
     try:
         from reportlab.lib.pagesizes import LETTER
         from reportlab.lib.units import inch
@@ -727,9 +718,9 @@ def _render_pdf(markdown_text: str, out_path: Path) -> None:
 
     doc.build(flow, onFirstPage=on_page, onLaterPages=on_page)
 
-# =========================
-# ===== Output Writer =====
-# =========================
+
+
+
 def _write_outputs(out_dir: Path, period_label: str, markdown_text: str, meta: Dict[str, Any]) -> Dict[str, str]:
     date_str = datetime.now().strftime("%Y%m%d")
     md_path = out_dir / f"{REPORT_FILE_PREFIX}_{period_label}_{date_str}.md"
@@ -742,9 +733,9 @@ def _write_outputs(out_dir: Path, period_label: str, markdown_text: str, meta: D
 
     return {"markdown": str(md_path), "pdf": str(pdf_path), "json": str(json_path)}
 
-# =========================
-# ========= Runner ========
-# =========================
+
+
+
 def run_reporting(period_days: int) -> Dict[str, Any]:
     records = _collect_llm_records(period_days)
     if not records:

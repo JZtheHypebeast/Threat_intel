@@ -1,6 +1,6 @@
-# =========================
-# === Standard Library ====
-# =========================
+
+
+
 import json
 import logging
 import os
@@ -18,14 +18,14 @@ except Exception:
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*SWIG.*")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"fitz.*")
 
-# =========================
-# ===== Third-Party =======
-# =========================
+
+
+
 import requests
 
-# =========================
-# ===== Module Config =====
-# =========================
+
+
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_ROOT = os.path.join(BASE_DIR, "results")
@@ -167,9 +167,9 @@ CONFIG = {
     "LLM_TEMPERATURE": float(os.getenv("TI_LLM_TEMPERATURE", 0.2)),
     "EXCLUDED_SOFTWARE": json.loads(os.getenv("TI_EXCLUDED_SOFTWARE", "[]")),
 
-# =========================
-# ======= GeoFeed =========
-# =========================
+
+
+
 
     "GEOFEED_ENABLED": os.getenv("TI_GEOFEED_ENABLED", "false").lower() == "true",
 
@@ -238,7 +238,7 @@ CONFIG = {
 
     "GEOFEED_RSS_FEEDS": json.loads(os.getenv("TI_GEOFEED_RSS_FEEDS", "null"))
     or [
-        # --- Google News (baseline aggregation) ---
+
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Aruba+OR+Caribbean)+(sanctions+OR+OFAC+OR+airspace+OR+NOTAM+OR+closure+OR+deployment+OR+ultimatum+OR+retaliation)+when:7d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Aruba+OR+Caribbean)+(sanctions+OR+OFAC+OR+treasury+OR+designation+OR+secondary+sanctions)+when:14d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Venezuela+OR+Guyana+OR+Suriname+OR+Aruba+OR+Caribbean)+(military+OR+deployment+OR+navy+OR+air+force+OR+fighter+OR+drone+OR+intercept+OR+airspace)+when:14d&hl=en-US&gl=US&ceid=US:en",
@@ -252,43 +252,43 @@ CONFIG = {
         "https://news.google.com/rss/search?q=(Guyana+OR+Venezuela)+(Essequibo+OR+Esequibo+OR+border+OR+incursion+OR+clash+OR+mobilization)+when:30d&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(Guyana+OR+Suriname+OR+Venezuela+OR+Colombia+OR+Aruba)+(offshore+OR+oil+OR+rig+OR+platform+OR+FPSO+OR+%22Stabroek+Block%22)+(attack+OR+sabotage+OR+seized+OR+naval)+when:30d&hl=en-US&gl=US&ceid=US:en",
 
-        # --- AIR / FLIGHT / AVIATION (military & ISR) ---
+
         "https://theaviationist.com/feed/",
         "https://www.flightradar24.com/blog/feed/",
         "https://www.adsbexchange.com/feed/",
 
-        # --- MARITIME / NAVAL / SANCTIONS SHIPPING ---
+
         "https://news.usni.org/feed",
         "https://www.maritime-executive.com/rss",
         "https://gcaptain.com/feed/",
         "https://blog.marinetraffic.com/feed/",
 
-        # --- LAND / GROUND / MILITARY POSTURE ---
+
         "https://www.understandingwar.org/rss.xml",
         "https://www.oryxspioenkop.com/feeds/posts/default",
         "https://warontherocks.com/feed/",
 
-        # --- MULTI-DOMAIN / ESCALATION MAPS ---
+
         "https://liveuamap.com/rss",
         "https://liveuamap.com/en/rss/americas",
         "https://www.bellingcat.com/feed/",
         "https://www.crisis24.com/rss",
     ],
 
-    # ---------------------------
-    # IMPROVED CONFIGURABLES
-    # ---------------------------
+
+
+
 
     "GEOFEED_WATCHLIST_LOCATIONS": json.loads(os.getenv("TI_GEOFEED_WATCHLIST_LOCATIONS", "null"))
     or [
-        # Core focus countries
+
         "Venezuela", "Guyana", "Suriname", "Colombia", "Aruba", "United States",
         "USA", "U.S.",
 
-        # Disputed area & spelling variants
+
         "Essequibo", "Esequibo", "Guayana Esequiba",
 
-        # Key cities / political nodes
+
         "Caracas", "Maracaibo", "Puerto La Cruz", "Maturín",
         "Ciudad Guayana", "Puerto Ordaz", "San Félix",
         "Ciudad Bolívar", "Georgetown", "Paramaribo",
@@ -296,13 +296,13 @@ CONFIG = {
         "Oranjestad", "San Nicolas",
         "Washington, DC", "Washington D.C.",
 
-        # Border / region cues
+
         "Guyana-Venezuela border", "Colombia-Venezuela border",
         "Cuyuni", "Cuyuní", "Orinoco", "Orinoco River",
         "Bolívar (state)", "Delta Amacuro", "Anzoátegui", "Zulia",
         "Barima-Waini", "Cuyuni-Mazaruni", "Potaro-Siparuni",
 
-        # Maritime / basin / offshore cues
+
         "Caribbean", "Caribbean Sea",
         "Gulf of Paria", "Atlantic Ocean",
         "Orinoco Delta",
@@ -314,21 +314,21 @@ CONFIG = {
 
     "GEOFEED_WATCHLIST_ASSETS": json.loads(os.getenv("TI_GEOFEED_WATCHLIST_ASSETS", "null"))
     or [
-        # Transport & nodes
+
         "port", "harbor", "terminal", "airport", "runway", "airfield", "air base",
         "border crossing", "checkpoint", "bridge", "highway", "rail", "river crossing",
 
-        # Energy / critical infrastructure
+
         "pipeline", "refinery", "oil terminal", "gas plant", "LNG", "compressor station",
         "offshore platform", "platform", "rig", "drillship", "FPSO", "floating production",
         "subsea", "wellhead", "export terminal",
 
-        # Security / military sites
+
         "naval base", "coast guard", "garrison", "barracks", "forward operating base",
         "radar", "air defense", "SAM site", "missile battery", "command center",
         "ammunition depot", "weapons depot",
 
-        # Cyber/comm-ish (often relevant in escalation)
+
         "power plant", "substation", "transmission line",
         "telecom", "internet outage", "cell tower", "undersea cable",
     ],
@@ -336,26 +336,26 @@ CONFIG = {
 
     "GEOFEED_SIGNAL_WEIGHTS": json.loads(os.getenv("TI_GEOFEED_SIGNAL_WEIGHTS", "null"))
     or {
-        # Kinetic / direct conflict
+
         "airstrike": 4, "missile": 4, "missile strike": 4, "rocket": 3,
         "drone strike": 3, "uav strike": 3, "shelling": 4, "artillery": 4,
         "bombing": 4, "strike package": 3,
         "shootdown": 5, "shot down": 5,
         "killed": 3, "casualties": 3,
 
-        # Border / territorial escalation
+
         "incursion": 4, "border clash": 4, "border violation": 4,
         "cross-border": 4, "infiltration": 4,
         "seized territory": 5, "annexation": 5,
         "clash": 3, "skirmish": 3,
 
-        # Maritime escalation / interdiction
+
         "blockade": 5, "naval blockade": 5,
         "interdiction": 4, "boarded": 4, "boarding": 4,
         "seized vessel": 5, "ship seized": 5, "detained crew": 4,
         "escort": 3, "convoy": 3,
 
-        # Force posture / deployments
+
         "carrier strike group": 5,
         "aircraft carrier": 5,
         "warship": 3,
@@ -374,7 +374,7 @@ CONFIG = {
         "martial law": 4,
         "curfew": 3,
 
-        # Airspace / aviation triggers
+
         "airspace closed": 4,
         "airspace closure": 4,
         "notam": 3,
@@ -384,14 +384,14 @@ CONFIG = {
         "violated airspace": 4,
         "air defense": 3,
 
-        # Diplomatic crisis
+
         "expels diplomats": 4,
         "expelled diplomats": 4,
         "embassy closure": 4,
         "diplomatic relations severed": 5,
         "recall ambassador": 4,
 
-        # Sanctions / economic coercion
+
         "sanctions": 3,
         "asset freeze": 4,
         "embargo": 4,
@@ -403,7 +403,7 @@ CONFIG = {
         "license revoked": 4,
         "waiver": 3,
 
-        # Hybrid / gray-zone
+
         "sabotage": 4,
         "attack on infrastructure": 4,
         "explosion": 3,
@@ -415,33 +415,33 @@ CONFIG = {
 
     "GEOFEED_AMPLIFIERS": json.loads(os.getenv("TI_GEOFEED_AMPLIFIERS", "null"))
     or {
-        # Critical infrastructure multipliers
+
         "port": 1, "harbor": 1, "terminal": 1,
         "airport": 1, "airfield": 1, "runway": 1,
         "pipeline": 2, "refinery": 2, "oil terminal": 2,
         "gas plant": 2, "lng": 2,
         "offshore": 1, "rig": 2, "drillship": 2, "fpso": 2,
 
-        # Military site multipliers
+
         "naval base": 2, "air base": 2, "garrison": 2,
         "radar": 2, "air defense": 2, "sam": 2, "missile battery": 2,
         "ammunition depot": 2, "weapons depot": 2,
 
-        # Human impact / urgency
+
         "evacuation": 2, "evacuation order": 3,
         "killed": 2, "dead": 2, "fatalities": 2,
         "casualties": 2, "injured": 1, "wounded": 1,
         "hostage": 3, "detained": 2,
 
-        # Escalation language
+
         "ultimatum": 2,
         "retaliation": 2,
         "warning shot": 2,
 
-        # Sanctions additive
+
         "sanctions": 1,
 
-        # “Scale” cues
+
         "battalion": 2, "brigade": 2, "division": 3,
         "squadron": 2, "task force": 2, "fleet": 3,
         "carrier": 3,
@@ -450,20 +450,20 @@ CONFIG = {
 
     "GEOFEED_DAMPENERS": json.loads(os.getenv("TI_GEOFEED_DAMPENERS", "null"))
     or {
-        # Exercises / routine activity (often noisy)
+
         "exercise": 2, "drill": 2, "training": 2, "wargame": 2,
         "routine": 2, "scheduled": 2,
 
-        # Low-signal content types
+
         "opinion": 2, "editorial": 2, "op-ed": 2,
         "analysis": 1, "explainer": 2, "background": 2,
         "interview": 2, "podcast": 3,
         "documentary": 3, "book": 3,
 
-        # Time-based / commemorative noise
+
         "anniversary": 3, "memorial": 3, "history": 2,
 
-        # Market chatter
+
         "stocks": 2, "markets": 2, "earnings": 3,
     },
 
@@ -605,9 +605,9 @@ if not CONFIG["RSS_FEEDS"]:
         "https://www.zerodayinitiative.com/rss/published/",
     ]
 
-# =========================
-# ======== Logging ========
-# =========================
+
+
+
 file_handler = logging.FileHandler(CONFIG["LOG_FILE"])
 file_handler.setLevel(logging.INFO)
 

@@ -1,11 +1,11 @@
-# =========================
-# === Standard Library ====
-# =========================
+
+
+
 import warnings
 
-# =========================
-# ====== Filters ==========
-# =========================
+
+
+
 
 try:
     from urllib3.exceptions import NotOpenSSLWarning

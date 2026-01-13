@@ -1,7 +1,7 @@
-# =========================
-# ====== Local App ========
-# =========================
-from . import CVE  # noqa: F401
-from . import pdf  # noqa: F401
+
+
+
+from . import CVE
+from . import pdf
 
 __all__ = ["main", "CVE", "pdf", "articles"]

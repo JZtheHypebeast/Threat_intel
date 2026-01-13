@@ -1,12 +1,4 @@
-"""
-Minify Python files in-place by removing comments and trimming redundant
-blank lines while preserving indentation and necessary whitespace.
 
-Usage: python3 scripts/minify_py.py
-
-This script will skip virtualenv and git folders and will modify all .py files
-in the repository tree.
-"""
 
 import io
 import os

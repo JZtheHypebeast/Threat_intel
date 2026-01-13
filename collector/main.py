@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-# =========================
-# === Standard Library ====
-# =========================
+
+
+
 import argparse
 import importlib.util
 import os
@@ -11,9 +11,9 @@ import sys
 import warnings
 from typing import Optional
 
-# =========================
-# ====== Local App ========
-# =========================
+
+
+
 warnings.filterwarnings("ignore", category=Warning, module=r"urllib3.*")
 from .config import logger, mute_console, unmute_console
 from .CVE import run_structured_collection
@@ -23,9 +23,9 @@ from .reporting import run_reporting
 
 run_unstructured_pdf_analysis = _run_unstructured_pdf_analysis
 
-# =========================
-# ===== Module Config =====
-# =========================
+
+
+
 DEFAULT_HOURS = 24
 BANNER = r"""
 /==================================================================\
@@ -42,9 +42,9 @@ BANNER = r"""
 Threat Intel Collector — Created by Marc R. Kock
 """
 
-# =========================
-# ======= Helpers =========
-# =========================
+
+
+
 def _print_banner() -> None:
     logger.info(BANNER)
 
@@ -156,7 +156,10 @@ def _has_geofeed() -> bool:
 
 
 def _run_geofeed(
-    hours: int, render_pdf: bool = False, compare_mode: Optional[str] = None
+    hours: int,
+    render_pdf: bool = False,
+    compare_mode: Optional[str] = None,
+    compare_use_llm: Optional[bool] = None,
 ) -> None:
     pkg = __package__ or ""
     mod = f"{pkg}.geofeed" if pkg else "geofeed"
@@ -169,11 +172,16 @@ def _run_geofeed(
         cmd.append("--pdf")
     if compare_mode:
         cmd.extend(["--compare", compare_mode])
-    subprocess.run(cmd, check=False)
+    env = os.environ.copy()
+    if compare_use_llm is True:
+        env["GEOFEED_COMPARE_USE_LLM"] = "1"
+    elif compare_use_llm is False:
+        env.pop("GEOFEED_COMPARE_USE_LLM", None)
+    subprocess.run(cmd, check=False, env=env)
 
-# =========================
-# ======= Runner ==========
-# =========================
+
+
+
 def _interactive_loop(default_hours: int, skip_history: bool) -> None:
     hours = default_hours
     while True:
@@ -229,7 +237,13 @@ def _interactive_loop(default_hours: int, skip_history: bool) -> None:
             chosen_hours = _prompt_hours(hours)
             render_pdf = _prompt_yes_no("Convert GeoFeed summary to PDF?", default=False)
             compare_mode = _prompt_geofeed_compare()
-            _run_geofeed(chosen_hours, render_pdf=render_pdf, compare_mode=compare_mode)
+            compare_use_llm = True if compare_mode else None
+            _run_geofeed(
+                chosen_hours,
+                render_pdf=render_pdf,
+                compare_mode=compare_mode,
+                compare_use_llm=compare_use_llm,
+            )
 
         elif key == "reporting":
             logger.info("Building cumulative LLM-based report")

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-# =========================
-# === Standard Library ====
-# =========================
+
+
+
 import os
 import json
 import re
 from datetime import datetime, timezone
 
-# =========================
-# ===== Third-Party =======
-# =========================
+
+
+
 from pypdf import PdfReader
 try:
     import fitz
@@ -18,22 +18,22 @@ try:
 except Exception:
     HAS_PYMUPDF = False
 
-# =========================
-# ===== Local Imports =====
-# =========================
+
+
+
 from .config import CONFIG, logger, mute_console
 from .progress import animate_progress
 from .articles import _call_llm
 from . import delivery
 
-# =========================
-# ===== Module Config =====
-# =========================
+
+
+
 SUMMARY_SENTENCES = 3
 
-# =========================
-# ===== Helper Utils ======
-# =========================
+
+
+
 def summarize_unstructured_description(text: str, max_sentences: int = 3) -> str:
     if not text:
         return ""
@@ -116,9 +116,9 @@ def _normalize_pdf_llm(payload: dict) -> dict:
     return out
 
 
-# =========================
-# ===== PDF Extraction ====
-# =========================
+
+
+
 def extract_text_pdftotext(pdf_path: str, *, max_pages: int | None = None) -> str:
     if not HAS_PYMUPDF:
         logger.warning(

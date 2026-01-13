@@ -32,9 +32,9 @@ try:
     from .reporting import _render_pdf
 except Exception:
     try:
-        from reporting import _render_pdf  # type: ignore
+        from reporting import _render_pdf
     except Exception:
-        _render_pdf = None  # type: ignore
+        _render_pdf = None
 
 RESULTS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 ENV_GEOFEED_RSS_FEEDS = [
@@ -59,9 +59,9 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*SWIG.
 warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"fitz.*")
 
 
-# =========================
-# ====== Config ===========
-# =========================
+
+
+
 
 
 def _require_config() -> Dict[str, Any]:
@@ -72,9 +72,9 @@ def _require_config() -> Dict[str, Any]:
     return CFG
 
 
-# =========================
-# ====== Models ===========
-# =========================
+
+
+
 
 
 @dataclass
@@ -85,9 +85,9 @@ class FeedItem:
     summary: str
 
 
-# =========================
-# ===== Fetch/Parse =======
-# =========================
+
+
+
 
 
 def _http_get(url: str, timeout: int = 25) -> str:
@@ -212,9 +212,9 @@ def _parse_published(s: str) -> Optional[dt.datetime]:
             return None
 
 
-# =========================
-# ====== Scoring ==========
-# =========================
+
+
+
 
 
 def _stable_id(title: str, url: str) -> str:
@@ -332,9 +332,9 @@ def escalation_score(
     reasons = list(dict.fromkeys(reasons))[:8]
     return score, reasons
 
-# =========================
-# ===== Summaries =========
-# =========================
+
+
+
 
 def _ollama_situation_summary(
     host: str,
@@ -559,9 +559,35 @@ def _ollama_geofeed_comparison(
                 "No dominant escalation themes are strongly signaled in the current entries; describe stability vs baseline if applicable."
             )
 
+
+
+
+
+
+
+
+        if os.getenv("GEOFEED_COMPARE_USE_LLM", "").strip() not in (
+            "1",
+            "true",
+            "TRUE",
+            "yes",
+            "YES",
+        ):
+            return (
+                _build_exec_compare_bullet_brief(
+                    label=label,
+                    cur_sig=cur_sig,
+                    base_sig=base_sig,
+                    current_entries=current_entries or [],
+                    baseline_entries=baseline_entries or [],
+                ),
+                None,
+                None,
+            )
+
         prompt = (
-            f"You are GeoFeed. Write an executive COMPARISON brief versus {label}.\n"
-            "You must synthesize across ALL entries. This is NOT an item-by-item list.\n\n"
+            f"You are GeoFeed. Write an executive COMPARISON bullet brief versus {label}.\n"
+            "This must be scannable for company executives.\n\n"
             "DATA RULES:\n"
             "- Use ONLY CURRENT_ENTRIES and BASELINE_ENTRIES. Do NOT invent facts.\n"
             "- You may treat title/summary/why_it_matters/key_signals as evidence even when conflict_indicators are missing.\n"
@@ -577,39 +603,36 @@ def _ollama_geofeed_comparison(
             "- comparison_markdown must be a single string.\n"
             "- Encode newlines as \\n inside the JSON string.\n\n"
             "STYLE (MATCH THIS EXACTLY):\n"
-            "- NO markdown tables; do NOT output '|'. The '|' character is forbidden anywhere.\n"
-            "- If you are about to write a table, write the same information as short sentences in the paragraphs.\n"
-            "- NO bullets; do NOT output '-', '*', or '•'.\n"
+            "- NO tables; never output '|'. The '|' character is forbidden anywhere.\n"
             "- NO markdown headings; do NOT output lines starting with '#'.\n"
-            "- Do NOT start with 'Not specified' and do NOT use a 'Country / Country' header.\n"
-            f"- First line MUST be a thematic headline ending with ':' (example: 'Venezuela sanctions and maritime enforcement intensifies:').\n"
-            "- Then write 3–5 short paragraphs separated by blank lines.\n"
-            f"- Paragraph 1 MUST contain a sentence beginning exactly with: 'Compared with {label},' and describe the dominant shift.\n"
-            "- Include Aruba/Caribbean relevance explicitly in the final paragraph.\n"
+            "- NO numbered lists; do NOT output '1.' style lines.\n"
+            "- Output must be SCANNABLE for executives:\n"
+            "  * Line 1: thematic headline ending with ':'\n"
+            "  * Blank line\n"
+            "  * Then 4–7 bullet points using '-' (markdown bullets)\n"
+            f"  * Bullet 1 MUST start with: 'Compared with {label},'\n"
+            "  * Each bullet is 1–2 sentences (wrap is allowed, but keep it concise)\n"
+            "  * Final bullet MUST explicitly state Aruba/Caribbean relevance\n"
+            "- Do NOT use section-label lines like 'Maritime/conflict signals:' anywhere.\n"
             "- Mention concrete signals (seizures/intercepts/war powers/sanctions) only if supported by the entries.\n\n"
+            "EXAMPLE (format only; do not reuse facts):\n"
+            "Example thematic shift headline:\n\n"
+            "- Compared with LAST 7 DAYS, enforcement and compliance signals rise while kinetic escalation is not indicated.\n"
+            "- Maritime exposure concentrates around routing friction and interdiction language, increasing screening needs.\n"
+            "- Policy posture emphasizes sanctions/tools and legislative constraints rather than new commitments.\n"
+            "- Commercial impact is framed through cost/availability pressure and compliance risk.\n"
+            "- Aruba/Caribbean relevance: second-order spillover via shipping, compliance checks, and routing decisions.\n\n"
+            "FINAL OUTPUT REMINDER (MUST FOLLOW):\n"
+            "- Output JSON only with exactly one key: comparison_markdown\n"
+            "- Bullet 1 must start with '- Compared with {label},'\n"
+            "- Use 4–7 bullets only; final bullet must mention Aruba/Caribbean relevance\n"
+            "- Never output '|'\n\n"
             f"{strict_block}\n\n"
             "CURRENT_ENTRIES:\n"
             f"{json.dumps(current_entries, ensure_ascii=True)}\n\n"
             "BASELINE_ENTRIES:\n"
             f"{json.dumps(baseline_entries, ensure_ascii=True)}\n"
         )
-
-        payload = json.dumps(
-            {
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "format": {
-                    "type": "object",
-                    "properties": {"comparison_markdown": {"type": "string"}},
-                    "required": ["comparison_markdown"],
-                    "additionalProperties": False,
-                },
-                "options": {"temperature": 0, "num_predict": 420},
-            }
-        ).encode("utf-8")
-
-        url = host.rstrip("/") + "/api/generate"
 
         def _cleanup_json(candidate: str) -> str:
             cleaned = candidate.replace("\r\n", "\n").replace("\r", "\n").strip()
@@ -639,85 +662,181 @@ def _ollama_geofeed_comparison(
                     out.append(ch)
             return "".join(out)
 
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json", "User-Agent": "geofeed/1.0"},
-            method="POST",
+        def _request_llm(prompt_text: str, options: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+            payload = json.dumps(
+                {
+                    "model": model,
+                    "prompt": prompt_text,
+                    "stream": False,
+                    "format": {
+                        "type": "object",
+                        "properties": {"comparison_markdown": {"type": "string"}},
+                        "required": ["comparison_markdown"],
+                        "additionalProperties": False,
+                    },
+                    "options": options,
+                }
+            ).encode("utf-8")
+            url = host.rstrip("/") + "/api/generate"
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "geofeed/1.0"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read().decode("utf-8", errors="replace")
+            data = json.loads(raw)
+            s = (data.get("response") or "").strip()
+            if not s:
+                return None, raw, "empty_response"
+            parsed: Optional[Dict[str, Any]] = None
+            try:
+                parsed = json.loads(_cleanup_json(s))
+            except Exception:
+                start = s.find("{")
+                if start >= 0:
+                    candidate = _escape_newlines_in_json_strings(_cleanup_json(s[start:]))
+                    try:
+                        parsed, _ = json.JSONDecoder().raw_decode(candidate)
+                    except Exception:
+                        parsed = None
+            if not isinstance(parsed, dict):
+                return None, raw, "invalid_json"
+            inner = parsed.get("response")
+            if isinstance(inner, dict) and "comparison_markdown" in inner:
+                parsed = inner
+            if "comparison_markdown" not in parsed:
+                for k in (
+                    "comparison",
+                    "comparison_md",
+                    "comparisonMarkdown",
+                    "comparison_markdown_text",
+                ):
+                    v = parsed.get(k)
+                    if isinstance(v, str) and v.strip():
+                        parsed["comparison_markdown"] = v
+                        break
+            comparison = parsed.get("comparison_markdown")
+            if not isinstance(comparison, str) or not comparison.strip():
+                return None, raw, "missing_comparison_markdown"
+            return comparison.strip(), raw, None
+
+        def _validate_exec(md: str) -> Tuple[bool, Optional[str]]:
+            if "|" in (md or "") or _looks_like_markdown_table(md):
+                return False, "contains_markdown_table"
+            first_line = (md.splitlines()[0] if (md or "").splitlines() else "").strip()
+            bad_country_header = bool(
+                re.match(r"^\s*[^/]{2,40}\s*/\s*[^/]{2,40}\s*$", first_line)
+            )
+            bad_start = (md or "").lower().startswith("not specified") or bad_country_header
+            has_anchor_requirement = cur_sig["counts"]["maritime_seizure"] > 0
+            anchor_missing = has_anchor_requirement and (
+                "seiz" not in md.lower()
+                and "intercept" not in md.lower()
+                and "tanker" not in md.lower()
+            )
+            if bad_start or anchor_missing:
+                return False, "format_or_content"
+            if not _looks_like_exec_bullet_brief(md, label):
+                return False, "format_or_content"
+            return True, None
+
+        def _rewrite_exec_brief(bad_text: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+            rewrite_prompt = (
+                f"You are GeoFeed. Rewrite the following draft into an executive COMPARISON bullet brief versus {label}.\n"
+                "Do NOT add or invent facts. Keep content grounded in the draft and the ANCHOR FACTS.\n\n"
+                "OUTPUT RULES (STRICT):\n"
+                "- Output JSON only with exactly one key: comparison_markdown\n"
+                "- comparison_markdown must be a single string with \\n for newlines\n"
+                "- NO tables; the '|' character is forbidden anywhere\n"
+                "- NO markdown headings; do NOT output lines starting with '#'\n"
+                "- NO numbered lists; do NOT output '1.' style lines\n\n"
+                "FORMAT (MUST MATCH EXACTLY):\n"
+                "- Line 1: thematic headline ending with ':'\n"
+                "- Blank line\n"
+                "- Then 4–7 bullet points using '-' (markdown bullets)\n"
+                f"- Bullet 1 MUST start exactly with: '- Compared with {label},'\n"
+                "- Each bullet is 1–2 sentences. No sub-bullets.\n"
+                "- Final bullet MUST explicitly state Aruba/Caribbean relevance\n"
+                "- Do NOT use section-label lines like 'Maritime/conflict signals:' or any 'Label:' lines\n\n"
+                "ANCHOR FACTS (MUST BE REFLECTED):\n"
+                + "\n".join([f"ANCHOR: {a}" for a in anchors])
+                + "\n\n"
+                "DRAFT TO REWRITE:\n"
+                + (bad_text or "")
+            )
+            return _request_llm(rewrite_prompt, {"temperature": 0, "num_predict": 360})
+
+        comparison, raw, err = _request_llm(prompt, {"temperature": 0, "num_predict": 420})
+        if comparison:
+            ok, reason = _validate_exec(comparison)
+            if ok:
+                return comparison, raw, None
+            if reason == "format_or_content":
+                rewritten, raw2, err2 = _rewrite_exec_brief(comparison)
+                if rewritten and _validate_exec(rewritten)[0]:
+                    return rewritten.strip(), raw2 or raw, "rewritten_from_format_or_content"
+            if reason == "contains_markdown_table":
+                converted = _table_md_to_summary(comparison, label, cur_sig, base_sig)
+                if isinstance(converted, str) and converted.strip():
+                    return converted.strip(), raw, "fallback_from_table"
+            if reason == "contains_markdown_table" or "\n-" in comparison or "\n*" in comparison or "\n#" in comparison:
+                rewritten, raw2, err2 = _rewrite_exec_brief(comparison)
+                if rewritten and _validate_exec(rewritten)[0]:
+                    return rewritten.strip(), raw2 or raw, "rewritten_from_bad_format"
+            sanitized = _sanitize_exec_brief(comparison, label, cur_sig, base_sig)
+            if sanitized and _validate_exec(sanitized)[0]:
+                return sanitized, raw, "sanitized_from_format"
+
+        retry_prompt = (
+            f"You are GeoFeed. Write an executive COMPARISON bullet brief versus {label}.\n"
+            "Use ONLY CURRENT_ENTRIES and BASELINE_ENTRIES. Do NOT invent facts.\n\n"
+            "OUTPUT RULES (STRICT):\n"
+            "- Output JSON only with exactly one key: comparison_markdown\n"
+            "- comparison_markdown must be a single string with \\n for newlines\n"
+            "- Forbidden anywhere: '|', markdown tables, '#', numbered lists\n\n"
+            "FORMAT (MUST MATCH EXACTLY):\n"
+            "- Line 1: thematic headline ending with ':'\n"
+            "- Blank line\n"
+            "- Then 4–7 bullet points using '-' (markdown bullets)\n"
+            f"- Bullet 1 MUST start exactly with: '- Compared with {label},'\n"
+            "- Each bullet is 1–2 sentences. No sub-bullets.\n"
+            "- Final bullet MUST explicitly state Aruba/Caribbean relevance\n"
+            "- Do NOT use section labels like 'Maritime/conflict signals:'\n\n"
+            "FINAL OUTPUT REMINDER (MUST FOLLOW):\n"
+            "- Output JSON only with exactly one key: comparison_markdown\n"
+            "- Bullet 1 must start with '- Compared with {label},'\n"
+            "- Use 4–7 bullets only; final bullet must mention Aruba/Caribbean relevance\n"
+            "- Never output '|'\n\n"
+            "CURRENT_ENTRIES:\n"
+            f"{json.dumps(current_entries, ensure_ascii=True)}\n\n"
+            "BASELINE_ENTRIES:\n"
+            f"{json.dumps(baseline_entries, ensure_ascii=True)}\n"
         )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            raw = r.read().decode("utf-8", errors="replace")
+        comparison, raw, err = _request_llm(retry_prompt, {"temperature": 0, "num_predict": 360})
+        if comparison:
+            ok, reason = _validate_exec(comparison)
+            if ok:
+                return comparison, raw, None
+            if reason == "format_or_content":
+                rewritten, raw2, err2 = _rewrite_exec_brief(comparison)
+                if rewritten and _validate_exec(rewritten)[0]:
+                    return rewritten.strip(), raw2 or raw, "rewritten_from_format_or_content"
+            if reason == "contains_markdown_table":
+                converted = _table_md_to_summary(comparison, label, cur_sig, base_sig)
+                if isinstance(converted, str) and converted.strip():
+                    return converted.strip(), raw, "fallback_from_table"
+            if reason == "contains_markdown_table" or "\n-" in comparison or "\n*" in comparison or "\n#" in comparison:
+                rewritten, raw2, err2 = _rewrite_exec_brief(comparison)
+                if rewritten and _validate_exec(rewritten)[0]:
+                    return rewritten.strip(), raw2 or raw, "rewritten_from_bad_format"
+            sanitized = _sanitize_exec_brief(comparison, label, cur_sig, base_sig)
+            if sanitized and _validate_exec(sanitized)[0]:
+                return sanitized, raw, "sanitized_from_format"
 
-        data = json.loads(raw)
-        s = (data.get("response") or "").strip()
-        if not s:
-            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
-            return fb, raw, "fallback_empty_response"
-
-        parsed: Optional[Dict[str, Any]] = None
-        try:
-            parsed = json.loads(_cleanup_json(s))
-        except Exception:
-            start = s.find("{")
-            if start >= 0:
-                candidate = _escape_newlines_in_json_strings(_cleanup_json(s[start:]))
-                try:
-                    parsed, _ = json.JSONDecoder().raw_decode(candidate)
-                except Exception:
-                    parsed = None
-            else:
-                parsed = None
-
-        if not isinstance(parsed, dict):
-            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
-            return fb, raw, "fallback_invalid_json"
-
-        inner = parsed.get("response")
-        if isinstance(inner, dict) and "comparison_markdown" in inner:
-            parsed = inner
-
-        if "comparison_markdown" not in parsed:
-            for k in (
-                "comparison",
-                "comparison_md",
-                "comparisonMarkdown",
-                "comparison_markdown_text",
-            ):
-                v = parsed.get(k)
-                if isinstance(v, str) and v.strip():
-                    parsed["comparison_markdown"] = v
-                    break
-
-        comparison = parsed.get("comparison_markdown")
-        if not isinstance(comparison, str) or not comparison.strip():
-            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
-            return fb, raw, "fallback_missing_comparison_markdown"
-
-        md = comparison.strip()
-        bad_start = md.lower().startswith("not specified") or ("/" in md.splitlines()[0])
-        has_anchor_requirement = cur_sig["counts"]["maritime_seizure"] > 0
-        anchor_missing = has_anchor_requirement and (
-            "seiz" not in md.lower()
-            and "intercept" not in md.lower()
-            and "tanker" not in md.lower()
-        )
-        too_generic = (
-            "not indicated in the entries" in md.lower()
-            and cur_sig["counts"]["maritime_seizure"] > 0
-        )
-
-        if _looks_like_markdown_table(md):
-            converted = _table_md_to_summary(md, label)
-            if isinstance(converted, str) and converted.strip():
-                return converted.strip(), raw, "fallback_from_table"
-            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
-            return fb, raw, "fallback_from_table"
-
-        if bad_start or anchor_missing or too_generic or ("|" in md) or not _looks_like_exec_brief(md, label):
-            fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
-            return fb, raw, "fallback_format_or_content"
-
-        return md, raw, None
+        fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
+        return fb, raw, f"fallback_{err or 'unknown'}"
     except Exception:
         cur_sig = _extract_exec_signals(current_entries or [])
         base_sig = _extract_exec_signals(baseline_entries or [])
@@ -725,9 +844,9 @@ def _ollama_geofeed_comparison(
         return fb, None, "fallback_exception"
 
 
-# =========================
-# == LLM Output Validation =
-# =========================
+
+
+
 
 _EXPECTED_SITUATION_KEYS = {
     "title",
@@ -778,7 +897,7 @@ def _map_trend(value: str) -> str:
 
 
 def _flatten_llm_output(raw: Dict[str, Any], title_fallback: str) -> Dict[str, Any]:
-    """Normalize nested LLM output into the flat schema expected by validators."""
+
     if not isinstance(raw, dict):
         return {}
 
@@ -811,7 +930,7 @@ def _validate_situation(
     situation: Dict[str, Any],
     article_text: str,
 ) -> Optional[Dict[str, Any]]:
-    """Normalize/validate LLM output and log issues."""
+
     try:
         if not isinstance(situation, dict):
             logger.warning("GeoFeed LLM validation failed: situation is not a dict")
@@ -876,9 +995,9 @@ def _validate_situation(
         logger.exception("GeoFeed LLM validation failed: unexpected error")
         return None
 
-# =========================
-# ====== Output ===========
-# =========================
+
+
+
 
 def _write_text(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1121,16 +1240,12 @@ def _compact_for_comparison(entry: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in out.items() if v not in (None, "", [], {})}
 
 
-# --------------------------
-# Comparison format helpers
-# --------------------------
+
+
+
 
 def _looks_like_markdown_table(md: str) -> bool:
-    """
-    Detect common markdown table patterns:
-    - header line with pipes
-    - separator line with --- and pipes
-    """
+
     if not isinstance(md, str) or not md.strip():
         return False
     lines = [ln.strip() for ln in md.splitlines() if ln.strip()]
@@ -1150,11 +1265,10 @@ def _looks_like_markdown_table(md: str) -> bool:
     return False
 
 
-def _table_md_to_summary(md: str, label: str) -> str:
-    """
-    Best-effort conversion of a markdown table into the executive paragraph style.
-    This prevents comparison from being dropped entirely.
-    """
+def _table_md_to_summary(
+    md: str, label: str, cur_sig: Dict[str, Any], base_sig: Dict[str, Any]
+) -> str:
+
     lines = [ln.strip() for ln in (md or "").splitlines() if ln.strip()]
     rows: List[str] = []
     for ln in lines:
@@ -1187,39 +1301,107 @@ def _table_md_to_summary(md: str, label: str) -> str:
             sentences.append("; ".join(parts))
 
     key = sentences[0] if sentences else "Notable changes detected."
+    stats_line = (
+        f"Compared with {label}, the current set has {cur_sig.get('n_items', 0)} items "
+        f"vs {base_sig.get('n_items', 0)}."
+    )
+    example = sentences[0] if len(sentences) > 0 else "Notable changes detected."
+    maritime = sentences[1] if len(sentences) > 1 else "no additional maritime/conflict deltas extracted from table output."
+    posture = sentences[2] if len(sentences) > 2 else "risk/decision changes present; see entries for details."
     return (
         f"{key} (vs {label}):\n\n"
-        f"Compared with {label}, the table output was converted to narrative form. Key deltas include: "
-        f"{sentences[0] if len(sentences) > 0 else 'Notable changes detected.'}\n\n"
-        f"Maritime/conflict signals: {sentences[1] if len(sentences) > 1 else 'no additional maritime/conflict deltas extracted from table output.'}\n\n"
-        f"Risk/decision posture: {sentences[2] if len(sentences) > 2 else 'risk/decision changes present; see entries for details.'}\n\n"
-        f"Aruba/Caribbean relevance: {sentences[3] if len(sentences) > 3 else 'assess indirect exposure via maritime routes and enforcement actions.'}"
+        f"{stats_line} Examples include {example}.\n\n"
+        f"Maritime/conflict signals: {maritime}\n\n"
+        f"Risk/decision posture: {posture}\n\n"
+        "Aruba/Caribbean relevance: assess indirect exposure via maritime routes and enforcement actions."
     )
 
 
-def _looks_like_exec_brief(md: str, label: str) -> bool:
+def _looks_like_exec_bullet_brief(md: str, label: str) -> bool:
     if not isinstance(md, str) or not md.strip():
-        return False
-    lines = [ln.rstrip() for ln in md.splitlines() if ln.strip()]
-    if not lines:
-        return False
-    first = lines[0].strip()
-    if not first.endswith(":"):
-        return False
-    if any(ln.lstrip().startswith("#") for ln in lines):
-        return False
-    if any(ln.lstrip().startswith(("-", "*", "•")) for ln in lines):
         return False
     if "|" in md:
         return False
-    if f"Compared with {label}," not in md:
+    lines_raw = md.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    if any(ln.lstrip().startswith("#") for ln in lines_raw):
+        return False
+    if any(re.match(r"^\s*\d+\.\s+", ln) for ln in lines_raw):
+        return False
+
+    nonempty = [ln.rstrip() for ln in lines_raw if ln.strip()]
+    if not nonempty:
+        return False
+    if not nonempty[0].strip().endswith(":"):
+        return False
+    for ln in nonempty[1:]:
+        if ln.strip().endswith(":"):
+            return False
+        if re.match(r"^[A-Za-z][A-Za-z /&-]{2,40}:\s+", ln.strip()):
+            return False
+
+    bullet_lines = [ln for ln in lines_raw if re.match(r"^\s*-\s+\S+", ln)]
+    if not (4 <= len(bullet_lines) <= 7):
+        return False
+    first_bullet = bullet_lines[0].lstrip()
+    if not first_bullet.startswith(f"- Compared with {label},"):
+        return False
+    last_bullet = bullet_lines[-1].lower()
+    if ("aruba" not in last_bullet) and ("caribbean" not in last_bullet):
         return False
     return True
 
 
-# ==========================
-# == Exec Compare Helpers ==
-# ==========================
+def _sanitize_exec_brief(
+    md: str, label: str, cur_sig: Dict[str, Any], base_sig: Dict[str, Any]
+) -> str:
+
+    if not isinstance(md, str):
+        return ""
+
+    def _delabel_line(s: str) -> str:
+        m = re.match(r"^([A-Za-z][A-Za-z /&-]{2,40}):\s+(.+)$", s.strip())
+        if not m:
+            return s
+        label_txt, body = m.group(1), m.group(2)
+        label_txt = label_txt.replace("/", " and ")
+        body = body.rstrip()
+        if not body.endswith((".", "!", "?")):
+            body += "."
+        return f"{label_txt} in the entries {body}"
+
+    lines = md.splitlines()
+    cleaned: List[str] = []
+    for ln in lines:
+
+        ln = re.sub(r"^\s*#+\s*", "", ln)
+        ln = re.sub(r"^\s*[-*•]+\s*", "", ln)
+        cleaned.append(_delabel_line(ln.rstrip()))
+    text = "\n".join(cleaned).strip()
+    if "|" in text:
+        text = text.replace("|", " ")
+        text = re.sub(r"\s{2,}", " ", text)
+
+    if text and not text.splitlines()[0].strip().endswith(":"):
+        first = text.splitlines()[0].strip()
+        text = first.rstrip(":") + ":\n" + "\n".join(text.splitlines()[1:]).strip()
+
+    if f"Compared with {label}," not in text:
+        compare_line = (
+            f"- Compared with {label}, the current set has {cur_sig.get('n_items', 0)} items "
+            f"vs {base_sig.get('n_items', 0)}."
+        )
+        parts = text.splitlines()
+        if parts:
+            text = parts[0].strip() + "\n\n" + compare_line + "\n" + "\n".join(parts[1:]).strip()
+        else:
+            text = compare_line
+
+    return text.strip()
+
+
+
+
+
 
 def _normtxt(x: Any) -> str:
     try:
@@ -1337,6 +1519,138 @@ def _extract_exec_signals(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _build_exec_compare_bullet_brief(
+    label: str,
+    cur_sig: Dict[str, Any],
+    base_sig: Dict[str, Any],
+    current_entries: List[Dict[str, Any]],
+    baseline_entries: List[Dict[str, Any]],
+) -> str:
+
+    cur = cur_sig.get("counts", {}) or {}
+    base = base_sig.get("counts", {}) or {}
+
+    def d(key: str) -> int:
+        return int(cur.get(key, 0) or 0) - int(base.get(key, 0) or 0)
+
+    dm = d("maritime_seizure")
+    ds = d("sanctions_tariffs")
+    dk = d("kinetic_attack")
+    dp = d("war_powers_politics")
+    dt = d("shipping_trade")
+
+    headline = "Risk signals broadly stable"
+    if dm > 0 and ds >= 0:
+        headline = "Maritime enforcement and sanctions pressure rise"
+    elif ds > 0 and dm >= 0:
+        headline = "Sanctions and compliance pressure increase"
+    elif dm > 0:
+        headline = "Maritime interdiction activity increases"
+    elif dk > 0:
+        headline = "Kinetic escalation language increases"
+    elif dk < 0:
+        headline = "Kinetic escalation language eases"
+    elif ds < 0 and dm <= 0:
+        headline = "Compliance pressure eases while maritime signals hold"
+
+    def _trend_phrase(name: str, cur_n: int, base_n: int) -> str:
+        if cur_n > base_n:
+            return f"increase in {name} (count={cur_n}, baseline={base_n})"
+        if cur_n < base_n:
+            return f"decrease in {name} (count={cur_n}, baseline={base_n})"
+        return f"no change in {name} (count={cur_n}, baseline={base_n})"
+
+    bullets: List[str] = []
+    bullets.append(
+        f"Compared with {label}, there is an "
+        + _trend_phrase(
+            "maritime seizure/intercept/boarding signals",
+            int(cur.get("maritime_seizure", 0) or 0),
+            int(base.get("maritime_seizure", 0) or 0),
+        )
+        + "; "
+        + _trend_phrase(
+            "sanctions/tariff/compliance pressure signals",
+            int(cur.get("sanctions_tariffs", 0) or 0),
+            int(base.get("sanctions_tariffs", 0) or 0),
+        )
+        + "; and "
+        + _trend_phrase(
+            "kinetic/strike language",
+            int(cur.get("kinetic_attack", 0) or 0),
+            int(base.get("kinetic_attack", 0) or 0),
+        )
+        + "."
+    )
+
+    ex = (cur_sig.get("examples", {}) or {})
+    maritime_ex = (ex.get("maritime_seizure") or [])[:1]
+    sanctions_ex = (ex.get("sanctions_tariffs") or [])[:1]
+    kinetic_ex = (ex.get("kinetic_attack") or [])[:1]
+
+    example_bits: List[str] = []
+    if maritime_ex:
+        example_bits.append(f"maritime enforcement (e.g., {maritime_ex[0]})")
+    if sanctions_ex:
+        example_bits.append(f"sanctions/compliance posture (e.g., {sanctions_ex[0]})")
+    if kinetic_ex:
+        example_bits.append(f"kinetic language (e.g., {kinetic_ex[0]})")
+
+    if example_bits:
+        bullets.append(
+            "The mix of coverage concentrates around "
+            + ", ".join(example_bits[:2])
+            + ", with implications for routing, screening, and compliance posture."
+        )
+
+    def _count_title_mentions(entries: List[Dict[str, Any]], needle: str) -> int:
+        n = 0
+        for e in entries or []:
+            t = str(e.get("title") or "").lower()
+            if needle in t:
+                n += 1
+        return n
+
+    ven = _count_title_mentions(current_entries, "venezuela")
+    guy = _count_title_mentions(current_entries, "guyana")
+
+    if ven >= 3:
+        bullets.append(
+            "Venezuela remains a primary driver of the feed, dominated by sanctions/market-access framing and second-order impacts on shipping and insurance."
+        )
+    elif ven > 0 or guy > 0:
+        bullets.append(
+            "Regional energy and policy coverage (Venezuela/Guyana) remains present, with commercial and sanctions-adjacent implications rather than purely operational updates."
+        )
+
+    if int(cur.get("war_powers_politics", 0) or 0) > 0:
+        bullets.append(
+            "Political signaling (war-powers/authorization language) appears in the current entries, which can raise uncertainty even when sustained kinetic escalation is not confirmed."
+        )
+
+    if int(cur.get("shipping_trade", 0) or 0) > 0:
+        bullets.append(
+            "Commercial and maritime-operational risks are also visible (fraud, routing friction, or trade disruption language), supporting a posture of tighter controls and verification."
+        )
+
+    bullets.append(
+        "Aruba/Caribbean relevance: maritime enforcement and compliance spillover can affect routing decisions, detention risk, documentation scrutiny, and downstream screening requirements."
+    )
+
+    neutral = (
+        "Overall risk posture is best characterized as monitoring and preparedness over the next 7–14 days, based on the entries in this window."
+    )
+    while len(bullets) < 4:
+        bullets.insert(-1, neutral)
+    bullets = bullets[:7]
+
+    out_lines = [f"{headline}:", ""]
+    for b in bullets:
+        b = re.sub(r"\s+", " ", (b or "").strip())
+        out_lines.append(f"- {b}")
+    return "\n".join(out_lines).strip()
+
+
 def _build_exec_compare_fallback(
     label: str, cur_sig: Dict[str, Any], base_sig: Dict[str, Any]
 ) -> str:
@@ -1393,9 +1707,9 @@ def _build_exec_compare_fallback(
     return "\n\n".join(parts)
 
 
-# =========================
-# ===== CLI/Runner ========
-# =========================
+
+
+
 
 
 def _format_eta(seconds: float) -> str:
@@ -1812,7 +2126,19 @@ def run_geofeed(
                     label=label,
                     timeout=compare_timeout,
                 )
-                if not comparison_section:
+                if comp_err:
+                    comparison_failures.append(
+                        {
+                            "mode": compare_mode,
+                            "label": label,
+                            "current_entries": len(current_entries),
+                            "baseline_entries": len(baseline_entries),
+                            "error": comp_err,
+                            "raw_response": comp_raw or "",
+                        }
+                    )
+                    logger.warning("GeoFeed comparison used fallback/sanitizer: %s", comp_err)
+                if not comparison_section and not comp_err:
                     comparison_failures.append(
                         {
                             "mode": compare_mode,
@@ -1864,6 +2190,331 @@ def main(argv: Optional[List[str]] = None) -> int:
         compare_mode=args.compare,
     )
 
+
+
+
+
+
+def _looks_like_exec_storyboard(md: str) -> bool:
+
+    if not isinstance(md, str) or not md.strip():
+        return False
+    s = md.strip()
+    if "|" in s:
+        return False
+    for bad in ("\n#", "\n##", "\n###", "\n####"):
+        if bad in ("\n" + s):
+            return False
+    for line in s.splitlines():
+        ln = line.strip()
+        if not ln:
+            continue
+        if ln[:2].isdigit() and ln[1:3] in (". ", ".)"):
+            return False
+        if ln.startswith("1. ") or ln.startswith("2. "):
+            return False
+    lines = [ln.rstrip() for ln in s.splitlines()]
+    first = next((ln.strip() for ln in lines if ln.strip()), "")
+    if not first.endswith(":"):
+        return False
+    heading_count = 0
+    bullet_count = 0
+    for ln in lines:
+        t = ln.strip()
+        if not t:
+            continue
+        if t.startswith(("-", "•", "*")):
+            bullet_count += 1
+            continue
+        heading_count += 1
+    return heading_count >= 4 and bullet_count >= 4
+
+
+def _build_exec_compare_storyboard_good_pdf(
+    label: str,
+    cur_sig: Dict[str, Any],
+    base_sig: Dict[str, Any],
+    current_entries: List[Dict[str, Any]],
+    baseline_entries: List[Dict[str, Any]],
+) -> str:
+
+    cur = (cur_sig.get("counts") or {})
+    base = (base_sig.get("counts") or {})
+
+    def d(key: str) -> int:
+        return int(cur.get(key, 0) or 0) - int(base.get(key, 0) or 0)
+
+    dm = d("maritime_seizure")
+    ds = d("sanctions_tariffs")
+    dk = d("kinetic_attack")
+    dp = d("war_powers_politics")
+    dt = d("shipping_trade")
+
+    theme = "Risk signal mix broadly stable:"
+    if (ds > 0 and dm >= 0) or (dm > 0 and ds >= 0):
+        theme = "Sanctions and maritime enforcement pressure increases:"
+    elif ds > 0:
+        theme = "Sanctions and compliance pressure increases:"
+    elif dm > 0:
+        theme = "Maritime interdiction and enforcement activity increases:"
+    elif dk > 0:
+        theme = "Kinetic escalation language increases:"
+    elif (ds < 0 and dm <= 0 and dk <= 0):
+        theme = "Compliance and escalation pressure eases:"
+
+    ex = (cur_sig.get("examples") or {})
+    ex_m = ex.get("maritime_seizure") or []
+    ex_s = ex.get("sanctions_tariffs") or []
+    ex_k = ex.get("kinetic_attack") or []
+    ex_p = ex.get("war_powers_politics") or []
+    ex_t = ex.get("shipping_trade") or []
+
+    def _fmt_examples(lst: List[str]) -> str:
+        if not lst:
+            return ""
+        if len(lst) == 1:
+            return f" Example: {lst[0]}."
+        return f" Examples: {lst[0]}; {lst[1]}."
+
+    sections: List[str] = []
+    sections.append(
+        "\n".join(
+            [
+                f"Compared with {label}, overall volume and dominant themes shift as follows",
+                f"- Net item volume is {cur_sig.get('n_items', 0)} vs {base_sig.get('n_items', 0)} in {label}.",
+                "- The points below highlight the most decision-relevant changes rather than listing every article.",
+            ]
+        )
+    )
+    sections.append(
+        "\n".join(
+            [
+                "Sanctions and compliance posture",
+                f"- Sanctions/tariff/compliance signals show {'an increase' if ds>0 else 'a decrease' if ds<0 else 'no material change'} ({cur.get('sanctions_tariffs',0)} vs {base.get('sanctions_tariffs',0)})."
+                + _fmt_examples(ex_s),
+                "- Operational impact is most likely via financing, counterparties, and insurance scrutiny rather than immediate physical disruption.",
+            ]
+        )
+    )
+    sections.append(
+        "\n".join(
+            [
+                "Maritime enforcement and routing sensitivity",
+                f"- Maritime interdiction/seizure/boarding indicators show {'an increase' if dm>0 else 'a decrease' if dm<0 else 'no material change'} ({cur.get('maritime_seizure',0)} vs {base.get('maritime_seizure',0)})."
+                + _fmt_examples(ex_m),
+                "- This is best interpreted as enforcement pressure (detention/inspection risk) unless an explicit blockade is stated in-source.",
+            ]
+        )
+    )
+    sections.append(
+        "\n".join(
+            [
+                "Political and escalation indicators",
+                f"- War-powers/authorization/political constraint signaling is {'higher' if dp>0 else 'lower' if dp<0 else 'similar'} ({cur.get('war_powers_politics',0)} vs {base.get('war_powers_politics',0)})."
+                + _fmt_examples(ex_p),
+                f"- Strike/attack/kinetic language is {'higher' if dk>0 else 'lower' if dk<0 else 'similar'} ({cur.get('kinetic_attack',0)} vs {base.get('kinetic_attack',0)})."
+                + _fmt_examples(ex_k),
+            ]
+        )
+    )
+    if int(cur.get("shipping_trade", 0) or 0) > 0 or int(base.get("shipping_trade", 0) or 0) > 0:
+        sections.append(
+            "\n".join(
+                [
+                    "Shipping and commercial conditions",
+                    f"- Shipping/trade indicators are {'higher' if dt>0 else 'lower' if dt<0 else 'similar'} ({cur.get('shipping_trade',0)} vs {base.get('shipping_trade',0)})."
+                    + _fmt_examples(ex_t),
+                    "- Watch for knock-on changes in transit times, surcharges, and carrier capacity decisions if enforcement or sanctions expand.",
+                ]
+            )
+        )
+    sections.append(
+        "\n".join(
+            [
+                "Aruba/Caribbean relevance",
+                "- Any rise in interdictions/boardings elevates short-notice routing disruption risk and increases the chance of documentation/compliance checks for vessels transiting the basin.",
+                "- Primary watchpoints: additional interdictions, verified legal/sanctions changes affecting Venezuela-linked trade, and any confirmed escalation at sea.",
+            ]
+        )
+    )
+
+    out_lines: List[str] = [theme, ""]
+    for sec in sections:
+        sec_lines = [ln.rstrip() for ln in sec.splitlines()]
+        if not sec_lines:
+            continue
+        heading = sec_lines[0].strip()
+        bullets = sec_lines[1:]
+        out_lines.append(heading)
+        for b in bullets:
+            t = b.strip()
+            if not t:
+                continue
+            if t.startswith(("-", "•", "*")):
+                t = "- " + t.lstrip("-•* ").strip()
+            else:
+                t = "- " + t
+            out_lines.append(t)
+        out_lines.append("")
+
+    return "\n".join(out_lines).strip() + "\n"
+
+
+def _ollama_geofeed_comparison(
+    host: str,
+    model: str,
+    current_entries: List[Dict[str, Any]],
+    baseline_entries: List[Dict[str, Any]],
+    label: str,
+    timeout: int,
+    strict: bool = False,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    try:
+        cur_sig = _extract_exec_signals(current_entries or [])
+        base_sig = _extract_exec_signals(baseline_entries or [])
+
+        strict_block = ""
+        if strict:
+            strict_block = (
+                "STRICT OUTPUT MODE:\n"
+                "- Output MUST be a single JSON object with exactly one key: comparison_markdown.\n"
+                "- Do NOT output any other keys.\n"
+                "- Do NOT include any preamble text.\n\n"
+            )
+
+        anchors: List[str] = []
+        c = cur_sig.get("counts", {}) or {}
+        b = base_sig.get("counts", {}) or {}
+        anchors.append(
+            f"Counts (current vs {label}): sanctions_tariffs={c.get('sanctions_tariffs',0)} vs {b.get('sanctions_tariffs',0)}."
+        )
+        anchors.append(
+            f"Counts (current vs {label}): maritime_seizure={c.get('maritime_seizure',0)} vs {b.get('maritime_seizure',0)}."
+        )
+        anchors.append(
+            f"Counts (current vs {label}): war_powers_politics={c.get('war_powers_politics',0)} vs {b.get('war_powers_politics',0)}."
+        )
+        anchors.append(
+            f"Counts (current vs {label}): kinetic_attack={c.get('kinetic_attack',0)} vs {b.get('kinetic_attack',0)}."
+        )
+        anchors.append(
+            f"Counts (current vs {label}): shipping_trade={c.get('shipping_trade',0)} vs {b.get('shipping_trade',0)}."
+        )
+
+        prompt = (
+            "You are GeoFeed. Write an executive COMPARISON in the SAME visual style as an executive one-page brief.\n"
+            f"You are comparing CURRENT_ENTRIES versus {label} (BASELINE_ENTRIES).\n\n"
+            "NON-NEGOTIABLE RULES:\n"
+            "- Use ONLY the provided entries. Do NOT invent facts.\n"
+            "- No tables. The '|' character is forbidden anywhere.\n"
+            "- No markdown headings (#). No numbered lists.\n"
+            "- Output must be a storyboard with short headings and bullets (like a slide).\n\n"
+            "REQUIRED STORYBOARD FORMAT (MUST MATCH):\n"
+            "Line 1: Theme headline ending with ':'\n"
+            "Blank line\n"
+            "Then repeat 4–6 times:\n"
+            "  Heading line (no bullet)\n"
+            "  - bullet\n"
+            "  - bullet\n"
+            "  Blank line\n"
+            "Hard requirements:\n"
+            f"- The FIRST section heading must begin with: 'Compared with {label},'\n"
+            "- The FINAL section heading must be exactly: 'Aruba/Caribbean relevance'\n"
+            "- Each heading should be concise (<= 14 words).\n"
+            "- Each bullet is 1 sentence; keep it scannable.\n\n"
+            "ANCHOR FACTS (MUST BE CONSISTENT WITH THESE COUNTS):\n"
+            + "\n".join([f"- {a}" for a in anchors])
+            + "\n\n"
+            f"{strict_block}"
+            "CURRENT_ENTRIES:\n"
+            f"{json.dumps(current_entries or [], ensure_ascii=True)}\n\n"
+            "BASELINE_ENTRIES:\n"
+            f"{json.dumps(baseline_entries or [], ensure_ascii=True)}\n"
+        )
+
+        def _request_llm(prompt_text: str, options: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+            payload = json.dumps(
+                {
+                    "model": model,
+                    "prompt": prompt_text,
+                    "stream": False,
+                    "format": {
+                        "type": "object",
+                        "properties": {"comparison_markdown": {"type": "string"}},
+                        "required": ["comparison_markdown"],
+                        "additionalProperties": False,
+                    },
+                    "options": options,
+                }
+            ).encode("utf-8")
+            url = host.rstrip("/") + "/api/generate"
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "geofeed/1.0"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read().decode("utf-8", errors="replace")
+            data = json.loads(raw)
+            s = (data.get("response") or "").strip()
+            if not s:
+                return None, raw, "empty_response"
+            try:
+                parsed = json.loads(s)
+            except Exception:
+                start = s.find("{")
+                if start >= 0:
+                    try:
+                        parsed, _ = json.JSONDecoder().raw_decode(s[start:])
+                    except Exception:
+                        parsed = None
+                else:
+                    parsed = None
+            if not isinstance(parsed, dict):
+                return None, raw, "invalid_json"
+            inner = parsed.get("response")
+            if isinstance(inner, dict) and "comparison_markdown" in inner:
+                parsed = inner
+            comparison = parsed.get("comparison_markdown")
+            if not isinstance(comparison, str) or not comparison.strip():
+                return None, raw, "missing_comparison_markdown"
+            return comparison.strip(), raw, None
+
+        comparison, raw, err = _request_llm(prompt, {"temperature": 0, "num_predict": 480})
+        if not comparison or err:
+            md = _build_exec_compare_storyboard_good_pdf(
+                label=label,
+                cur_sig=cur_sig,
+                base_sig=base_sig,
+                current_entries=current_entries or [],
+                baseline_entries=baseline_entries or [],
+            )
+            return md, raw, f"llm_failed_{err or 'unknown'}"
+
+        if not _looks_like_exec_storyboard(comparison):
+            md = _build_exec_compare_storyboard_good_pdf(
+                label=label,
+                cur_sig=cur_sig,
+                base_sig=base_sig,
+                current_entries=current_entries or [],
+                baseline_entries=baseline_entries or [],
+            )
+            return md, raw, "llm_bad_format_fallback"
+
+        return comparison.strip() + "\n", raw, None
+
+    except Exception as exc:
+        cur_sig = _extract_exec_signals(current_entries or [])
+        base_sig = _extract_exec_signals(baseline_entries or [])
+        md = _build_exec_compare_storyboard_good_pdf(
+            label=label,
+            cur_sig=cur_sig,
+            base_sig=base_sig,
+            current_entries=current_entries or [],
+            baseline_entries=baseline_entries or [],
+        )
+        return md, None, f"comparison_exception_{type(exc).__name__}"
 
 if __name__ == "__main__":
     raise SystemExit(main())

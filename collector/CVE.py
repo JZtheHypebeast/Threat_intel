@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-# =========================
-# === Standard Library ====
-# =========================
+
+
+
 import os
 import re
 import time
@@ -10,15 +10,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# =========================
-# ===== Third-Party =======
-# =========================
+
+
+
 import feedparser
 from dateutil import parser as dtparser
 
-# =========================
-# ====== Local App ========
-# =========================
+
+
+
 from .config import CONFIG, fetch_json, logger, mute_console, safe_get, write_jsonl
 from .articles import _call_llm
 from .progress import animate_progress, progress_bar, start_live_progress, stop_live_progress
@@ -26,9 +26,9 @@ try:
     from .reporting import _render_pdf
 except Exception:
     try:
-        from reporting import _render_pdf  # type: ignore
+        from reporting import _render_pdf
     except Exception:
-        _render_pdf = None  # type: ignore
+        _render_pdf = None
 
 VENDORS = CONFIG["VENDORS"]
 EXCLUDED_SOFTWARE = {v.lower() for v in CONFIG.get("EXCLUDED_SOFTWARE") or []}
@@ -39,9 +39,9 @@ COMMUNITY_KEV_URL = CONFIG["COMMUNITY_KEV_URL"]
 OUTPUT_DIR = CONFIG["OUTPUT_DIR_STRUCTURED"]
 PROGRESS_TOTAL_STEPS = 6
 
-# =========================
-# ===== Vendor Helpers ====
-# =========================
+
+
+
 
 
 def build_vendor_pattern(vendor: str) -> re.Pattern:
@@ -562,9 +562,9 @@ def generate_markdown(
     return md_path
 
 
-# =========================
-# === Structured Pipeline =
-# =========================
+
+
+
 def run_structured_collection(hours: int, skip_history=False) -> Dict[str, Any]:
     mute_console()
     os.makedirs(OUTPUT_DIR, exist_ok=True)

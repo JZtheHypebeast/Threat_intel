@@ -11,7 +11,7 @@ def test_normalize_llm_payload_maps_ioc_alias():
     normalized = _normalize_llm_payload(payload)
     assert "iocs" in normalized
     assert normalized["iocs"] == [{"type": "ip", "value": "1.2.3.4"}]
-    # ensure list fields are present even if missing
+
     for key in (
         "mitre_techniques",
         "threat_actors",
@@ -53,7 +53,7 @@ def test_build_markdown_renders_structured_fields(tmp_path: pathlib.Path):
         },
     }
     md = _build_markdown([record], input_file)
-    # Check key sections are present
+
     assert "Sample Article" in md
     assert "Summary:" in md
     assert "MITRE Techniques" in md
