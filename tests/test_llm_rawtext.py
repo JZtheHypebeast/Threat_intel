@@ -1,6 +1,6 @@
 import pathlib
 
-from collector.LLM import _build_markdown, _normalize_llm_payload
+from collector.articles import _build_markdown, _normalize_llm_payload
 
 
 def test_normalize_llm_payload_maps_ioc_alias():

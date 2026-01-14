@@ -1,6 +1,6 @@
 import unittest
 
-from collector.fetch import extract_iocs, generate_actionable_items
+from collector.articles import extract_iocs, generate_actionable_items
 
 
 class TestActionableHelpers(unittest.TestCase):
