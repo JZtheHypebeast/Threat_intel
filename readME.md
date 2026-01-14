@@ -19,7 +19,7 @@ configuration, and useful helper scripts.
 A quick view of the repository layout and important files/folders:
 
 - `readME.md` — this file (usage and configuration guide).
-- `requirements.txt` — runtime dependencies plus `pytest` for tests.
+- `requirements.txt` — runtime dependencies.
 - `.venv/` — optional virtualenv (not checked in by default).
 - `collector/` — main application package; contains the collector and pipeline code, e.g.:
   - `collector/__init__.py`
@@ -46,35 +46,67 @@ Use this section as a quick reference for where to look when making changes.
 
 - Python 3.10+ (uses `str | None` type hints).
 - `pip`, `venv`, `git`.
-- Optional: Ollama for LLM enrichment; ReportLab for PDF rendering in reporting.
+- Optional: Ollama for LLM enrichment. ReportLab is used for PDF outputs (installed via `requirements.txt`).
 
-### Ubuntu Server install (collector + optional Ollama)
+### Ubuntu Server install (collector + Ollama)
 
-1) Install system dependencies and Python venv:
+This is a step-by-step setup for a Ubuntu server so Ollama runs on boot and the
+collector can use the local LLM.
+
+1) Install system dependencies and Python 3.10+:
 ```bash
 sudo apt update
 sudo apt install -y python3 python3-venv python3-pip git curl
+python3 --version
 ```
 
-2) Clone the repo and set up venv:
+2) Clone the repo:
 ```bash
 git clone <your-repo-url> threat_intel
 cd threat_intel
+```
+
+3) Create and activate a virtual environment:
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
+python -m pip install --upgrade pip
+```
+
+4) Install Python dependencies:
+```bash
 pip install -r requirements.txt
 ```
 
-3) (Optional) Install Ollama and pull a model (local LLM):
+5) Install Ollama and enable it on boot (systemd):
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 sudo systemctl enable --now ollama
-curl http://localhost:11434/api/version
+sudo systemctl status ollama --no-pager
+```
+
+6) Pull the model used by this repo (default):
+```bash
 ollama pull llama3.1
 ```
 
-4) Run pipelines:
+7) Verify Ollama is reachable:
+```bash
+curl http://localhost:11434/api/version
+```
+
+8) (Optional) Make Ollama reachable from other hosts:
+```bash
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null <<'EOF'
+[Service]
+Environment=OLLAMA_HOST=0.0.0.0:11434
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
+
+9) Run pipelines:
 ```bash
 # Interactive menu
 python3 -m collector.main
@@ -96,9 +128,10 @@ python3 -m collector.main --reporting 7
 ```
 
 Notes:
+- If you expose Ollama on the network, restrict access via firewall rules or a reverse proxy.
 - Ensure `OLLAMA_HOST` and `OLLAMA_MODEL`/`LLM_MODEL` (default `llama3.1`) are set if the Ollama service is remote or uses a non-default model.
 - For best PDF extraction, PyMuPDF (`fitz`) is used; if it is unavailable the pipeline falls back to `pypdf` with lower fidelity.
-- For PDF report output in reporting, install ReportLab: `pip install reportlab`.
+- PDF outputs (CVE report, reporting, GeoFeed `--pdf`) require ReportLab; it is included in `requirements.txt`.
 - Results are written under `collector/results/<category>/<YYYYMMDD>/<HHMMSS>/` with categories: `cve/`, `articles/`, `pdf/`, `llmrawtext/`, `llm/`, `reporting/`, and `geofeed/`.
 - LLM pipeline writes full article bodies to `collector/results/llmrawtext/<date>/<time>/rawtext-<date>.json`
   so enrichment can consume them; NDJSON excludes raw bodies.
@@ -124,6 +157,7 @@ Flags (non-interactive):
 - `--cve` — run structured CVE/KEV collection.
 - `--articles` — fetch RSS articles + run LLM enrichment.
 - `--geofeed` — run the GeoFeed geopolitical scanner (requires `collector/geofeed.py`).
+- `--geofeed-compare {latest,2d,7d}` — add a comparison section to GeoFeed output.
 - `--unstructured-pdf <path>` — run the PDF extraction pipeline on a path.
 - `--reporting <days>` — build a cumulative LLM-based report over 2/7/14/30 days.
 - `--tests` — run unit tests using the active Python interpreter.
@@ -148,8 +182,9 @@ Important note about the interactive menu and `--tests`:
   virtual environment.
 
 GeoFeed standalone CLI (extra options):
-- `python3 -m collector.geofeed --hours 24 --pdf`
-- Flags: `--outdir`, `--results-root`, `--timeout`, `--max-items`, `--min-score`, `--pdf`
+- `python3 -m collector.geofeed --hours 24 --pdf --compare latest`
+- Flags: `--outdir`, `--results-root`, `--timeout`, `--max-items`, `--pdf`, `--compare {latest,2d,7d}`
+  - To force LLM-driven comparisons, set `GEOFEED_COMPARE_USE_LLM=1` (otherwise a deterministic summary is used).
 
 ## Outputs and file conventions
 
@@ -169,10 +204,16 @@ GeoFeed standalone CLI (extra options):
   structured CVE/KEV Markdown.
 - `collector/results/reporting/<date>/<time>/ManagementReport_<Nd>_<date>.*` —
   cumulative reports (markdown/json/pdf) built from recent LLM outputs.
-- `collector/results/geofeed/<date>/<time>/geofeed.ndjson` —
-  GeoFeed scored NDJSON.
 - `collector/results/geofeed/<date>/<time>/geofeed_summary_<date>.md` —
   GeoFeed summary markdown.
+- `collector/results/geofeed/<date>/<time>/geofeed_summary_<date>.json` —
+  GeoFeed summary JSON (used for comparisons).
+- `collector/results/geofeed/<date>/<time>/rawtext4geofeed_<date>.jsonl` —
+  GeoFeed rawtext inputs (JSON lines).
+- `collector/results/geofeed/<date>/<time>/geofeed_llm_failures_<date>.jsonl` —
+  GeoFeed LLM failures (JSON lines).
+- `collector/results/geofeed/<date>/<time>/geofeed_comparison_failures_<date>.jsonl` —
+  GeoFeed comparison failures (JSON lines).
 
 NDJSON records intentionally exclude the full article bodies; they are kept
 in `rawtext-<date>.json` to simplify downstream indexing and reduce NDJSON size.
@@ -256,6 +297,7 @@ export TI_HTTP_STATUS_FORCELIST='[429,500,502,503]'
 - `TI_GEOFEED_MIN_GEO_TIER` — minimum tier to include (A, B, or C).
 - `TI_GEOFEED_INCLUDE_TIER_C_APPENDIX` — append filtered Tier C titles in an appendix section.
 - `TI_GEOFEED_COMPARISON_MAX_ITEMS` — cap entries sent to the comparison LLM.
+- `GEOFEED_COMPARE_USE_LLM` (env only) — set to `1`/`true` to use LLM for GeoFeed comparisons (default is deterministic).
 - `TI_GEOFEED_SALIENT_EVENT_TERMS` — JSON list of salient phrases to keep beyond window.
 - `TI_GEOFEED_SALIENT_LOOKBACK_HOURS` — extended lookback window for salient items.
 - `TI_GEOFEED_WATCHLIST_LOCATIONS` — JSON list of location watchlist terms.
@@ -297,6 +339,12 @@ python3 -m pytest -q
 
 ```bash
 python3 -m pytest tests/test_pdf_pipeline.py -q
+```
+
+If `pytest` is not installed, add it with:
+
+```bash
+pip install pytest
 ```
 
 The repository includes helper scripts under `scripts/` (see below). The

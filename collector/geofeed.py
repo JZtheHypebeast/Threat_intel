@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+import textwrap
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -511,6 +512,92 @@ def _ollama_situation_summary(
         return None, None, f"request_failed:{type(exc).__name__}"
 
 
+def _robust_json_extract(candidate: str) -> Optional[dict]:
+    if not isinstance(candidate, str):
+        return None
+    s = candidate.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not s:
+        return None
+    s = re.sub(r",\s*([}\]])", r"\1", s)
+    try:
+        obj = json.loads(s)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+    start = s.find("{")
+    if start < 0:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(s[start:])
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
+def _llm_repair_to_strict_json(
+    host: str,
+    model: str,
+    bad_text: str,
+    label: str,
+    timeout: int,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    repair_prompt = (
+        f"You are GeoFeed.\n"
+        f"Convert the following MODEL OUTPUT into STRICT JSON for the comparison versus {label}.\n\n"
+        "STRICT OUTPUT RULES:\n"
+        "- Output JSON only, with exactly one key: comparison_markdown\n"
+        "- comparison_markdown must be a single string\n"
+        "- Use \\n for newlines inside the JSON string\n"
+        "- Do not include any other keys, commentary, or surrounding text\n\n"
+        "CONTENT RULES:\n"
+        "- Keep meaning as close as possible to the input\n"
+        "- Remove any tables/| characters and any headings that start with '#'\n"
+        "- No numbered lists\n\n"
+        "MODEL OUTPUT TO CONVERT:\n"
+        + textwrap.shorten((bad_text or "").strip(), width=12000, placeholder="...")
+    )
+    payload = json.dumps(
+        {
+            "model": model,
+            "prompt": repair_prompt,
+            "stream": False,
+            "format": {
+                "type": "object",
+                "properties": {"comparison_markdown": {"type": "string"}},
+                "required": ["comparison_markdown"],
+                "additionalProperties": False,
+            },
+            "options": {"temperature": 0, "num_predict": 420},
+        }
+    ).encode("utf-8")
+    url = host.rstrip("/") + "/api/generate"
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json", "User-Agent": "geofeed/1.0"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+        s = (data.get("response") or "").strip()
+        if not s:
+            return None, raw, "empty_response"
+        parsed = _robust_json_extract(s)
+        if not isinstance(parsed, dict):
+            inner = _robust_json_extract(raw)
+            parsed = inner if isinstance(inner, dict) else None
+        if isinstance(parsed, dict) and isinstance(parsed.get("response"), dict):
+            parsed = parsed["response"]
+        cm = (parsed or {}).get("comparison_markdown")
+        if not isinstance(cm, str) or not cm.strip():
+            return None, raw, "missing_comparison_markdown"
+        return cm.strip(), raw, None
+    except Exception as exc:
+        return None, None, f"request_failed:{type(exc).__name__}"
+
+
 def _ollama_geofeed_comparison(
     host: str,
     model: str,
@@ -565,25 +652,6 @@ def _ollama_geofeed_comparison(
 
 
 
-
-        if os.getenv("GEOFEED_COMPARE_USE_LLM", "").strip() not in (
-            "1",
-            "true",
-            "TRUE",
-            "yes",
-            "YES",
-        ):
-            return (
-                _build_exec_compare_bullet_brief(
-                    label=label,
-                    cur_sig=cur_sig,
-                    base_sig=base_sig,
-                    current_entries=current_entries or [],
-                    baseline_entries=baseline_entries or [],
-                ),
-                None,
-                None,
-            )
 
         prompt = (
             f"You are GeoFeed. Write an executive COMPARISON bullet brief versus {label}.\n"
@@ -835,13 +903,9 @@ def _ollama_geofeed_comparison(
             if sanitized and _validate_exec(sanitized)[0]:
                 return sanitized, raw, "sanitized_from_format"
 
-        fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
-        return fb, raw, f"fallback_{err or 'unknown'}"
-    except Exception:
-        cur_sig = _extract_exec_signals(current_entries or [])
-        base_sig = _extract_exec_signals(baseline_entries or [])
-        fb = _build_exec_compare_fallback(label, cur_sig, base_sig)
-        return fb, None, "fallback_exception"
+        return None, raw, err or "invalid_or_unusable_llm_output"
+    except Exception as exc:
+        return None, None, f"comparison_exception:{type(exc).__name__}"
 
 
 
@@ -1053,7 +1117,13 @@ def _make_summary_json(
             return "Stable"
         return "New"
 
-    top = sorted(rows, key=_published_key, reverse=True)[:summary_limit]
+    def _row_sort_key(r: Dict[str, Any]) -> Tuple[dt.datetime, str, str]:
+        situation = r.get("situation") or {}
+        title = (situation.get("title") or r.get("title") or "Untitled").strip().lower()
+        url = (r.get("url") or "").strip().lower()
+        return (_published_key(r), title, url)
+
+    top = sorted(rows, key=_row_sort_key, reverse=True)[:summary_limit]
     entries: List[Dict[str, Any]] = []
     for r in top:
         situation = r.get("situation") or {}
@@ -1063,8 +1133,8 @@ def _make_summary_json(
             "risk": (situation.get("risk") or "Low").title(),
             "trend": _trend_label(situation.get("change") or ""),
             "date": _fmt_date((r.get("published") or "").strip()),
-            "primary_actors": situation.get("primary_actors") or "-",
-            "countries_involved": situation.get("countries_involved") or "-",
+            "primary_actors": situation.get("primary_actors") or [],
+            "countries_involved": situation.get("countries_involved") or [],
             "summary": situation.get("llm_summary") or situation.get("what_happened") or "-",
             "decision": situation.get("decision") or r.get("decision") or "-",
             "why_it_matters": [
@@ -1079,15 +1149,18 @@ def _make_summary_json(
         }
         if (
             entry.get("summary") == "-"
-            and entry.get("primary_actors") == "-"
-            and entry.get("countries_involved") == "-"
+            and not entry.get("primary_actors")
+            and not entry.get("countries_involved")
         ):
             continue
-        entries.append(entry)
+        entries.append(_canonicalize_entry(entry))
+
+    entries.sort(key=lambda x: x.get("id", "") or "")
 
     return {
         "window_hours": hours,
         "generated_at": f"{dt.datetime.utcnow().isoformat()}Z",
+        "run_signature": _entries_signature(entries),
         "entries": entries,
     }
 
@@ -1188,6 +1261,91 @@ def _make_summary(
     return "\n".join(lines)
 
 
+def _norm_ws(s: str) -> str:
+    if not isinstance(s, str):
+        return "-"
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
+def _norm_enum(s: str) -> str:
+    if not isinstance(s, str):
+        return "-"
+    s = _norm_ws(s)
+    s = re.sub(r"\s*\((up|down)\)\s*$", "", s, flags=re.IGNORECASE)
+    return s
+
+
+def _as_list(val: Any) -> List[str]:
+    if val is None:
+        return []
+    if isinstance(val, list):
+        out: List[str] = []
+        for x in val:
+            if isinstance(x, str):
+                x = _norm_ws(x)
+                if x and x != "-":
+                    out.append(x)
+        return out
+    if isinstance(val, str):
+        s = _norm_ws(val)
+        if not s or s == "-":
+            return []
+        parts = re.split(r"\s*[,;]\s*", s)
+        parts = [p for p in (_norm_ws(p) for p in parts) if p and p != "-"]
+        return parts if len(parts) > 1 else [s]
+    return []
+
+
+def _entry_id(title: str, source: str, date: str) -> str:
+    base = f"{_norm_ws(title).lower()}|{_norm_ws(source).lower()}|{_norm_ws(date).lower()}"
+    return hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
+
+
+def _canonicalize_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    title = _norm_ws(entry.get("title") or "-")
+    url = _norm_ws(entry.get("url") or entry.get("source") or "")
+    date = _norm_ws(entry.get("date") or "-")
+    risk = _norm_enum(entry.get("risk") or "-")
+    trend = _norm_enum(entry.get("trend") or "-")
+    decision = _norm_enum(entry.get("decision") or "-")
+
+    primary_actors = sorted(set(_as_list(entry.get("primary_actors"))))
+    countries = sorted(set(_as_list(entry.get("countries_involved"))))
+
+    why = entry.get("why_it_matters") if isinstance(entry.get("why_it_matters"), list) else []
+    why = [x for x in (_norm_ws(x) for x in why if isinstance(x, str)) if x and x != "-"]
+
+    ks = entry.get("key_signals") if isinstance(entry.get("key_signals"), list) else []
+    ks = [x for x in (_norm_ws(x) for x in ks if isinstance(x, str)) if x and x != "-"]
+
+    summary = _norm_ws(entry.get("summary") or "-")
+
+    return {
+        "id": _entry_id(title, url, date),
+        "title": title,
+        "url": url,
+        "date": date,
+        "risk": risk,
+        "trend": trend,
+        "decision": decision,
+        "primary_actors": primary_actors,
+        "countries_involved": countries,
+        "summary": summary,
+        "why_it_matters": why,
+        "key_signals": ks,
+    }
+
+
+def _entries_signature(entries: List[Dict[str, Any]]) -> str:
+    canon = [_canonicalize_entry(e) for e in (entries or []) if isinstance(e, dict)]
+    canon.sort(key=lambda x: x.get("id", "") or "")
+    payload = json.dumps(canon, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _normalize_summary_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     why = entry.get("why_it_matters") or []
     key_signals = entry.get("key_signals") or []
@@ -1202,7 +1360,7 @@ def _normalize_summary_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     key_indicators = key_signals[0] if len(key_signals) > 0 else "-"
     osint_indicators = key_signals[1] if len(key_signals) > 1 else "-"
 
-    return {
+    normalized = {
         "title": entry.get("title") or "-",
         "url": entry.get("url") or entry.get("source") or "",
         "date": entry.get("date") or "-",
@@ -1219,6 +1377,7 @@ def _normalize_summary_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
         "key_indicators": key_indicators or "-",
         "osint_indicators": osint_indicators or "-",
     }
+    return _canonicalize_entry(normalized)
 
 
 def _compact_for_comparison(entry: Dict[str, Any]) -> Dict[str, Any]:
@@ -1869,7 +2028,7 @@ def _collect_geofeed_baseline_entries(
             if not isinstance(item, dict):
                 continue
             norm = _normalize_summary_entry(item)
-            key = (norm.get("url") or norm.get("title") or "").strip().lower()
+            key = (norm.get("id") or (norm.get("url") or norm.get("title") or "")).strip().lower()
             if not key or key in seen:
                 continue
             seen.add(key)
@@ -1877,6 +2036,7 @@ def _collect_geofeed_baseline_entries(
             if len(entries) >= max_entries:
                 return entries, label
 
+    entries.sort(key=lambda x: x.get("id", "") or "")
     return entries, label
 
 
@@ -2110,46 +2270,87 @@ def run_geofeed(
                 )
             else:
                 max_items = int(cfg.get("GEOFEED_COMPARISON_MAX_ITEMS", 18))
-                current_entries = [
-                    _compact_for_comparison(_normalize_summary_entry(e))
-                    for e in (summary_json.get("entries") or [])[:max_items]
-                ]
-                baseline_entries = [
-                    _compact_for_comparison(e) for e in baseline_entries[:max_items]
-                ]
-                compare_timeout = max(int(timeout), 90)
-                comparison_section, comp_raw, comp_err = _ollama_geofeed_comparison(
-                    host=ollama_host,
-                    model=ollama_model,
-                    current_entries=current_entries,
-                    baseline_entries=baseline_entries,
-                    label=label,
-                    timeout=compare_timeout,
-                )
-                if comp_err:
-                    comparison_failures.append(
-                        {
-                            "mode": compare_mode,
-                            "label": label,
-                            "current_entries": len(current_entries),
-                            "baseline_entries": len(baseline_entries),
-                            "error": comp_err,
-                            "raw_response": comp_raw or "",
-                        }
+                current_entries = summary_json.get("entries") or []
+                if isinstance(current_entries, list):
+                    current_entries = current_entries[:max_items]
+                else:
+                    current_entries = []
+                baseline_entries = baseline_entries[:max_items]
+
+                try:
+                    cur_sig = _entries_signature(current_entries if isinstance(current_entries, list) else [])
+                    base_sig = _entries_signature(baseline_entries)
+                    if cur_sig == base_sig:
+                        comparison_section = (
+                            f"Compared with {label}, there is no material structural change "
+                            f"(canonical signatures match)."
+                        )
+                    else:
+                        current_entries = [
+                            _canonicalize_entry(e) for e in current_entries if isinstance(e, dict)
+                        ]
+                        baseline_entries = [
+                            _canonicalize_entry(e) for e in baseline_entries if isinstance(e, dict)
+                        ]
+                        current_entries.sort(key=lambda x: x.get("id", "") or "")
+                        baseline_entries.sort(key=lambda x: x.get("id", "") or "")
+                except Exception:
+                    pass
+
+                if not comparison_section:
+                    current_entries = [
+                        _compact_for_comparison(e) for e in (current_entries or [])
+                    ]
+                    baseline_entries = [
+                        _compact_for_comparison(e) for e in (baseline_entries or [])
+                    ]
+                    compare_timeout = max(int(timeout), 120)
+                    comparison_section, comp_raw, comp_err = _ollama_geofeed_comparison(
+                        host=ollama_host,
+                        model=ollama_model,
+                        current_entries=current_entries,
+                        baseline_entries=baseline_entries,
+                        label=label,
+                        timeout=compare_timeout,
                     )
-                    logger.warning("GeoFeed comparison used fallback/sanitizer: %s", comp_err)
-                if not comparison_section and not comp_err:
-                    comparison_failures.append(
-                        {
-                            "mode": compare_mode,
-                            "label": label,
-                            "current_entries": len(current_entries),
-                            "baseline_entries": len(baseline_entries),
-                            "error": comp_err or "unknown",
-                            "raw_response": comp_raw or "",
-                        }
-                    )
-                    logger.warning("GeoFeed comparison skipped: LLM returned no content")
+                    if not comparison_section:
+                        comparison_section, comp_raw2, comp_err2 = _ollama_geofeed_comparison(
+                            host=ollama_host,
+                            model=ollama_model,
+                            current_entries=current_entries,
+                            baseline_entries=baseline_entries,
+                            label=label,
+                            timeout=compare_timeout,
+                            strict=True,
+                        )
+                        if comp_raw2:
+                            comp_raw = comp_raw2
+                        if comp_err2:
+                            comp_err = comp_err2
+                    if comp_err:
+                        comparison_failures.append(
+                            {
+                                "mode": compare_mode,
+                                "label": label,
+                                "current_entries": len(current_entries),
+                                "baseline_entries": len(baseline_entries),
+                                "error": comp_err,
+                                "raw_response": comp_raw or "",
+                            }
+                        )
+                        logger.warning("GeoFeed comparison used fallback/sanitizer: %s", comp_err)
+                    if not comparison_section and not comp_err:
+                        comparison_failures.append(
+                            {
+                                "mode": compare_mode,
+                                "label": label,
+                                "current_entries": len(current_entries),
+                                "baseline_entries": len(baseline_entries),
+                                "error": comp_err or "unknown",
+                                "raw_response": comp_raw or "",
+                            }
+                        )
+                        logger.warning("GeoFeed comparison skipped: LLM returned no content")
 
     if comparison_section:
         summary_text = _make_summary(
@@ -2460,22 +2661,13 @@ def _ollama_geofeed_comparison(
             s = (data.get("response") or "").strip()
             if not s:
                 return None, raw, "empty_response"
-            try:
-                parsed = json.loads(s)
-            except Exception:
-                start = s.find("{")
-                if start >= 0:
-                    try:
-                        parsed, _ = json.JSONDecoder().raw_decode(s[start:])
-                    except Exception:
-                        parsed = None
-                else:
-                    parsed = None
+            parsed = _robust_json_extract(s)
+            if not isinstance(parsed, dict):
+                parsed = _robust_json_extract(raw)
+            if isinstance(parsed, dict) and isinstance(parsed.get("response"), dict):
+                parsed = parsed["response"]
             if not isinstance(parsed, dict):
                 return None, raw, "invalid_json"
-            inner = parsed.get("response")
-            if isinstance(inner, dict) and "comparison_markdown" in inner:
-                parsed = inner
             comparison = parsed.get("comparison_markdown")
             if not isinstance(comparison, str) or not comparison.strip():
                 return None, raw, "missing_comparison_markdown"
@@ -2483,38 +2675,25 @@ def _ollama_geofeed_comparison(
 
         comparison, raw, err = _request_llm(prompt, {"temperature": 0, "num_predict": 480})
         if not comparison or err:
-            md = _build_exec_compare_storyboard_good_pdf(
-                label=label,
-                cur_sig=cur_sig,
-                base_sig=base_sig,
-                current_entries=current_entries or [],
-                baseline_entries=baseline_entries or [],
+            repaired, raw2, err2 = _llm_repair_to_strict_json(
+                host=host, model=model, bad_text=(raw or ""), label=label, timeout=timeout
             )
-            return md, raw, f"llm_failed_{err or 'unknown'}"
+            if repaired and _looks_like_exec_storyboard(repaired):
+                return repaired.strip() + "\n", raw2 or raw, "repaired_from_bad_json"
+            return None, raw2 or raw, f"llm_failed_{err2 or err or 'invalid_or_unusable_llm_output'}"
 
         if not _looks_like_exec_storyboard(comparison):
-            md = _build_exec_compare_storyboard_good_pdf(
-                label=label,
-                cur_sig=cur_sig,
-                base_sig=base_sig,
-                current_entries=current_entries or [],
-                baseline_entries=baseline_entries or [],
+            repaired, raw2, err2 = _llm_repair_to_strict_json(
+                host=host, model=model, bad_text=comparison, label=label, timeout=timeout
             )
-            return md, raw, "llm_bad_format_fallback"
+            if repaired and _looks_like_exec_storyboard(repaired):
+                return repaired.strip() + "\n", raw2 or raw, "repaired_from_bad_format"
+            return None, raw2 or raw, f"invalid_or_unusable_llm_output_{err2 or 'unknown'}"
 
         return comparison.strip() + "\n", raw, None
 
     except Exception as exc:
-        cur_sig = _extract_exec_signals(current_entries or [])
-        base_sig = _extract_exec_signals(baseline_entries or [])
-        md = _build_exec_compare_storyboard_good_pdf(
-            label=label,
-            cur_sig=cur_sig,
-            base_sig=base_sig,
-            current_entries=current_entries or [],
-            baseline_entries=baseline_entries or [],
-        )
-        return md, None, f"comparison_exception_{type(exc).__name__}"
+        return None, None, f"comparison_exception:{type(exc).__name__}"
 
 if __name__ == "__main__":
     raise SystemExit(main())

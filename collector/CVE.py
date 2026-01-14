@@ -476,28 +476,37 @@ def generate_markdown(
         modified_group = [g for g in group if g.get("modified_only")]
         new_group = [g for g in group if not g.get("modified_only")]
 
-        modified_group.sort(
-            key=lambda r: _parse_dt(safe_get(r, "vulnerability.last_modified")), reverse=True
-        )
-        new_group.sort(
-            key=lambda r: _parse_dt(safe_get(r, "vulnerability.published")), reverse=True
-        )
-
         new_scored = []
-        new_no_score = []
-        for r in new_group:
+        new_unscored = []
+        modified_scored = []
+        modified_unscored = []
+        for r in group:
             score = safe_get(r, "vulnerability.score.base")
+            is_modified = bool(r.get("modified_only"))
             if score is None:
                 r["unscored"] = True
-                new_no_score.append(r)
+                if is_modified:
+                    modified_unscored.append(r)
+                else:
+                    new_unscored.append(r)
             else:
-                new_scored.append(r)
+                if is_modified:
+                    modified_scored.append(r)
+                else:
+                    new_scored.append(r)
 
-        ordered = new_scored + modified_group + new_no_score
+        def _score_key(rec: Dict[str, Any]) -> tuple:
+            score = safe_get(rec, "vulnerability.score.base") or 0
+            dt_val = safe_get(rec, "vulnerability.last_modified") if rec.get("modified_only") else safe_get(rec, "vulnerability.published")
+            return (float(score), _parse_dt(dt_val))
+
+        new_scored.sort(key=_score_key, reverse=True)
+        modified_scored.sort(key=_score_key, reverse=True)
+        ordered = new_scored + modified_scored + new_unscored + modified_unscored
 
         lines.append(
             "## Vendor: "
-            f"{vendor} (Total {len(group)} | New {len(new_scored)} | Modified {len(modified_group)} | Unscored {len(new_no_score)})\n"
+            f"{vendor} (Total {len(group)} | New {len(new_group)} | Modified {len(modified_group)} | Unscored {len(new_unscored) + len(modified_unscored)})\n"
         )
         for r in ordered:
             vuln = r.get("vulnerability", {})
