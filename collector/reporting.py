@@ -150,7 +150,17 @@ def _collect_llm_records(days: int) -> List[Dict[str, Any]]:
     candidates = [configured]
     if configured.name.isdigit() and configured.parent.name.isdigit():
         candidates.append(configured.parent.parent)
-    candidates.append(Path(__file__).resolve().parent / "results" / "llm")
+    unstructured_cfg = CONFIG.get("OUTPUT_DIR_UNSTRUCTURED")
+    if unstructured_cfg:
+        unstructured_path = Path(unstructured_cfg)
+        if unstructured_path.suffix.lower() == ".ndjson":
+            unstructured_path = unstructured_path.parent
+        candidates.append(unstructured_path)
+        if unstructured_path.name.isdigit() and unstructured_path.parent.name.isdigit():
+            candidates.append(unstructured_path.parent.parent)
+    base_results = Path(__file__).resolve().parent / "results"
+    candidates.append(base_results / "llm")
+    candidates.append(base_results / "articles")
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     seen: set[Path] = set()
@@ -352,89 +362,81 @@ def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[s
     def lod(x: Any) -> List[Dict[str, Any]]:
         return x if isinstance(x, list) else []
 
-    lines: List[str] = []
-    lines.append("# Threat Intelligence Management Report")
-    lines.append(f"_Last {days} days (generated {generated_at})_")
-    lines.append("")
-
-    lines.append("## Executive Summary")
-    lines.append("")
-    es = str(exec_js.get("executive_summary") or "").strip()
-    lines.append(es if es else "Summary not available.")
-    lines.append("")
-
-    lines.append("## What Changed Since Last Period")
-    lines.append("")
-    wc = slist(exec_js.get("what_changed"))
-    if wc:
-        for x in wc:
-            lines.append(f"- {x}")
-    else:
-        lines.append("- No period-over-period change narrative was produced for this run.")
-    lines.append("")
-
-    lines.append("## Top Business Risks")
-    lines.append("")
-    risks = lod(exec_js.get("top_business_risks"))
-    if risks:
-        for r in risks[:6]:
-            risk = str(r.get("risk") or "").strip()
-            impact = str(r.get("impact") or "").strip()
-            lik = str(r.get("likelihood") or "").strip() or "Medium"
-            if not risk and not impact:
+    def _paragraphize(items: List[str], lead: str, per_paragraph: int = 3) -> List[str]:
+        if not items:
+            return [lead.rstrip() + " Not available for this run."]
+        out: List[str] = []
+        for i in range(0, len(items), per_paragraph):
+            chunk = "; ".join([c for c in items[i : i + per_paragraph] if c])
+            if not chunk:
                 continue
-            lines.append(f"- **{risk or 'Risk'}**")
-            if impact:
-                lines.append(f"  - Impact: {impact}")
-            lines.append(f"  - Likelihood: {lik}")
-    else:
-        lines.append("- **Increased likelihood of disruption from external exploitation and credential compromise**")
-        lines.append("  - Impact: Potential service disruption, data exposure, and incident response cost")
-        lines.append("  - Likelihood: Medium")
+            if not out:
+                out.append(f"{lead.rstrip()} {chunk}.")
+            else:
+                out.append(f"{chunk}.")
+        return out
+
+    lines: List[str] = []
+    lines.append("# Management Report Summary")
+    lines.append("")
+    lines.append(f"Window: last {days} days")
+    lines.append(f"Generated: {generated_at}")
+    total_items = int(metrics.get("total_items", 0) or 0)
+    lines.append(f"Collected: {total_items} items")
     lines.append("")
 
-    lines.append("## Decisions Requested")
+    es = str(exec_js.get("executive_summary") or "").strip()
+    if es:
+        lines.append(f"**Executive summary:** {es}")
+    else:
+        lines.append("**Executive summary:** Summary not available.")
     lines.append("")
+
+    wc = slist(exec_js.get("what_changed"))
+    lines.extend(_paragraphize(wc, "**What changed since the prior period:**"))
+    lines.append("")
+
+    risks = lod(exec_js.get("top_business_risks"))
+    risk_lines: List[str] = []
+    for r in risks[:8]:
+        risk = str(r.get("risk") or "").strip()
+        impact = str(r.get("impact") or "").strip()
+        lik = str(r.get("likelihood") or "").strip() or "Medium"
+        if not risk and not impact:
+            continue
+        frag = risk or "Risk"
+        if impact:
+            frag = f"{frag} (impact: {impact}, likelihood: {lik})"
+        else:
+            frag = f"{frag} (likelihood: {lik})"
+        risk_lines.append(frag)
+    lines.extend(_paragraphize(risk_lines, "**Top business risks:**"))
+    lines.append("")
+
     dr = slist(exec_js.get("decisions_requested"))
-    if dr:
-        for x in dr[:8]:
-            lines.append(f"- {x}")
-    else:
-        lines.append("- Confirm prioritisation and resourcing for highest-risk mitigation work this period.")
+    lines.extend(_paragraphize(dr, "**Decisions requested:**"))
     lines.append("")
 
-    lines.append("## Recommended Actions")
-    lines.append("")
     ra = slist(exec_js.get("recommended_actions"))
-    if ra:
-        for x in ra[:12]:
-            lines.append(f"- {x}")
-    else:
-        lines.append("- Accelerate patching/mitigation for frequently targeted platforms and suppliers.")
-        lines.append("- Validate monitoring and response readiness for initial-access and credential theft scenarios.")
+    lines.extend(_paragraphize(ra, "**Recommended actions:**"))
     lines.append("")
 
-    lines.append("## Supporting Observations")
-    lines.append("")
     so = slist(exec_js.get("supporting_observations"))
-    if so:
-        for x in so[:14]:
-            lines.append(f"- {x}")
-    else:
-        lines.append("- Supporting observations were not produced for this run.")
+    lines.extend(_paragraphize(so, "**Supporting observations:**"))
     lines.append("")
-
+    lines.append("[[PAGE_BREAK]]")
+    lines.append("")
     lines.append("## Metrics Snapshot")
     lines.append("")
 
     total = int(metrics.get("total_items", 0) or 0)
-    lines.append(f"- **Volume:** {total} relevant threat intelligence items reviewed in this period.")
+    lines.append(f"- Volume: {total} relevant threat intelligence items reviewed in this period.")
 
     vendors = metrics.get("top_vendors") or []
     if isinstance(vendors, list) and vendors:
         leaders = ", ".join(vendors[:2])
         lines.append(
-            "- **Concentration of risk:** Activity is heavily concentrated around a small number of vendors/platforms, "
+            "- Concentration of risk: Activity is heavily concentrated around a small number of vendors/platforms, "
             f"led by {leaders}, indicating systemic exposure rather than isolated issues."
         )
 
@@ -443,12 +445,12 @@ def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[s
         first = str(actors[0]).strip().lower()
         if first.startswith("unknown"):
             lines.append(
-                "- **Threat attribution:** Most activity cannot be confidently attributed, which is consistent with "
+                "- Threat attribution: Most activity cannot be confidently attributed, which is consistent with "
                 "opportunistic or automated exploitation rather than a single targeted campaign."
             )
         else:
             lines.append(
-                "- **Threat attribution:** Repeated appearance of named groups suggests pockets of targeted activity "
+                "- Threat attribution: Repeated appearance of named groups suggests pockets of targeted activity "
                 "alongside broad opportunistic threats."
             )
 
@@ -456,14 +458,14 @@ def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[s
     if isinstance(tags, list) and tags:
         top_themes = ", ".join(tags[:3])
         lines.append(
-            "- **Dominant themes:** The most frequently observed themes are concentrated around "
+            "- Dominant themes: The most frequently observed themes are concentrated around "
             f"{top_themes}, reinforcing that vulnerability-driven risk remains the primary driver this period."
         )
 
     techniques = metrics.get("top_techniques_plain") or []
     if isinstance(techniques, list) and techniques:
         lines.append(
-            "- **Common attack patterns:** Recurring patterns indicate continued focus on gaining initial access, "
+            "- Common attack patterns: Recurring patterns indicate continued focus on gaining initial access, "
             "then expanding control (e.g., privilege escalation and post-compromise activity)."
         )
 
@@ -473,7 +475,7 @@ def _markdown_from_exec_json(days: int, exec_js: Dict[str, Any], metrics: Dict[s
         url = int(ioc.get("url", 0) or 0)
         ip = int(ioc.get("ip", 0) or 0)
         lines.append(
-            "- **Operational exposure:** External infrastructure indicators remain present (domains/URLs/IPs), "
+            "- Operational exposure: External infrastructure indicators remain present (domains/URLs/IPs), "
             "consistent with ongoing phishing, malware delivery, and command-and-control activity."
         )
         if domain or url or ip:
@@ -582,6 +584,7 @@ def _render_pdf(markdown_text: str, out_path: Path) -> None:
         s = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", s)
         s = re.sub(r"`([^`]+)`", r"<font face='Courier'>\1</font>", s)
         s = re.sub(r"_([^_]+)_", r"<i>\1</i>", s)
+        s = s.replace("**", "").replace("__", "")
         return s
 
     def add_para(flow, text, style=Body):
