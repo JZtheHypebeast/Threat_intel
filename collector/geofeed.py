@@ -552,7 +552,9 @@ def _llm_repair_to_strict_json(
         "CONTENT RULES:\n"
         "- Keep meaning as close as possible to the input\n"
         "- Remove any tables/| characters and any headings that start with '#'\n"
-        "- No numbered lists\n\n"
+        "- No numbered lists or bullets\n"
+        f"- Use 6–8 paragraphs; paragraph 1 must mention \"Compared with {label}\"\n"
+        "- Final paragraph must mention Aruba/Caribbean relevance\n\n"
         "MODEL OUTPUT TO CONVERT:\n"
         + textwrap.shorten((bad_text or "").strip(), width=12000, placeholder="...")
     )
@@ -654,15 +656,15 @@ def _ollama_geofeed_comparison(
 
 
         prompt = (
-            f"You are GeoFeed. Write an executive COMPARISON bullet brief versus {label}.\n"
-            "This must be scannable for company executives.\n\n"
+            f"You are GeoFeed. Write an executive COMPARISON narrative versus {label}.\n"
+            "This must read like a short situational brief for executives.\n\n"
             "DATA RULES:\n"
             "- Use ONLY CURRENT_ENTRIES and BASELINE_ENTRIES. Do NOT invent facts.\n"
             "- You may treat title/summary/why_it_matters/key_signals as evidence even when conflict_indicators are missing.\n"
             "- If something is not present, say 'not indicated in the entries'.\n\n"
             f"CURRENT STATS: items={cur_sig['n_items']}, risk_mix={cur_sig['risk_counts']}, decisions={cur_sig['decision_counts']}\n"
             f"BASELINE STATS: items={base_sig['n_items']}, risk_mix={base_sig['risk_counts']}, decisions={base_sig['decision_counts']}\n\n"
-            "ANCHOR FACTS (MUST BE REFLECTED IN THE BRIEF):\n"
+            "ANCHOR FACTS (MUST BE REFLECTED):\n"
             + "\n".join([f"ANCHOR: {a}" for a in anchors])
             + "\n\n"
             "OUTPUT RULES (STRICT):\n"
@@ -670,31 +672,15 @@ def _ollama_geofeed_comparison(
             "- JSON must have exactly one key: comparison_markdown\n"
             "- comparison_markdown must be a single string.\n"
             "- Encode newlines as \\n inside the JSON string.\n\n"
-            "STYLE (MATCH THIS EXACTLY):\n"
+            "STYLE (MUST MATCH):\n"
             "- NO tables; never output '|'. The '|' character is forbidden anywhere.\n"
             "- NO markdown headings; do NOT output lines starting with '#'.\n"
-            "- NO numbered lists; do NOT output '1.' style lines.\n"
-            "- Output must be SCANNABLE for executives:\n"
-            "  * Line 1: thematic headline ending with ':'\n"
-            "  * Blank line\n"
-            "  * Then 4–7 bullet points using '-' (markdown bullets)\n"
-            f"  * Bullet 1 MUST start with: 'Compared with {label},'\n"
-            "  * Each bullet is 1–2 sentences (wrap is allowed, but keep it concise)\n"
-            "  * Final bullet MUST explicitly state Aruba/Caribbean relevance\n"
-            "- Do NOT use section-label lines like 'Maritime/conflict signals:' anywhere.\n"
+            "- NO numbered lists or bullets.\n"
+            "- Output must be 6–8 paragraphs separated by a blank line.\n"
+            f"- Paragraph 1 must explicitly mention \"Compared with {label}\" and set the narrative context.\n"
+            "- Each paragraph 2–4 sentences, executive tone.\n"
+            "- Final paragraph MUST explicitly mention Aruba/Caribbean relevance.\n"
             "- Mention concrete signals (seizures/intercepts/war powers/sanctions) only if supported by the entries.\n\n"
-            "EXAMPLE (format only; do not reuse facts):\n"
-            "Example thematic shift headline:\n\n"
-            "- Compared with LAST 7 DAYS, enforcement and compliance signals rise while kinetic escalation is not indicated.\n"
-            "- Maritime exposure concentrates around routing friction and interdiction language, increasing screening needs.\n"
-            "- Policy posture emphasizes sanctions/tools and legislative constraints rather than new commitments.\n"
-            "- Commercial impact is framed through cost/availability pressure and compliance risk.\n"
-            "- Aruba/Caribbean relevance: second-order spillover via shipping, compliance checks, and routing decisions.\n\n"
-            "FINAL OUTPUT REMINDER (MUST FOLLOW):\n"
-            "- Output JSON only with exactly one key: comparison_markdown\n"
-            "- Bullet 1 must start with '- Compared with {label},'\n"
-            "- Use 4–7 bullets only; final bullet must mention Aruba/Caribbean relevance\n"
-            "- Never output '|'\n\n"
             f"{strict_block}\n\n"
             "CURRENT_ENTRIES:\n"
             f"{json.dumps(current_entries, ensure_ascii=True)}\n\n"
@@ -793,41 +779,32 @@ def _ollama_geofeed_comparison(
         def _validate_exec(md: str) -> Tuple[bool, Optional[str]]:
             if "|" in (md or "") or _looks_like_markdown_table(md):
                 return False, "contains_markdown_table"
-            first_line = (md.splitlines()[0] if (md or "").splitlines() else "").strip()
-            bad_country_header = bool(
-                re.match(r"^\s*[^/]{2,40}\s*/\s*[^/]{2,40}\s*$", first_line)
-            )
-            bad_start = (md or "").lower().startswith("not specified") or bad_country_header
-            has_anchor_requirement = cur_sig["counts"]["maritime_seizure"] > 0
-            anchor_missing = has_anchor_requirement and (
-                "seiz" not in md.lower()
-                and "intercept" not in md.lower()
-                and "tanker" not in md.lower()
-            )
-            if bad_start or anchor_missing:
+            bad_start = (md or "").lower().startswith("not specified")
+            if bad_start:
                 return False, "format_or_content"
-            if not _looks_like_exec_bullet_brief(md, label):
+            if label.lower() not in (md or "").lower():
+                return False, "missing_label"
+            if "aruba" not in (md or "").lower() and "caribbean" not in (md or "").lower():
+                return False, "missing_region"
+            if not _looks_like_exec_narrative(md):
                 return False, "format_or_content"
             return True, None
 
         def _rewrite_exec_brief(bad_text: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
             rewrite_prompt = (
-                f"You are GeoFeed. Rewrite the following draft into an executive COMPARISON bullet brief versus {label}.\n"
+                f"You are GeoFeed. Rewrite the following draft into an executive COMPARISON narrative versus {label}.\n"
                 "Do NOT add or invent facts. Keep content grounded in the draft and the ANCHOR FACTS.\n\n"
                 "OUTPUT RULES (STRICT):\n"
                 "- Output JSON only with exactly one key: comparison_markdown\n"
                 "- comparison_markdown must be a single string with \\n for newlines\n"
                 "- NO tables; the '|' character is forbidden anywhere\n"
                 "- NO markdown headings; do NOT output lines starting with '#'\n"
-                "- NO numbered lists; do NOT output '1.' style lines\n\n"
+                "- NO numbered lists or bullets\n\n"
                 "FORMAT (MUST MATCH EXACTLY):\n"
-                "- Line 1: thematic headline ending with ':'\n"
-                "- Blank line\n"
-                "- Then 4–7 bullet points using '-' (markdown bullets)\n"
-                f"- Bullet 1 MUST start exactly with: '- Compared with {label},'\n"
-                "- Each bullet is 1–2 sentences. No sub-bullets.\n"
-                "- Final bullet MUST explicitly state Aruba/Caribbean relevance\n"
-                "- Do NOT use section-label lines like 'Maritime/conflict signals:' or any 'Label:' lines\n\n"
+                "- 6–8 paragraphs, separated by a blank line\n"
+                f"- Paragraph 1 must explicitly mention \"Compared with {label}\" and set the narrative context\n"
+                "- Each paragraph 2–4 sentences, executive tone\n"
+                "- Final paragraph must explicitly mention Aruba/Caribbean relevance\n\n"
                 "ANCHOR FACTS (MUST BE REFLECTED):\n"
                 + "\n".join([f"ANCHOR: {a}" for a in anchors])
                 + "\n\n"
@@ -836,7 +813,7 @@ def _ollama_geofeed_comparison(
             )
             return _request_llm(rewrite_prompt, {"temperature": 0, "num_predict": 360})
 
-        comparison, raw, err = _request_llm(prompt, {"temperature": 0, "num_predict": 420})
+        comparison, raw, err = _request_llm(prompt, {"temperature": 0, "num_predict": 520})
         if comparison:
             ok, reason = _validate_exec(comparison)
             if ok:
@@ -845,44 +822,35 @@ def _ollama_geofeed_comparison(
                 rewritten, raw2, err2 = _rewrite_exec_brief(comparison)
                 if rewritten and _validate_exec(rewritten)[0]:
                     return rewritten.strip(), raw2 or raw, "rewritten_from_format_or_content"
-            if reason == "contains_markdown_table":
-                converted = _table_md_to_summary(comparison, label, cur_sig, base_sig)
-                if isinstance(converted, str) and converted.strip():
-                    return converted.strip(), raw, "fallback_from_table"
-            if reason == "contains_markdown_table" or "\n-" in comparison or "\n*" in comparison or "\n#" in comparison:
+            if reason in ("contains_markdown_table", "format_or_content", "missing_label"):
                 rewritten, raw2, err2 = _rewrite_exec_brief(comparison)
                 if rewritten and _validate_exec(rewritten)[0]:
                     return rewritten.strip(), raw2 or raw, "rewritten_from_bad_format"
-            sanitized = _sanitize_exec_brief(comparison, label, cur_sig, base_sig)
-            if sanitized and _validate_exec(sanitized)[0]:
-                return sanitized, raw, "sanitized_from_format"
 
         retry_prompt = (
-            f"You are GeoFeed. Write an executive COMPARISON bullet brief versus {label}.\n"
+            f"You are GeoFeed. Write an executive COMPARISON narrative versus {label}.\n"
             "Use ONLY CURRENT_ENTRIES and BASELINE_ENTRIES. Do NOT invent facts.\n\n"
             "OUTPUT RULES (STRICT):\n"
             "- Output JSON only with exactly one key: comparison_markdown\n"
             "- comparison_markdown must be a single string with \\n for newlines\n"
-            "- Forbidden anywhere: '|', markdown tables, '#', numbered lists\n\n"
+            "- Forbidden anywhere: '|', markdown tables, '#', numbered lists, bullets\n\n"
             "FORMAT (MUST MATCH EXACTLY):\n"
-            "- Line 1: thematic headline ending with ':'\n"
-            "- Blank line\n"
-            "- Then 4–7 bullet points using '-' (markdown bullets)\n"
-            f"- Bullet 1 MUST start exactly with: '- Compared with {label},'\n"
-            "- Each bullet is 1–2 sentences. No sub-bullets.\n"
-            "- Final bullet MUST explicitly state Aruba/Caribbean relevance\n"
-            "- Do NOT use section labels like 'Maritime/conflict signals:'\n\n"
+            "- 6–8 paragraphs, separated by a blank line\n"
+            f"- Paragraph 1 must explicitly mention \"Compared with {label}\" and set the narrative context\n"
+            "- Each paragraph 2–4 sentences, executive tone\n"
+            "- Final paragraph must explicitly mention Aruba/Caribbean relevance\n\n"
             "FINAL OUTPUT REMINDER (MUST FOLLOW):\n"
             "- Output JSON only with exactly one key: comparison_markdown\n"
-            "- Bullet 1 must start with '- Compared with {label},'\n"
-            "- Use 4–7 bullets only; final bullet must mention Aruba/Caribbean relevance\n"
+            "- Use 6–8 paragraphs with blank lines\n"
+            "- Paragraph 1 must mention \"Compared with {label}\"\n"
+            "- Final paragraph must mention Aruba/Caribbean relevance\n"
             "- Never output '|'\n\n"
             "CURRENT_ENTRIES:\n"
             f"{json.dumps(current_entries, ensure_ascii=True)}\n\n"
             "BASELINE_ENTRIES:\n"
             f"{json.dumps(baseline_entries, ensure_ascii=True)}\n"
         )
-        comparison, raw, err = _request_llm(retry_prompt, {"temperature": 0, "num_predict": 360})
+        comparison, raw, err = _request_llm(retry_prompt, {"temperature": 0, "num_predict": 520})
         if comparison:
             ok, reason = _validate_exec(comparison)
             if ok:
@@ -891,17 +859,10 @@ def _ollama_geofeed_comparison(
                 rewritten, raw2, err2 = _rewrite_exec_brief(comparison)
                 if rewritten and _validate_exec(rewritten)[0]:
                     return rewritten.strip(), raw2 or raw, "rewritten_from_format_or_content"
-            if reason == "contains_markdown_table":
-                converted = _table_md_to_summary(comparison, label, cur_sig, base_sig)
-                if isinstance(converted, str) and converted.strip():
-                    return converted.strip(), raw, "fallback_from_table"
-            if reason == "contains_markdown_table" or "\n-" in comparison or "\n*" in comparison or "\n#" in comparison:
+            if reason in ("contains_markdown_table", "format_or_content", "missing_label"):
                 rewritten, raw2, err2 = _rewrite_exec_brief(comparison)
                 if rewritten and _validate_exec(rewritten)[0]:
                     return rewritten.strip(), raw2 or raw, "rewritten_from_bad_format"
-            sanitized = _sanitize_exec_brief(comparison, label, cur_sig, base_sig)
-            if sanitized and _validate_exec(sanitized)[0]:
-                return sanitized, raw, "sanitized_from_format"
 
         return None, raw, err or "invalid_or_unusable_llm_output"
     except Exception as exc:
@@ -2304,7 +2265,7 @@ def run_geofeed(
                     baseline_entries = [
                         _compact_for_comparison(e) for e in (baseline_entries or [])
                     ]
-                    compare_timeout = max(int(timeout), 120)
+                    compare_timeout = max(int(timeout), 180)
                     comparison_section, comp_raw, comp_err = _ollama_geofeed_comparison(
                         host=ollama_host,
                         model=ollama_model,
@@ -2351,6 +2312,10 @@ def run_geofeed(
                             }
                         )
                         logger.warning("GeoFeed comparison skipped: LLM returned no content")
+                    if not comparison_section:
+                        raise RuntimeError(
+                            f"GeoFeed comparison failed after retries (mode={compare_mode}, error={comp_err or 'unknown'})"
+                        )
 
     if comparison_section:
         summary_text = _make_summary(
@@ -2397,7 +2362,6 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 def _looks_like_exec_storyboard(md: str) -> bool:
-
     if not isinstance(md, str) or not md.strip():
         return False
     s = md.strip()
@@ -2429,6 +2393,19 @@ def _looks_like_exec_storyboard(md: str) -> bool:
             continue
         heading_count += 1
     return heading_count >= 4 and bullet_count >= 4
+
+
+def _looks_like_exec_narrative(md: str) -> bool:
+    if not isinstance(md, str) or not md.strip():
+        return False
+    if "|" in md or "# " in md or "\n#" in md:
+        return False
+    if "\n-" in md or "\n*" in md:
+        return False
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", md) if p.strip()]
+    if not (6 <= len(paragraphs) <= 8):
+        return False
+    return True
 
 
 def _build_exec_compare_storyboard_good_pdf(
@@ -2602,35 +2579,45 @@ def _ollama_geofeed_comparison(
             f"Counts (current vs {label}): shipping_trade={c.get('shipping_trade',0)} vs {b.get('shipping_trade',0)}."
         )
 
+        def _trim_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+            if not isinstance(entry, dict):
+                return {}
+            out = dict(entry)
+            for key in ("title", "summary", "why_it_matters", "key_signals"):
+                val = out.get(key)
+                if isinstance(val, str):
+                    out[key] = textwrap.shorten(val, width=260, placeholder="...")
+                elif isinstance(val, list):
+                    cleaned = []
+                    for item in val:
+                        if isinstance(item, str):
+                            cleaned.append(textwrap.shorten(item, width=200, placeholder="..."))
+                    out[key] = cleaned
+            return out
+
+        compact_current = [_trim_entry(e) for e in (current_entries or []) if isinstance(e, dict)]
+        compact_baseline = [_trim_entry(e) for e in (baseline_entries or []) if isinstance(e, dict)]
+
         prompt = (
-            "You are GeoFeed. Write an executive COMPARISON in the SAME visual style as an executive one-page brief.\n"
+            "You are GeoFeed. Write an executive COMPARISON narrative in paragraph form.\n"
             f"You are comparing CURRENT_ENTRIES versus {label} (BASELINE_ENTRIES).\n\n"
             "NON-NEGOTIABLE RULES:\n"
             "- Use ONLY the provided entries. Do NOT invent facts.\n"
             "- No tables. The '|' character is forbidden anywhere.\n"
-            "- No markdown headings (#). No numbered lists.\n"
-            "- Output must be a storyboard with short headings and bullets (like a slide).\n\n"
-            "REQUIRED STORYBOARD FORMAT (MUST MATCH):\n"
-            "Line 1: Theme headline ending with ':'\n"
-            "Blank line\n"
-            "Then repeat 4–6 times:\n"
-            "  Heading line (no bullet)\n"
-            "  - bullet\n"
-            "  - bullet\n"
-            "  Blank line\n"
-            "Hard requirements:\n"
-            f"- The FIRST section heading must begin with: 'Compared with {label},'\n"
-            "- The FINAL section heading must be exactly: 'Aruba/Caribbean relevance'\n"
-            "- Each heading should be concise (<= 14 words).\n"
-            "- Each bullet is 1 sentence; keep it scannable.\n\n"
+            "- No markdown headings (#). No numbered lists or bullets.\n"
+            "- Output must be 6–8 paragraphs separated by a blank line.\n\n"
+            "FORMAT REQUIREMENTS (MUST MATCH):\n"
+            f"- Paragraph 1 must explicitly mention \"Compared with {label}\" and set the narrative context.\n"
+            "- Each paragraph is 2–4 sentences, executive tone.\n"
+            "- Final paragraph must explicitly mention Aruba/Caribbean relevance.\n\n"
             "ANCHOR FACTS (MUST BE CONSISTENT WITH THESE COUNTS):\n"
             + "\n".join([f"- {a}" for a in anchors])
             + "\n\n"
             f"{strict_block}"
             "CURRENT_ENTRIES:\n"
-            f"{json.dumps(current_entries or [], ensure_ascii=True)}\n\n"
+            f"{json.dumps(compact_current, ensure_ascii=True)}\n\n"
             "BASELINE_ENTRIES:\n"
-            f"{json.dumps(baseline_entries or [], ensure_ascii=True)}\n"
+            f"{json.dumps(compact_baseline, ensure_ascii=True)}\n"
         )
 
         def _request_llm(prompt_text: str, options: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
@@ -2673,23 +2660,41 @@ def _ollama_geofeed_comparison(
                 return None, raw, "missing_comparison_markdown"
             return comparison.strip(), raw, None
 
-        comparison, raw, err = _request_llm(prompt, {"temperature": 0, "num_predict": 480})
+        comparison, raw, err = _request_llm(prompt, {"temperature": 0, "num_predict": 700})
         if not comparison or err:
             repaired, raw2, err2 = _llm_repair_to_strict_json(
                 host=host, model=model, bad_text=(raw or ""), label=label, timeout=timeout
             )
-            if repaired and _looks_like_exec_storyboard(repaired):
+            if repaired and _looks_like_exec_narrative(repaired):
                 return repaired.strip() + "\n", raw2 or raw, "repaired_from_bad_json"
-            return None, raw2 or raw, f"llm_failed_{err2 or err or 'invalid_or_unusable_llm_output'}"
+            retry_min_prompt = (
+                f"You are GeoFeed. Write an executive COMPARISON narrative versus {label}.\n"
+                "Use ONLY the provided entries. Do NOT invent facts.\n"
+                "Output 6–8 paragraphs with blank lines.\n"
+                f"Paragraph 1 must mention \"Compared with {label}\"; final paragraph must mention Aruba/Caribbean relevance.\n\n"
+                "CURRENT_ENTRIES (trimmed):\n"
+                f"{json.dumps(compact_current, ensure_ascii=True)}\n\n"
+                "BASELINE_ENTRIES (trimmed):\n"
+                f"{json.dumps(compact_baseline, ensure_ascii=True)}\n"
+            )
+            comparison, raw3, err3 = _request_llm(retry_min_prompt, {"temperature": 0, "num_predict": 700})
+            if comparison and _looks_like_exec_narrative(comparison):
+                return comparison.strip() + "\n", raw3 or raw2 or raw, "retry_from_bad_json"
+            return None, raw3 or raw2 or raw, f"llm_failed_{err3 or err2 or err or 'invalid_or_unusable_llm_output'}"
 
-        if not _looks_like_exec_storyboard(comparison):
+        if not _looks_like_exec_narrative(comparison):
             repaired, raw2, err2 = _llm_repair_to_strict_json(
                 host=host, model=model, bad_text=comparison, label=label, timeout=timeout
             )
-            if repaired and _looks_like_exec_storyboard(repaired):
+            if repaired and _looks_like_exec_narrative(repaired):
                 return repaired.strip() + "\n", raw2 or raw, "repaired_from_bad_format"
             return None, raw2 or raw, f"invalid_or_unusable_llm_output_{err2 or 'unknown'}"
 
+        lowered = comparison.lower()
+        if label.lower() not in lowered:
+            return None, raw, "missing_label"
+        if "aruba" not in lowered and "caribbean" not in lowered:
+            return None, raw, "missing_region"
         return comparison.strip() + "\n", raw, None
 
     except Exception as exc:
